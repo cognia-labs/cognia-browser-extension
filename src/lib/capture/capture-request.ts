@@ -20,6 +20,8 @@ export const CAPTURE_MENU_IDS = {
   article: "cognia-capture-article",
   link: "cognia-capture-link",
   image: "cognia-capture-image",
+  /** Start the element picker on the page (`lib/inspect/`). */
+  inspect: "cognia-inspect-element",
   /** Parent of the quick actions submenu; never a request on its own. */
   quick: "cognia-quick",
 } as const
@@ -48,13 +50,17 @@ export const CAPTURE_COMMANDS = {
   page: "capture-page",
   selection: "capture-selection",
   article: "capture-article",
+  /** Declared without a suggested key: Chrome honours four, and those are taken. */
+  inspect: "inspect-element",
 } as const
 
 /**
  * `auto` means "take the selection if there is one, otherwise the metadata" —
  * the toolbar and shortcut path, where the user has not said which they want.
+ * `inspect` captures the same way and then starts the element picker.
  */
-export type CaptureRequestMode = "auto" | "selection" | "page" | "article" | "link" | "image"
+export type CaptureRequestMode =
+  "auto" | "selection" | "page" | "article" | "link" | "image" | "inspect"
 
 export interface CaptureRequest {
   tabId: number
@@ -100,6 +106,7 @@ export function captureRequestForMenu(
   if (id === CAPTURE_MENU_IDS.selection) return { tabId, mode: "selection", requestedAt }
   if (id === CAPTURE_MENU_IDS.page) return { tabId, mode: "page", requestedAt }
   if (id === CAPTURE_MENU_IDS.article) return { tabId, mode: "article", requestedAt }
+  if (id === CAPTURE_MENU_IDS.inspect) return { tabId, mode: "inspect", requestedAt }
   if (id === CAPTURE_MENU_IDS.link) {
     const linkUrl = webUrl(info.linkUrl)
     if (!linkUrl) return null
@@ -140,6 +147,7 @@ export function captureRequestForCommand(
   if (command === CAPTURE_COMMANDS.page) return { tabId, mode: "auto", requestedAt }
   if (command === CAPTURE_COMMANDS.selection) return { tabId, mode: "selection", requestedAt }
   if (command === CAPTURE_COMMANDS.article) return { tabId, mode: "article", requestedAt }
+  if (command === CAPTURE_COMMANDS.inspect) return { tabId, mode: "inspect", requestedAt }
   return null
 }
 
@@ -159,7 +167,15 @@ export function captureRequestForOmnibox(
 export function parseCaptureRequest(value: unknown): CaptureRequest | null {
   if (!value || typeof value !== "object") return null
   const record = value as Record<string, unknown>
-  const modes: readonly string[] = ["auto", "selection", "page", "article", "link", "image"]
+  const modes: readonly string[] = [
+    "auto",
+    "selection",
+    "page",
+    "article",
+    "link",
+    "image",
+    "inspect",
+  ]
   if (
     typeof record.tabId !== "number" ||
     typeof record.requestedAt !== "number" ||

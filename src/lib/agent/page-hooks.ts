@@ -40,6 +40,12 @@ export interface DialogRecord {
 export interface PageHooks {
   drainConsole(): ConsoleLine[]
   drainNetwork(): NetworkLine[]
+  /** The buffers as they stand, left for the agent's next drain. */
+  peekConsole(): ConsoleLine[]
+  /** With when each request settled, which the agent's own read does not carry. */
+  peekNetwork(): (NetworkLine & { ts: number })[]
+  /** Start answering dialogs, if a person's recording installed the hooks without. */
+  interceptDialogs(): void
   networkState(): { pending: number; completed: number }
   setDialogPolicy(policy: { accept: boolean; promptText?: string } | null): void
   lastDialog(): DialogRecord | null
@@ -56,10 +62,30 @@ type HookWindow = Window & {
   XMLHttpRequest: typeof XMLHttpRequest
 }
 
-export function installPageHooks(win: HookWindow, now: () => number = () => Date.now()): PageHooks {
-  if (win.__cogniaPageHooks) return win.__cogniaPageHooks
+export interface PageHooksOptions {
+  /**
+   * Whether `alert` / `confirm` / `prompt` are answered instead of shown.
+   *
+   * The agent needs it: a native dialog under a synthetic click freezes the
+   * tab. A person recording a bug does not, and their own clicks must meet the
+   * page's real dialogs — so the panel's recorder installs without, and the
+   * agent's later install turns it on for the rest of the document.
+   */
+  interceptDialogs?: boolean
+}
+
+export function installPageHooks(
+  win: HookWindow,
+  now: () => number = () => Date.now(),
+  options: PageHooksOptions = {}
+): PageHooks {
+  const intercept = options.interceptDialogs !== false
+  if (win.__cogniaPageHooks) {
+    if (intercept) win.__cogniaPageHooks.interceptDialogs?.()
+    return win.__cogniaPageHooks
+  }
   const consoleLines: ConsoleLine[] = []
-  const networkLines: NetworkLine[] = []
+  const networkLines: (NetworkLine & { ts: number })[] = []
   let pending = 0
   let completed = 0
   let policy: { accept: boolean; promptText?: string } | null = null
@@ -115,21 +141,25 @@ export function installPageHooks(win: HookWindow, now: () => number = () => Date
       pending++
       try {
         const response = await originalFetch(input, init)
+        const settled = now()
         push(networkLines, {
           url: url.slice(0, MAX_TEXT),
           method,
           status: response.status,
           ok: response.ok,
-          durationMs: now() - started,
+          durationMs: settled - started,
+          ts: settled,
         })
         return response
       } catch (error) {
+        const settled = now()
         push(networkLines, {
           url: url.slice(0, MAX_TEXT),
           method,
           status: 0,
           ok: false,
-          durationMs: now() - started,
+          durationMs: settled - started,
+          ts: settled,
         })
         throw error
       } finally {
@@ -167,12 +197,14 @@ export function installPageHooks(win: HookWindow, now: () => number = () => Date
         () => {
           pending--
           completed++
+          const settled = now()
           push(networkLines, {
             url: meta.url.slice(0, MAX_TEXT),
             method: meta.method,
             status: this.status,
             ok: this.status >= 200 && this.status < 400,
-            durationMs: now() - started,
+            durationMs: settled - started,
+            ts: settled,
           })
         },
         { once: true }
@@ -199,18 +231,29 @@ export function installPageHooks(win: HookWindow, now: () => number = () => Date
     })
     return { accepted, promptText: decided?.promptText }
   }
-  win.alert = (message?: unknown) => {
-    answer("alert", message)
+  let intercepting = false
+  const interceptDialogs = () => {
+    if (intercepting) return
+    intercepting = true
+    win.alert = (message?: unknown) => {
+      answer("alert", message)
+    }
+    win.confirm = (message?: string) => answer("confirm", message).accepted
+    win.prompt = (message?: string, defaultValue?: string) => {
+      const { accepted, promptText } = answer("prompt", message, defaultValue ?? "")
+      return accepted ? (promptText ?? defaultValue ?? "") : null
+    }
   }
-  win.confirm = (message?: string) => answer("confirm", message).accepted
-  win.prompt = (message?: string, defaultValue?: string) => {
-    const { accepted, promptText } = answer("prompt", message, defaultValue ?? "")
-    return accepted ? (promptText ?? defaultValue ?? "") : null
-  }
+  if (intercept) interceptDialogs()
 
   const hooks: PageHooks = {
     drainConsole: () => consoleLines.splice(0, consoleLines.length),
-    drainNetwork: () => networkLines.splice(0, networkLines.length),
+    // The agent's read keeps its shape: no `ts`.
+    drainNetwork: () =>
+      networkLines.splice(0, networkLines.length).map(({ ts: _ts, ...line }) => line),
+    peekConsole: () => consoleLines.slice(),
+    peekNetwork: () => networkLines.slice(),
+    interceptDialogs,
     networkState: () => ({ pending, completed }),
     setDialogPolicy: (next) => {
       policy = next

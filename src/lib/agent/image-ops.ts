@@ -124,10 +124,15 @@ export function createImageOps(deps: ImageOpsDeps) {
   }
 }
 
-/** The service worker's real canvas. */
-export function browserImageOps() {
-  return createImageOps({
+/** The browser's real canvas: a service worker's, or the panel's. */
+export function browserImageDeps(): ImageOpsDeps {
+  return {
     decode: (blob) => createImageBitmap(blob),
     surface: (width, height) => new OffscreenCanvas(width, height) as unknown as ImageSurface,
-  })
+  }
+}
+
+/** The service worker's real canvas. */
+export function browserImageOps() {
+  return createImageOps(browserImageDeps())
 }

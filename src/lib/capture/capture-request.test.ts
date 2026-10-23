@@ -139,7 +139,18 @@ describe("captureRequestForCommand", () => {
     expect(captureRequestForCommand(CAPTURE_COMMANDS.article, 3, 9)).toMatchObject({
       mode: "article",
     })
+    expect(captureRequestForCommand(CAPTURE_COMMANDS.inspect, 3, 9)).toMatchObject({
+      mode: "inspect",
+    })
     expect(captureRequestForCommand("_execute_action", 3, 9)).toBeNull()
+  })
+})
+
+describe("the element picker's request", () => {
+  it("comes from its menu entry and survives being stored", () => {
+    const request = captureRequestForMenu(CAPTURE_MENU_IDS.inspect, 7, 100)
+    expect(request).toEqual({ tabId: 7, mode: "inspect", requestedAt: 100 })
+    expect(parseCaptureRequest(JSON.parse(JSON.stringify(request)))).toEqual(request)
   })
 })
 

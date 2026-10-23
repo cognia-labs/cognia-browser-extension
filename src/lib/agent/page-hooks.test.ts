@@ -36,6 +36,40 @@ describe("installPageHooks", () => {
     expect(hooks.lastDialog()).toMatchObject({ type: "alert", accepted: true })
   })
 
+  it("lets a person's recording peek without draining, and leaves their dialogs alone", async () => {
+    const shown: string[] = []
+    const win = {
+      console: { log() {}, info() {}, warn() {}, error() {}, debug() {} },
+      addEventListener() {},
+      fetch: async () => ({ status: 503, ok: false }) as Response,
+      XMLHttpRequest: undefined,
+      confirm: (message: string) => {
+        shown.push(message)
+        return true
+      },
+    } as unknown as Parameters<typeof installPageHooks>[0]
+    let clock = 100
+    const hooks = installPageHooks(win, () => (clock += 1), { interceptDialogs: false })
+    win.console.error("boom")
+    await win.fetch("https://api.example/x")
+    expect(hooks.peekConsole()).toEqual([{ level: "error", text: "boom", ts: 101 }])
+    expect(hooks.peekNetwork()).toEqual([
+      expect.objectContaining({ url: "https://api.example/x", status: 503, ts: 103 }),
+    ])
+    // Still there for the agent, which reads them without the timestamp.
+    expect(hooks.drainNetwork()).toEqual([
+      { url: "https://api.example/x", method: "GET", status: 503, ok: false, durationMs: 1 },
+    ])
+    expect(win.confirm("Really?")).toBe(true)
+    expect(shown).toEqual(["Really?"])
+
+    // The agent's own install turns dialog handling on for the document.
+    expect(installPageHooks(win)).toBe(hooks)
+    expect(win.confirm("Again?")).toBe(false)
+    expect(shown).toEqual(["Really?"])
+    expect(hooks.lastDialog()).toMatchObject({ type: "confirm", message: "Again?" })
+  })
+
   it("counts fetch traffic and records its outcome", async () => {
     const win = {
       console: { log() {}, info() {}, warn() {}, error() {}, debug() {} },

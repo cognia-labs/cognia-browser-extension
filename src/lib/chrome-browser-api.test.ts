@@ -397,3 +397,468 @@ describe("createChromeBrowserApi — ADR-0228 surface", () => {
     await expect(api.answerSiteQuestion("q1", "once")).rejects.toThrow()
   })
 })
+
+describe("createChromeBrowserApi — inspecting the page", () => {
+  type Call = {
+    target: { tabId: number }
+    files?: string[]
+    world?: string
+    func?: unknown
+    args?: unknown[]
+  }
+  const calls = (chromeStub: ChromeStub) =>
+    chromeStub.scripting.executeScript.mock.calls.map((call) => call[0] as Call)
+
+  it("injects the picker, waits for the pick, then reads the framework in the main world", async () => {
+    const chromeStub = stub()
+    const picked = { elementId: "e1", selector: "#save", probeToken: "tok" }
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: picked }])
+      .mockResolvedValueOnce([{ result: { framework: "react", components: [] } }])
+      .mockResolvedValueOnce([{ result: undefined }])
+    const description = await createChromeBrowserApi().pickElement(3, "hint")
+    expect(description).toEqual({
+      elementId: "e1",
+      selector: "#save",
+      framework: { framework: "react", components: [] },
+    })
+    const [inject, pick, framework, cleanup] = calls(chromeStub)
+    expect(inject).toEqual({ target: { tabId: 3 }, files: ["/element-picker.js"] })
+    expect(pick?.args).toEqual(["hint", 120_000])
+    expect(pick?.world).toBeUndefined()
+    expect(framework).toMatchObject({ world: "MAIN", args: ["tok"] })
+    // The stamp is cleared in the isolated world whatever the main world did.
+    expect(cleanup).toMatchObject({ target: { tabId: 3 }, args: ["tok"] })
+    expect(cleanup?.world).toBeUndefined()
+  })
+
+  it("keeps a pick whose main-world read fails, and answers null for a cancelled one", async () => {
+    const chromeStub = stub()
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: { elementId: "e1", probeToken: "t" } }])
+      .mockRejectedValueOnce(new Error("main world unavailable"))
+      .mockResolvedValueOnce([])
+    await expect(createChromeBrowserApi().pickElement(3, "hint")).resolves.toEqual({
+      elementId: "e1",
+    })
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: null }])
+    await expect(createChromeBrowserApi().pickElement(3, "hint")).resolves.toBeNull()
+  })
+
+  it("chooses several in one pass, each read in the main world in turn", async () => {
+    const chromeStub = stub()
+    const labels = { hint: "hint", selected: "{n} chosen", done: "Done" }
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          result: [
+            { elementId: "e1", probeToken: "t1" },
+            { elementId: "e2", probeToken: "t2" },
+          ],
+        },
+      ])
+      .mockResolvedValueOnce([{ result: { framework: "react", components: [] } }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: null }])
+      .mockResolvedValueOnce([])
+    await expect(createChromeBrowserApi().pickElements(3, labels, 7)).resolves.toEqual([
+      { elementId: "e1", framework: { framework: "react", components: [] } },
+      { elementId: "e2" },
+    ])
+    const [, pick, first, , second] = calls(chromeStub)
+    expect(pick?.args).toEqual([labels, 120_000, 7])
+    expect(first).toMatchObject({ world: "MAIN", args: ["t1"] })
+    expect(second).toMatchObject({ world: "MAIN", args: ["t2"] })
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: null }])
+    await expect(createChromeBrowserApi().pickElements(3, labels, 7)).resolves.toBeNull()
+  })
+
+  it("describes a finding through the picker already on the page, with its framework", async () => {
+    const chromeStub = stub()
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([{ result: { elementId: "e4", selector: "#hero", probeToken: "t4" } }])
+      .mockResolvedValueOnce([{ result: { framework: "vue", components: [] } }])
+      .mockResolvedValueOnce([])
+    await expect(createChromeBrowserApi().describeElement(3, "e4")).resolves.toEqual({
+      elementId: "e4",
+      selector: "#hero",
+      framework: { framework: "vue", components: [] },
+    })
+    const [describe, framework] = calls(chromeStub)
+    expect(describe).toMatchObject({ target: { tabId: 3 }, args: ["e4"] })
+    expect(describe?.world).toBeUndefined()
+    expect(framework).toMatchObject({ world: "MAIN", args: ["t4"] })
+    // A finding the page has since dropped is no pick.
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: null }])
+    await expect(createChromeBrowserApi().describeElement(3, "gone")).resolves.toBeNull()
+  })
+
+  it("checks and reads the page in the isolated world, after injecting the picker", async () => {
+    const chromeStub = stub()
+    const api = createChromeBrowserApi()
+    const audit = { issues: [], checked: 3, truncated: false }
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: audit }])
+    await expect(api.auditAccessibility(6)).resolves.toEqual(audit)
+    const tokens = { colors: [], scanned: 1 }
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: tokens }])
+    await expect(api.readDesignTokens(6)).resolves.toEqual(tokens)
+    const [injectAudit, runAudit, injectTokens, runTokens] = calls(chromeStub)
+    for (const inject of [injectAudit, injectTokens])
+      expect(inject).toEqual({ target: { tabId: 6 }, files: ["/element-picker.js"] })
+    for (const run of [runAudit, runTokens]) expect(run?.world).toBeUndefined()
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    await expect(api.auditAccessibility(6)).rejects.toThrow()
+  })
+
+  it("measures through the picker, from a held anchor when Shift asked to keep going", async () => {
+    const chromeStub = stub()
+    const api = createChromeBrowserApi()
+    const result = {
+      from: { elementId: "a" },
+      to: { elementId: "b" },
+      measure: { relation: "apart" },
+    }
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([]).mockResolvedValueOnce([{ result }])
+    await expect(
+      api.measureElements(4, { hint: "First", anchorHint: "Second" }, "a")
+    ).resolves.toEqual(result)
+    const [inject, measure] = calls(chromeStub)
+    expect(inject).toEqual({ target: { tabId: 4 }, files: ["/element-picker.js"] })
+    expect(measure?.args).toEqual(["First", "Second", 120_000, "a"])
+    expect(measure?.world).toBeUndefined()
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: null }])
+    await expect(api.measureElements(4, { hint: "F", anchorHint: "S" })).resolves.toBeNull()
+    expect(calls(chromeStub)[3]?.args).toEqual(["F", "S", 120_000, null])
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result }])
+    await expect(api.showMeasurement(4, "a", "b")).resolves.toEqual(result)
+    expect(calls(chromeStub)[4]).toMatchObject({ target: { tabId: 4 }, args: ["a", "b"] })
+  })
+
+  it("adjusts through the picker, and finishes it there", async () => {
+    const chromeStub = stub()
+    const api = createChromeBrowserApi()
+    const labels = { margin: "Margin", padding: "Padding" }
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: { width: "130px" } }])
+    await expect(api.adjustElement(4, "e1", "Adjust", labels)).resolves.toEqual({
+      width: "130px",
+    })
+    const [inject, adjust] = calls(chromeStub)
+    expect(inject).toEqual({ target: { tabId: 4 }, files: ["/element-picker.js"] })
+    expect(adjust?.args).toEqual(["e1", "Adjust", labels, 120_000])
+    expect(adjust?.world).toBeUndefined()
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: true }])
+    await api.finishAdjust(4)
+    expect(calls(chromeStub)[2]).toMatchObject({ target: { tabId: 4 } })
+  })
+
+  it("installs simulated responses in the main world, where the page's fetch is", async () => {
+    const chromeStub = stub()
+    const hits = { installed: true, kept: false, hits: {}, log: [] }
+    const rules = [
+      {
+        id: "r",
+        match: "/api",
+        method: "",
+        action: "fail",
+        status: 0,
+        body: "",
+        headers: "",
+        target: "",
+        delayMs: 0,
+        times: 0,
+        chance: 100,
+        enabled: true,
+      },
+    ] as const
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: hits }])
+    await expect(createChromeBrowserApi().setRequestMocks(9, [...rules])).resolves.toEqual(hits)
+    expect(calls(chromeStub)[0]).toMatchObject({
+      target: { tabId: 9 },
+      world: "MAIN",
+      args: [rules, false],
+    })
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: hits }])
+    await createChromeBrowserApi().setRequestMocks(9, [...rules], true)
+    expect(calls(chromeStub)[1]?.args).toEqual([rules, true])
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([])
+    await expect(createChromeBrowserApi().setRequestMocks(9, null)).rejects.toThrow()
+  })
+
+  it("keeps simulated responses across reloads with the site's permission, and stops", async () => {
+    const chromeStub = stub()
+    const registered: { id: string; matches: string[] }[] = []
+    const scripting = Object.assign(chromeStub.scripting, {
+      getRegisteredContentScripts: jest.fn(async () => registered.map((entry) => ({ ...entry }))),
+      registerContentScripts: jest.fn(async (scripts: { id: string; matches: string[] }[]) => {
+        registered.push(...scripts.map(({ id, matches }) => ({ id, matches })))
+      }),
+      updateContentScripts: jest.fn(async (scripts: { matches: string[] }[]) => {
+        registered[0]!.matches = scripts[0]!.matches
+      }),
+      unregisterContentScripts: jest.fn(async () => {
+        registered.length = 0
+      }),
+    })
+    const api = createChromeBrowserApi()
+    await expect(api.keepRequestMocks("https://shop.test:8443/cart?x=1", true)).resolves.toBe(true)
+    expect(chromeStub.permissions.request).toHaveBeenCalledWith({
+      origins: ["https://shop.test/*"],
+    })
+    expect(scripting.registerContentScripts).toHaveBeenCalledWith([
+      {
+        id: "cognia-request-mocks",
+        matches: ["https://shop.test/*"],
+        js: ["request-mocks.js"],
+        runAt: "document_start",
+        world: "MAIN",
+        allFrames: false,
+        persistAcrossSessions: false,
+      },
+    ])
+    await api.keepRequestMocks("http://127.0.0.1:4173/", true)
+    expect(registered[0]?.matches).toEqual(["https://shop.test/*", "http://127.0.0.1/*"])
+    await api.keepRequestMocks("https://shop.test/", false)
+    expect(registered[0]?.matches).toEqual(["http://127.0.0.1/*"])
+    await api.keepRequestMocks("http://127.0.0.1/", false)
+    expect(scripting.unregisterContentScripts).toHaveBeenCalledWith({
+      ids: ["cognia-request-mocks"],
+    })
+    // Stopping asks for nothing.
+    expect(chromeStub.permissions.request).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps nothing without the site's permission, or off the web", async () => {
+    const chromeStub = stub()
+    const scripting = Object.assign(chromeStub.scripting, {
+      getRegisteredContentScripts: jest.fn(async () => []),
+      registerContentScripts: jest.fn(async () => undefined),
+    })
+    chromeStub.permissions.request.mockResolvedValueOnce(false)
+    const api = createChromeBrowserApi()
+    await expect(api.keepRequestMocks("https://shop.test/", true)).resolves.toBe(false)
+    await expect(api.keepRequestMocks("chrome://settings", true)).resolves.toBe(false)
+    await expect(api.keepRequestMocks("not a url", true)).resolves.toBe(false)
+    expect(chromeStub.permissions.request).toHaveBeenCalledTimes(1)
+    expect(scripting.registerContentScripts).not.toHaveBeenCalled()
+  })
+
+  it("checks the focus order through the picker, and numbers or hides its stops", async () => {
+    const chromeStub = stub()
+    const api = createChromeBrowserApi()
+    const focus = { stops: 3, issues: [], truncated: false }
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: focus }])
+    await expect(api.checkFocus(5)).resolves.toEqual(focus)
+    expect(calls(chromeStub)[0]).toEqual({ target: { tabId: 5 }, files: ["/element-picker.js"] })
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: true }])
+    await expect(api.showFocusOrder(5, false)).resolves.toBe(true)
+    expect(calls(chromeStub)[2]?.args).toEqual([false])
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([])
+    await expect(api.showFocusOrder(5, true)).resolves.toBe(false)
+  })
+
+  it("draws the floating toolbar, hides it for a shot, and hears only its own buttons", async () => {
+    const chromeStub = stub()
+    const api = createChromeBrowserApi()
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: true }])
+    const state = { active: null } as never
+    await expect(api.setPageToolbar(4, state)).resolves.toBe(true)
+    expect(calls(chromeStub)[0]).toMatchObject({ target: { tabId: 4 }, args: [state] })
+    expect(calls(chromeStub)[0]?.world).toBeUndefined()
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([])
+    await api.hidePageChrome(4, true)
+    expect(calls(chromeStub)[1]?.args).toEqual([true])
+
+    const listeners: ((message: unknown, sender: unknown) => boolean)[] = []
+    Object.assign(chromeStub.runtime, {
+      id: "self",
+      onMessage: {
+        addListener: (listener: (typeof listeners)[number]) => listeners.push(listener),
+        removeListener: (listener: (typeof listeners)[number]) =>
+          listeners.splice(listeners.indexOf(listener), 1),
+      },
+    })
+    const heard = jest.fn()
+    const stop = api.onToolbarAction(heard)
+    const press = (message: unknown, sender: unknown) => listeners[0]!(message, sender)
+    expect(press({ kind: "cognia-toolbar", action: "pick" }, { id: "self", tab: { id: 4 } })).toBe(
+      false
+    )
+    press({ kind: "cognia-toolbar", action: "pick" }, { id: "other", tab: { id: 4 } })
+    press({ kind: "cognia-toolbar", action: "pick" }, { id: "self" })
+    press({ kind: "cognia-toolbar", action: "erase" }, { id: "self", tab: { id: 4 } })
+    expect(heard.mock.calls).toEqual([["pick", 4]])
+    stop()
+    expect(listeners).toHaveLength(0)
+  })
+
+  it("reads and follows a tab's browser zoom", async () => {
+    const chromeStub = stub()
+    const listeners: ((change: { tabId: number; newZoomFactor: number }) => void)[] = []
+    Object.assign(chromeStub.tabs, {
+      getZoom: jest
+        .fn()
+        .mockResolvedValueOnce(1.5)
+        .mockResolvedValueOnce(0)
+        .mockRejectedValueOnce(new Error("No tab with id: 3.")),
+      onZoomChange: {
+        addListener: (listener: (typeof listeners)[number]) => listeners.push(listener),
+        removeListener: (listener: (typeof listeners)[number]) =>
+          listeners.splice(listeners.indexOf(listener), 1),
+      },
+    })
+    const api = createChromeBrowserApi()
+    await expect(api.readTabZoom(3)).resolves.toBe(1.5)
+    await expect(api.readTabZoom(3)).resolves.toBe(1)
+    await expect(api.readTabZoom(3)).resolves.toBe(1)
+    const heard = jest.fn()
+    const stop = api.onTabZoom(heard)
+    listeners[0]!({ tabId: 3, newZoomFactor: 2 })
+    expect(heard).toHaveBeenCalledWith(3, 2)
+    stop()
+    expect(listeners).toHaveLength(0)
+  })
+
+  it("says whether a cancel ended a pass, so the panel can ask again", async () => {
+    const chromeStub = stub()
+    const api = createChromeBrowserApi()
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: false }])
+    await expect(api.cancelPick(2)).resolves.toBe(false)
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: true }])
+    await expect(api.cancelPick(2)).resolves.toBe(true)
+  })
+
+  it("reads where the page is scrolled once it has painted", async () => {
+    const chromeStub = stub()
+    const view = { scrollX: 0, scrollY: 40, width: 1280, height: 800 }
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: view }])
+    await expect(createChromeBrowserApi().readPageView(3)).resolves.toEqual(view)
+    expect(calls(chromeStub)[0]?.world).toBeUndefined()
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([])
+    await expect(createChromeBrowserApi().readPageView(3)).rejects.toThrow()
+  })
+
+  it("reads the visit's performance in the main world", async () => {
+    const chromeStub = stub()
+    const read = { navigation: { type: "navigate" } }
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: read }])
+    await expect(createChromeBrowserApi().readPerformance(8)).resolves.toEqual(read)
+    expect(calls(chromeStub)[0]).toMatchObject({ target: { tabId: 8 }, world: "MAIN" })
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([])
+    await expect(createChromeBrowserApi().readPerformance(8)).rejects.toThrow()
+  })
+
+  it("reads the stack in the main world, where frameworks announce themselves", async () => {
+    const chromeStub = stub()
+    const stack = { entries: [{ name: "React", category: "framework" }], development: true }
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: stack }])
+    await expect(createChromeBrowserApi().detectStack(7)).resolves.toEqual(stack)
+    expect(calls(chromeStub)[0]).toMatchObject({ target: { tabId: 7 }, world: "MAIN" })
+    expect(calls(chromeStub)[0]?.files).toBeUndefined()
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([])
+    await expect(createChromeBrowserApi().detectStack(7)).rejects.toThrow()
+  })
+
+  it("installs the recorder in the main world, without the agent's dialog handling", async () => {
+    const chromeStub = stub()
+    chromeStub.scripting.executeScript.mockResolvedValue([{ result: true }])
+    const api = createChromeBrowserApi()
+    await api.startDevRecording(5)
+    expect(calls(chromeStub)[0]).toEqual({
+      target: { tabId: 5 },
+      world: "MAIN",
+      files: ["/dev-hooks.js"],
+    })
+    await expect(api.isDevRecording(5)).resolves.toBe(true)
+    expect(calls(chromeStub)[1]?.world).toBe("MAIN")
+  })
+
+  it("reports edits that found no element, and refuses an overlay the page did not take", async () => {
+    const chromeStub = stub()
+    const api = createChromeBrowserApi()
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: false }])
+    await expect(api.previewElementEdits(5, "e1", { styles: { gap: "4px" } })).resolves.toBe(false)
+    expect(calls(chromeStub)[0]?.args).toEqual(["e1", { styles: { gap: "4px" } }])
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: false }])
+    await expect(api.setDesignOverlay(5, null)).rejects.toThrow()
+  })
+
+  it("makes the page editable through the picker, and reads the changes back", async () => {
+    const chromeStub = stub()
+    const api = createChromeBrowserApi()
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: true }])
+    await expect(api.editPageText(5, "Edit")).resolves.toBe(true)
+    expect(calls(chromeStub)[0]).toEqual({ target: { tabId: 5 }, files: ["/element-picker.js"] })
+    expect(calls(chromeStub)[1]?.args).toEqual(["Edit"])
+    const changes = [{ label: "h1", before: "a", after: "b" }]
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([{ result: changes }])
+    await expect(api.stopEditingPageText(5, true)).resolves.toEqual(changes)
+    expect(calls(chromeStub)[2]?.args).toEqual([true])
+    chromeStub.scripting.executeScript.mockResolvedValueOnce([])
+    await expect(api.stopEditingPageText(5, false)).resolves.toEqual([])
+  })
+
+  it("reads SEO in the isolated world, after injecting the picker", async () => {
+    const chromeStub = stub()
+    const seo = { title: "T", counts: {}, issues: [] }
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: seo }])
+    await expect(createChromeBrowserApi().readSeo(6)).resolves.toEqual(seo)
+    expect(calls(chromeStub)[0]).toEqual({ target: { tabId: 6 }, files: ["/element-picker.js"] })
+    expect(calls(chromeStub)[1]?.world).toBeUndefined()
+  })
+
+  it("checks the layout in the isolated world, after injecting the picker", async () => {
+    const chromeStub = stub()
+    const layout = { viewport: { width: 390, height: 844 }, pageWidth: 390, issues: [] }
+    chromeStub.scripting.executeScript
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ result: layout }])
+    await expect(createChromeBrowserApi().checkLayout(6)).resolves.toEqual(layout)
+    expect(calls(chromeStub)[0]).toEqual({ target: { tabId: 6 }, files: ["/element-picker.js"] })
+    expect(calls(chromeStub)[1]?.world).toBeUndefined()
+  })
+
+  it("sizes a viewport window by what the tab actually got", async () => {
+    const chromeStub = stub() as ChromeStub & {
+      windows: { create: jest.Mock; update: jest.Mock }
+    }
+    chromeStub.windows = {
+      create: jest.fn(async () => ({ id: 9, tabs: [{ id: 11 }] })),
+      update: jest.fn(async () => undefined),
+    }
+    chromeStub.tabs.get.mockResolvedValueOnce({ id: 11, width: 374, height: 780 })
+    await createChromeBrowserApi().openViewport("https://example.com/x", {
+      width: 390,
+      height: 844,
+    })
+    expect(chromeStub.windows.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://example.com/x",
+        type: "popup",
+        width: 390,
+        height: 844,
+      })
+    )
+    expect(chromeStub.windows.update).toHaveBeenCalledWith(9, { width: 406, height: 908 })
+  })
+})

@@ -15,6 +15,24 @@
 import type { BrowserTranscriptV1 } from "@cognia/companion-client"
 import type { SiteAnswer } from "./agent/site-permissions"
 import type { PageCapture, PageCaptureOptions } from "./capture/page-capture"
+import type { DesignOverlayState, PageView } from "./inspect/design-overlay"
+import type { ToolbarAction, ToolbarState } from "./inspect/page-toolbar"
+import type { DesignDiff } from "./inspect/design-diff"
+import type { DevSnapshot } from "./inspect/dev-report"
+import type { A11yAudit } from "./inspect/a11y-audit"
+import type { DesignTokens } from "./inspect/design-tokens"
+import type { ElementBox, ElementDescription, ElementEdits } from "./inspect/element-context"
+import type { MeasureResult } from "./inspect/measure"
+import type { Shape } from "./panel/annotations"
+import type { PagePerformance } from "./inspect/page-performance"
+import type { SeoReport } from "./inspect/seo-check"
+import type { LayoutCheck } from "./inspect/layout-check"
+import type { FocusCheck } from "./inspect/focus-order"
+import type { TextChange } from "./inspect/text-edits"
+import type { AdjustResult } from "./inspect/element-picker"
+import type { MockHits, RequestMock } from "./inspect/request-mocks"
+import type { AdjustSpacing } from "./inspect/adjust"
+import type { DetectedStack } from "./inspect/tech-stack"
 
 export interface TabRef {
   id: number
@@ -125,6 +143,8 @@ export interface BrowserApi {
   ): Promise<string>
   /** Stack captures top to bottom, keeping the bottom `heights[i]` rows of each. */
   stitchImages(dataUrls: string[], width: number, heights: number[]): Promise<string>
+  /** Draw marks onto a capture at its full size; base64 PNG without the prefix. */
+  annotateImage(dataUrl: string, shapes: readonly Shape[]): Promise<string>
   /** Fetch a URL's bytes from the extension (needs its origin granted). */
   fetchBytes(url: string, maxBytes: number): Promise<{ bytes: Uint8Array; mediaType: string }>
 
@@ -134,6 +154,144 @@ export interface BrowserApi {
   answerSiteQuestion(questionId: string, answer: SiteAnswer): Promise<void>
   /** Forget a standing site decision. */
   forgetSiteDecision(origin: string): Promise<void>
+
+  // ── Inspecting the page (element picker, bug context, design checks) ──
+  //
+  // All of it runs on the tab the person is working in, under the same
+  // `activeTab` grant as a capture, injected per use (`lib/inspect/`).
+
+  /**
+   * Let the person pick an element in the tab, and describe it — with the
+   * framework's component names and source positions when the page's own
+   * world records them. `null` when they cancel or the pick times out.
+   */
+  pickElement(
+    tabId: number,
+    hint: string
+  ): Promise<(ElementDescription & { more?: boolean }) | null>
+  /**
+   * Let the person choose one element or several in the tab (click, Shift-
+   * click, Alt-click for all alike, or a box dragged over the page) and
+   * describe each, framework names included, in the order chosen. `null`
+   * when they cancel.
+   */
+  pickElements(
+    tabId: number,
+    labels: { hint: string; selected: string; done: string },
+    max: number
+  ): Promise<ElementDescription[] | null>
+  /** Describe an element the picker already holds — an audit finding — like a pick. */
+  describeElement(tabId: number, elementId: string): Promise<ElementDescription | null>
+  /** Run the accessibility checks in the tab. */
+  auditAccessibility(tabId: number): Promise<Pick<A11yAudit, "issues" | "checked" | "truncated">>
+  /** Count the colours, type, spacing and variables the tab's page uses. */
+  readDesignTokens(tabId: number): Promise<Omit<DesignTokens, "tabId" | "ranAt">>
+  /** What the tab's page is built with (MAIN world). */
+  detectStack(tabId: number): Promise<DetectedStack>
+  /** Look for layout bugs in the tab at its viewport; findings are held like picks. */
+  checkLayout(tabId: number): Promise<Omit<LayoutCheck, "tabId" | "ranAt">>
+  /** Check the tab's keyboard Tab order, numbering its stops on the page; findings are held like picks. */
+  checkFocus(tabId: number): Promise<Omit<FocusCheck, "tabId" | "ranAt">>
+  /** Number the last Tab order checked on the page again, or take the numbers away. */
+  showFocusOrder(tabId: number, show: boolean): Promise<boolean>
+  /** How the tab's page presents itself to search engines and link previews. */
+  readSeo(tabId: number): Promise<Omit<SeoReport, "tabId" | "ranAt">>
+  /** How this visit to the tab's page loaded and responded, from its performance timeline (MAIN world). */
+  readPerformance(tabId: number): Promise<Omit<PagePerformance, "tabId" | "ranAt">>
+  /**
+   * Let the person measure between two elements in the tab — from `anchorId`,
+   * a measured element the picker holds, when given. `null` when they cancel
+   * or the measurement times out. Ended by {@link cancelPick} like a pick.
+   */
+  measureElements(
+    tabId: number,
+    hints: { hint: string; anchorHint: string },
+    anchorId?: string
+  ): Promise<MeasureResult>
+  /** Show a measurement on the page again, measured as it is laid out now; null when either element left. */
+  showMeasurement(tabId: number, fromId: string, toId: string): Promise<MeasureResult>
+  /** Make the tab's words editable in place (Design Mode); false when they already are. */
+  editPageText(tabId: number, hint: string): Promise<boolean>
+  /** Leave text editing in the tab, keeping or unwinding the edits; what changed, when kept. */
+  stopEditingPageText(tabId: number, keep: boolean): Promise<TextChange[]>
+  /**
+   * Let the person resize a picked element by its edges and nudge its
+   * spacing with the arrow keys; the style edits it made, or `null` when they
+   * cancel. Ended by {@link cancelPick} (put back) or {@link finishAdjust} (kept).
+   */
+  adjustElement(
+    tabId: number,
+    elementId: string,
+    hint: string,
+    labels: Record<AdjustSpacing, string>
+  ): Promise<AdjustResult>
+  /** Finish an adjustment in progress, keeping it. */
+  finishAdjust(tabId: number): Promise<void>
+  /**
+   * Install the tab's simulated responses, replacing any before (MAIN world);
+   * `[]` clears them, `null` only reads how often each has matched.
+   */
+  setRequestMocks(tabId: number, mocks: RequestMock[] | null, keep?: boolean): Promise<MockHits>
+  /**
+   * Keep simulated requests across reloads on the site `url` is on — asking
+   * for that site's optional permission, and registering the script that puts
+   * a tab's kept rules back as it loads — or stop. False when refused or the
+   * page is not a web page.
+   */
+  keepRequestMocks(url: string, keep: boolean): Promise<boolean>
+  /**
+   * End a pick, measurement or adjustment in progress; false when none was
+   * running on the page yet.
+   */
+  cancelPick(tabId: number): Promise<boolean>
+  /** Preview edits on a picked element; false when it is no longer on the page. */
+  previewElementEdits(tabId: number, elementId: string, edits: ElementEdits): Promise<boolean>
+  /** Put a picked element back as the page had it. */
+  revertElement(tabId: number, elementId: string): Promise<boolean>
+  /**
+   * Scroll a picked element into view — flashing it, unless it is about to be
+   * screenshotted — and answer its box afterwards, or null when it is gone.
+   */
+  locateElement(
+    tabId: number,
+    elementId: string,
+    flash: boolean
+  ): Promise<(ElementBox & { dpr: number }) | null>
+  /** Revert and forget picks — all of the document's when no ids are given. */
+  releaseElements(tabId: number, elementIds?: string[]): Promise<void>
+  /** Start listening to the tab's console and requests (MAIN world). */
+  startDevRecording(tabId: number): Promise<void>
+  /** Whether the tab's current document is being listened to. */
+  isDevRecording(tabId: number): Promise<boolean>
+  /** What the tab's console and requests said, without draining them. */
+  readDevSnapshot(tabId: number): Promise<DevSnapshot>
+  /** Show, update or remove a design mock over the tab. */
+  setDesignOverlay(tabId: number, state: DesignOverlayState | null): Promise<void>
+  /** Show, update or take away the floating toolbar on the tab. */
+  setPageToolbar(tabId: number, state: ToolbarState | null): Promise<boolean>
+  /** Hide the extension's floating chrome on the tab for a screenshot, or show it again. */
+  hidePageChrome(tabId: number, hidden: boolean): Promise<void>
+  /** Listen for the floating toolbar's buttons, with the tab they were pressed on. */
+  onToolbarAction(listener: (action: ToolbarAction, tabId: number) => void): () => void
+  /** The tab's browser zoom, 1 at 100%; 1 when it cannot be read. */
+  readTabZoom(tabId: number): Promise<number>
+  /** Listen for a tab's browser zoom changing. */
+  onTabZoom(listener: (tabId: number, zoom: number) => void): () => void
+  /** Where the tab is scrolled and how big its window is, after the next paint. */
+  readPageView(tabId: number): Promise<PageView>
+  /**
+   * Compare a visible-area capture with the design mock where the overlay
+   * puts it; the highlighted difference as a PNG data URL, and the numbers.
+   * `null` when the mock is not in view.
+   */
+  diffDesign(
+    capture: string,
+    mock: string,
+    overlay: { x: number; y: number; scale: number },
+    view: PageView
+  ): Promise<{ image: string; result: Omit<DesignDiff, "tabId" | "ranAt" | "mock"> } | null>
+  /** Open an address in a window whose viewport is this size, for a responsive check. */
+  openViewport(url: string, size: { width: number; height: number }): Promise<void>
 }
 
 /**
