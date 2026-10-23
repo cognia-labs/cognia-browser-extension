@@ -29,8 +29,9 @@ const extensionIcons = {
  *    capture; `<all_urls>` when they turn on agent mode; `notifications`,
  *    `downloads` and `cookies` from their settings toggles. Somebody who
  *    installs and never opts in has granted what the original build did.
- *  - **No static `content_scripts`.** The extractor, the overlay and the page
- *    hooks are injected per use through `chrome.scripting`.
+ *  - **No static `content_scripts`.** The extractor, the overlay, the page
+ *    hooks, the element picker and the design overlay are injected per use
+ *    through `chrome.scripting`.
  *  - **No `debugger`, `history`, `tabCapture`, `webRequest` or
  *    `nativeMessaging`.** `chrome.debugger` cannot be requested optionally and
  *    its warning would change the extension's trust posture wholesale; what
@@ -70,7 +71,8 @@ export default defineConfig({
       default_title: "__MSG_actionTitle__",
       default_icon: extensionIcons,
     },
-    // Chrome honours at most four suggested shortcuts; these are all four.
+    // Chrome honours at most four suggested shortcuts; these are all four, and
+    // anything past them is declared without one.
     commands: {
       _execute_action: {
         suggested_key: { default: "Alt+Shift+O" },
@@ -87,6 +89,10 @@ export default defineConfig({
       "capture-article": {
         suggested_key: { default: "Alt+Shift+A" },
         description: "__MSG_captureArticleCommand__",
+      },
+      // Unbound: the person assigns it at chrome://extensions/shortcuts.
+      "inspect-element": {
+        description: "__MSG_inspectCommand__",
       },
     },
     omnibox: { keyword: "cog" },

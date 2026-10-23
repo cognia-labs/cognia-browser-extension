@@ -134,6 +134,7 @@ export default defineBackground(() => {
       menu(CAPTURE_MENU_IDS.article, "contextMenuArticle", ["page"])
       menu(CAPTURE_MENU_IDS.link, "contextMenuLink", ["link"])
       menu(CAPTURE_MENU_IDS.image, "contextMenuImage", ["image"])
+      menu(CAPTURE_MENU_IDS.inspect, "contextMenuInspect", ["page", "link", "image", "selection"])
       menu(CAPTURE_MENU_IDS.quick, "contextMenuQuick", ["page", "selection"])
       for (const action of QUICK_ACTIONS) {
         menu(
