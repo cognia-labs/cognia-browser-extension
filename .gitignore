@@ -9,3 +9,8 @@ test-results/
 .env*
 *.tsbuildinfo
 .DS_Store
+
+/public/LICENSE.txt
+/public/NOTICE.txt
+/public/THIRD_PARTY_NOTICES.txt
+/public/SOURCE.txt

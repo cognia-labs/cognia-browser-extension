@@ -33,10 +33,9 @@ pnpm check
 pnpm format:check
 pnpm exec playwright install chromium
 pnpm test:e2e
-pnpm zip
 ```
 
-`pnpm build` produces `build/chrome-mv3/`; `pnpm zip` creates the installable archive under `build/`. The development build is under `build/chrome-mv3-dev/`. CI verifies an independent install, formatting, lint, types, all unit tests, real Chromium flows and archive contents.
+`pnpm build` produces `build/chrome-mv3/`; `pnpm zip` creates the installable archive under `build/`. The development build is under `build/chrome-mv3-dev/`. CI verifies an independent install, formatting, lint, types, all unit tests, real Chromium flows and archive contents. `pnpm test:e2e` packages first, tests that build, then verifies the archive still contains exactly those bytes. Archives include project and dependency notices plus the exact source commit.
 
 Chromium E2E exercises the real MV3 worker, panel, Chrome APIs and injected overlay against a deterministic HTTP/WebSocket Host. The loop profile pre-grants only loopback access because Chrome's native permission bubble cannot be automated. Separate tests load the shipped manifest and assert the actual optional-permission posture. Native prompts, signing/store upgrades and the packaged Cognia Host require release acceptance; mock Host tests do not establish those results.
 
@@ -45,5 +44,7 @@ Chromium E2E exercises the real MV3 worker, panel, Chrome APIs and injected over
 `src/` and `public/` are the extension. `vendor/companion-client`, `vendor/plugin-ui` and `vendor/overlay` are pinned source snapshots with their tests. They replace monorepo-only dependencies without requiring npm publication or another checkout. `provenance/source.json` records the exact source bytes, including the current-repository revocation fixes imported at extraction.
 
 Protocol or overlay changes must be coordinated with the Host. See [migration and compatibility](docs/migration.md) for ownership, source refresh, clean-install validation and rollback. Normal install/build/test does not contact the product repository.
+
+Release retries resolve the exact tag, recover interrupted drafts and retain existing asset bytes. A different archive requires a new version; published assets are never replaced.
 
 AGPL-3.0-only. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

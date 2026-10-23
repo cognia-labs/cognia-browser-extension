@@ -10,6 +10,9 @@ on:
         type: string
 permissions:
   contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 jobs:
   archive:
     runs-on: ubuntu-latest
@@ -17,9 +20,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Validate version tag
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs'
+          const tag = process.env.RELEASE_TAG
+          if (!/^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) throw new Error('Invalid version tag')
+          appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\n`)
+          NODE
       - uses: actions/checkout@v7
+      - name: Preserve the current publisher for retries of older tags
+        run: cp scripts/publish-archive.mjs "$RUNNER_TEMP/publish-archive.mjs"
+      - name: Checkout the exact version tag
+        uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: refs/tags/${{ steps.release.outputs.tag }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -28,21 +46,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Match the tag to the extension version
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: node --input-type=module -e 'import p from "./package.json" with { type:"json" }; if (`v${p.version}` !== process.env.RELEASE_TAG) process.exit(1)'
       - run: pnpm format:check
       - run: pnpm check
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
-      - run: pnpm zip
+      - name: Package the build that Chromium will test
+        run: pnpm zip && pnpm archive:check
+      - run: pnpm exec playwright test
       - run: pnpm archive:check
-      - name: Publish tested archive
+      - name: Publish the checked tag and archive without replacing existing bytes
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" build/*.zip --clobber
-          else
-            gh release create "$RELEASE_TAG" build/*.zip --verify-tag --generate-notes
-          fi
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: node "$RUNNER_TEMP/publish-archive.mjs"

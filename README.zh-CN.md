@@ -33,10 +33,9 @@ pnpm check
 pnpm format:check
 pnpm exec playwright install chromium
 pnpm test:e2e
-pnpm zip
 ```
 
-正式构建输出到 `build/chrome-mv3/`，压缩包位于 `build/`，开发构建位于 `build/chrome-mv3-dev/`。CI 验证独立安装、格式、lint、类型、全部单测、真实 Chromium 流程和压缩包内容。
+正式构建输出到 `build/chrome-mv3/`，压缩包位于 `build/`，开发构建位于 `build/chrome-mv3-dev/`。CI 验证独立安装、格式、lint、类型、全部单测、真实 Chromium 流程和压缩包内容。`pnpm test:e2e` 先打包，再测试该构建，最后逐文件确认压缩包仍是同一份字节。安装包包含项目与依赖的许可证说明和精确源码版本。
 
 E2E 使用实际 MV3 worker、面板、Chrome API 和 overlay，对接确定性的 HTTP/WebSocket Host。流程测试仅预授予回环地址权限，因为原生权限弹窗无法自动操作；另有测试加载实际发布 manifest，校验可选权限边界。原生权限弹窗、商店签名升级和打包 Cognia Host 联合验收仍需发布验证，不能由 mock Host 测试替代。
 
@@ -45,5 +44,7 @@ E2E 使用实际 MV3 worker、面板、Chrome API 和 overlay，对接确定性�
 `src/` 和 `public/` 是插件实现。`vendor/` 固定共享客户端、UI 和 overlay 的源代码快照及测试，消除对主仓目录和 npm 预发布的依赖。`provenance/source.json` 记录来源版本、导入时未提交状态和逐文件 SHA-256，包括本次撤权修复。
 
 协议和 overlay 变更需要与 Host 协同。详见 [迁移与兼容说明](docs/migration.md)。日常安装、构建和测试不读取主仓库。
+
+发布重试会解析精确 tag、恢复中断的草稿并保留已有附件字节。不同的安装包必须使用新版本，已发布附件不会被覆盖。
 
 采用 AGPL-3.0-only，见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。

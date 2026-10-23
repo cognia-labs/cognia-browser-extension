@@ -7,3 +7,6 @@ playwright-report/
 test-results/
 pnpm-lock.yaml
 vendor/
+
+public/*.txt
+licenses/*.txt

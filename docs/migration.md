@@ -12,13 +12,15 @@ The standalone repository owns the extension, assets, tests and release archives
 | Shared UI primitives                                   | `vendor/plugin-ui/src/`              | Tailwind source scan, React peers, Host appearance tokens |
 | Page agent overlay                                     | `vendor/overlay/overlay.injected.js` | Exact executable bytes and overlay ABI 1                  |
 
-The snapshots are checked in and licensed with the product. `file:vendor/*` dependencies and local aliases require no parent workspace, npm pre-publication or sibling checkout. `pnpm standalone:check` checks local paths and vendor hashes. Refresh vendor sources deliberately from a known product checkout, update provenance hashes, reinstall, then run all checks; ordinary builds never fetch source automatically.
+The snapshots are checked in and licensed with the product. `file:vendor/*` dependencies and local aliases require no parent workspace, npm pre-publication or sibling checkout. `pnpm standalone:check` rejects escaping local dependencies, including symlinks, and checks the complete recursive vendor inventory and hashes. Refresh vendor sources deliberately from a known product checkout, update provenance hashes, reinstall, then run all checks; ordinary builds never fetch source automatically.
 
 ## Host compatibility remains an executable gate
 
 Driving requires envelope v1, the `agent-safe-v1` profile, overlay ABI 1, a Host drive grant, local agent mode and site permission. Legacy peers remain capture/status-only. Unknown envelopes are refused. These requirements preserve fail-closed behavior while Host and extension ship independently.
 
 The parent migration adds `integrations/browser-companion.json` with an immutable extension commit. Its `e2e-browser-extension` CI job checks out that exact commit, compares the shared client and overlay bytes against the proposed Host source, and runs the standalone checks and Chromium suite. A source mismatch requires an explicit consumer refresh, tests and pin update. A branch name or silently changing latest package is insufficient.
+
+`provenance/host-contract.json` additionally freezes 220 product-side source and dependency inputs: companion crates, Host entry points, build scripts and protocol files. The parent gate compares inventories symmetrically and checks every hash, so additions, removals and same-profile auth/schema changes require review. This conservative source fence can also require a refresh after an unrelated Rust dependency or protocol edit; it is not a claim of complete real-Host E2E coverage. Review compatibility, regenerate the Host snapshot from the proposed product source, test the consumer, then update the immutable product pin. Custom build generators must keep their inputs in this inventory; external build inputs require an explicit gate extension.
 
 Changes to authorization retire old Host connections; rapid revoke/regrant cannot revive queued work. Stop/Take over cancels immediately and persists pause until Resume. No already-dispatched Chrome call can be recalled. These semantics stay covered by the product Rust tests and the standalone runtime/Chromium tests.
 
@@ -30,7 +32,11 @@ The source remains checked by TypeScript 7. The official TypeScript 6 API compat
 
 ## Upgrade, release and rollback
 
-GitHub releases contain a tested Chrome MV3 archive. The same package supports Edge. Creating a version tag runs checks and Chromium tests before publishing an archive; it does not submit to either browser store. Store publishing requires its existing account, listing and signing identity.
+GitHub releases contain a tested Chrome MV3 archive. The same package supports Edge. Creating a version tag packages first, runs Chromium against that exact build and rechecks every archive byte before publication; it does not submit to either browser store. Store publishing requires its existing account, listing and signing identity.
+
+Every archive includes `LICENSE.txt`, `NOTICE.txt`, `THIRD_PARTY_NOTICES.txt` and `SOURCE.txt`. Dependency notices come from the frozen installation, including shipped Tailwind CSS; missing or empty notices fail the build. Version-specific upstream fallbacks are documented under `licenses/`. The source file links the exact Git commit and marks local dirty builds.
+
+The publisher resolves `refs/tags/<version>` including annotated tags, checks that it still names the tested commit, uploads into a draft and publishes only after verification. Retries find interrupted drafts through the authenticated releases list and compare existing asset digests. Existing public assets are preserved; different bytes require a new version. Same-tag workflow runs are serialized. Administrator force-retagging during the final API call remains outside the client-side transaction; keep release tags protected.
 
 Unpacked extension IDs depend on the absolute installation path. Upgrade in the same directory and reload; moving it changes the origin and requires pairing again. The shipped manifest does not introduce a signing key to impersonate an old extension. Preserve the store identity for store upgrades.
 

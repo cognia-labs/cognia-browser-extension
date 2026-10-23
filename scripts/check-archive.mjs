@@ -25,7 +25,7 @@ for (const name of await readdir(build, { recursive: true })) {
 assert.deepEqual(
   entries.toSorted(),
   built.toSorted(),
-  "Archive must contain exactly the tested build files"
+  "Archive must contain exactly the packaged build files"
 )
 for (const name of entries) {
   assert.ok(!name.startsWith("/") && !name.split("/").includes(".."), "Unsafe archive path")
@@ -35,10 +35,21 @@ for (const name of entries) {
   assert.deepEqual(
     bytes,
     await readFile(join(build, name)),
-    `Archive differs from tested build: ${name}`
+    `Archive differs from packaged build: ${name}`
   )
 }
+for (const name of ["LICENSE.txt", "NOTICE.txt", "THIRD_PARTY_NOTICES.txt", "SOURCE.txt"]) {
+  assert.ok(entries.includes(name), `Archive is missing required notice: ${name}`)
+  assert.ok(
+    (await readFile(join(build, name), "utf8")).trim().length > 0,
+    `Empty archive notice: ${name}`
+  )
+}
+assert.match(
+  await readFile(join(build, "SOURCE.txt"), "utf8"),
+  /https:\/\/github\.com\/cognia-labs\/cognia-browser-extension\/tree\/[a-f0-9]{40}/
+)
 const manifest = JSON.parse(await readFile(join(build, "manifest.json"), "utf8"))
 assert.equal(manifest.version, pkg.version)
 assert.equal(manifest.manifest_version, 3)
-console.log(`Verified ${entries.length} archive files against the tested Chrome MV3 build`)
+console.log(`Verified ${entries.length} archive files against the Chrome MV3 build`)
