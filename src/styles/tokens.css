@@ -178,6 +178,36 @@
   --surface-bg: var(--popover);
 }
 
+/*
+ * What appears in the panel — a pick, a measurement, a running tool — eases
+ * in rather than popping, unless the person asked for less motion.
+ */
+@theme {
+  --animate-enter: cognia-enter 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  @keyframes cognia-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.985);
+    }
+  }
+}
+
+/*
+ * Borders take the palette's border colour, as the app's own globals do.
+ * Tailwind 4's default is `currentColor`, which drew every card, input and
+ * outline control in the text colour.
+ */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
+}
+
 body {
   /* The panel paints its own ground: the browser's side-panel host does not,
      and a transparent body shows through to whatever Chrome puts behind it. */

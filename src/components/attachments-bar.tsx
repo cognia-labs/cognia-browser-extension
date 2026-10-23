@@ -3,7 +3,7 @@ import { Badge, Button, Progress } from "@cognia/plugin-ui"
 import type { BrowserApi } from "@ext/src/lib/browser-api"
 import type { PendingAttachment } from "@ext/src/lib/panel/screenshots"
 
-export type AttachAction = "visible" | "region" | "full-page" | "pdf"
+export type AttachAction = "visible" | "region" | "full-page" | "markup" | "pdf"
 
 export interface AttachmentsBarProps {
   api: BrowserApi
@@ -17,6 +17,8 @@ export interface AttachmentsBarProps {
   progress: Record<string, number>
   onAttach: (action: AttachAction) => void
   onRemove: (id: string) => void
+  /** Mark up a screenshot: boxes, arrows, numbered notes. */
+  onAnnotate?: (id: string) => void
 }
 
 /** A `switch` with literal keys, so the locale coverage test can see them. */
@@ -28,6 +30,8 @@ function attachActionLabel(action: AttachAction, message: (key: string) => strin
       return message("attachRegion")
     case "full-page":
       return message("attachFullPage")
+    case "markup":
+      return message("attachMarkup")
     case "pdf":
       return message("attachPdf")
   }
@@ -48,12 +52,14 @@ export function AttachmentsBar({
   progress,
   onAttach,
   onRemove,
+  onAnnotate,
 }: AttachmentsBarProps) {
   const full = attachments.length >= max
   const actions: AttachAction[] = [
     "visible",
     "region",
     "full-page",
+    "markup",
     ...(canAttachPdf ? ["pdf" as const] : []),
   ]
   return (
@@ -83,7 +89,7 @@ export function AttachmentsBar({
           {attachments.map((attachment) => (
             <li
               key={attachment.id}
-              className="relative space-y-1 rounded-control border border-border p-1"
+              className="relative animate-enter space-y-1 rounded-control border border-border p-1 motion-reduce:animate-none"
               data-testid={`attachment-${attachment.id}`}
             >
               {attachment.previewUrl ? (
@@ -100,25 +106,51 @@ export function AttachmentsBar({
               <p className="truncate text-[10px]" title={attachment.name}>
                 {attachment.name}
               </p>
-              <Badge variant="outline" className="text-[10px]">
-                {api.message("captureBytes", [(attachment.bytes.byteLength / 1024).toFixed(1)])}
-              </Badge>
+              <div className="flex flex-wrap gap-0.5">
+                <Badge variant="outline" className="text-[10px]">
+                  {api.message("captureBytes", [(attachment.bytes.byteLength / 1024).toFixed(1)])}
+                </Badge>
+                {attachment.annotation ? (
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px]"
+                    data-testid={`attachment-marked-${attachment.id}`}
+                  >
+                    {api.message("annotateMarked")}
+                  </Badge>
+                ) : null}
+              </div>
               {progress[attachment.id] !== undefined ? (
                 <Progress
                   value={Math.round((progress[attachment.id] ?? 0) * 100)}
                   className="h-1"
                 />
               ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-5 w-full px-1 text-[10px]"
-                  onClick={() => onRemove(attachment.id)}
-                  aria-label={api.message("attachRemove", [attachment.name])}
-                  data-testid={`attachment-remove-${attachment.id}`}
-                >
-                  {api.message("remove")}
-                </Button>
+                <>
+                  {onAnnotate && attachment.kind === "screenshot" && attachment.previewUrl ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-5 w-full px-1 text-[10px]"
+                      disabled={busy !== null}
+                      onClick={() => onAnnotate(attachment.id)}
+                      aria-label={api.message("annotateEditLabel", [attachment.name])}
+                      data-testid={`attachment-annotate-${attachment.id}`}
+                    >
+                      {api.message("annotateEdit")}
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-5 w-full px-1 text-[10px]"
+                    onClick={() => onRemove(attachment.id)}
+                    aria-label={api.message("attachRemove", [attachment.name])}
+                    data-testid={`attachment-remove-${attachment.id}`}
+                  >
+                    {api.message("remove")}
+                  </Button>
+                </>
               )}
             </li>
           ))}

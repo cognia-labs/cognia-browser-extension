@@ -26,11 +26,45 @@ import {
   SelectTrigger,
   SelectValue,
   Skeleton,
+  Switch,
   Textarea,
+  cn,
+  useCopy,
 } from "@cognia/plugin-ui"
+import {
+  CameraIcon,
+  CheckIcon,
+  CopyIcon,
+  DownloadIcon,
+  FileTextIcon,
+  HistoryIcon,
+  MousePointer2Icon,
+  MousePointerClickIcon,
+  PanelLeftIcon,
+  PencilLineIcon,
+  RefreshCwIcon,
+  RulerIcon,
+  ScanLineIcon,
+  ScanTextIcon,
+  Settings2Icon,
+  SendIcon,
+  SparklesIcon,
+  SquareMousePointerIcon,
+  Trash2Icon,
+} from "lucide-react"
 
+import {
+  ActivityStrip,
+  CollapsibleCard,
+  PanelSection,
+  ToolTile,
+} from "@ext/src/components/panel-section"
 import { applyAppearance, isAppliedAppearance } from "@ext/src/lib/appearance/apply-appearance"
-import { AttachmentUploadError, uploadAttachment } from "@ext/src/lib/attachment-upload"
+import {
+  AttachmentUploadError,
+  base64ToBytes,
+  uploadAttachment,
+} from "@ext/src/lib/attachment-upload"
 import {
   SESSION_KEYS,
   STORAGE_KEYS,
@@ -47,6 +81,50 @@ import {
 import { isYouTubeWatchUrl } from "@ext/src/lib/capture/youtube-transcript"
 import { normalizeCaptureUrl } from "@ext/src/lib/capture/normalize-url"
 import { clearDeviceKey } from "@ext/src/lib/device-key"
+import { DESIGN_OVERLAY_MAX_BYTES, VIEWPORT_PRESETS } from "@ext/src/lib/inspect/design-overlay"
+import { buildDevReport, type DevReport } from "@ext/src/lib/inspect/dev-report"
+import type {
+  ElementBox,
+  ElementDescription,
+  PickedElement,
+} from "@ext/src/lib/inspect/element-context"
+import {
+  MAX_PICKS,
+  inspectionMarkdown,
+  promptForClipboard,
+  exportFileName,
+  exportMarkdown,
+  withInspection,
+} from "@ext/src/lib/inspect/inspect-markdown"
+import type { A11yIssue } from "@ext/src/lib/inspect/a11y-audit"
+import type { LayoutIssue } from "@ext/src/lib/inspect/layout-check"
+import type { FocusIssue } from "@ext/src/lib/inspect/focus-order"
+import type { ToolbarAction, ToolbarState } from "@ext/src/lib/inspect/page-toolbar"
+import { designDiffMarkdown, type DesignDiff } from "@ext/src/lib/inspect/design-diff"
+import { comparePicks, comparisonMarkdown } from "@ext/src/lib/inspect/pick-compare"
+import { PickComparisonCard } from "@ext/src/components/pick-comparison"
+import {
+  cleanMock,
+  mocksMarkdown,
+  type MockHits,
+  type RequestMock,
+} from "@ext/src/lib/inspect/request-mocks"
+import {
+  NO_INSIGHTS,
+  insightSections,
+  insightsForTab,
+  type InsightKind,
+  type PageInsights,
+} from "@ext/src/lib/inspect/insights"
+import {
+  MAX_MEASUREMENTS,
+  measurementsMarkdown,
+  type Measurement,
+  type MeasureResult,
+} from "@ext/src/lib/inspect/measure"
+import { sanitizeEdits } from "@ext/src/lib/inspect/style-edits"
+import { textChangesMarkdown, type TextChange } from "@ext/src/lib/inspect/text-edits"
+import { annotationsMarkdown, type Shape } from "@ext/src/lib/panel/annotations"
 import { isEmptyDraft, parseDraft, type PanelDraft } from "@ext/src/lib/panel/drafts"
 import {
   buildPageContext,
@@ -59,6 +137,7 @@ import { quickActionInstruction } from "@ext/src/lib/panel/quick-actions"
 import {
   captureFullPage,
   captureVisible,
+  elementCrop,
   fileNameFromUrl,
   screenshotAttachment,
   sniffMediaType,
@@ -103,11 +182,20 @@ import { CaptureEditor } from "./capture-editor"
 import { CapturePreview } from "./capture-preview"
 import { ExtensionSettings } from "./extension-settings"
 import { ExtraPages } from "./extra-pages"
+import { ImageAnnotator } from "./image-annotator"
+import { Measurements } from "./measurements"
+import { PageAudit, ruleTitle, type AuditAction } from "./page-audit"
+import { layoutRuleTitle } from "./layout-result"
+import { focusRuleTitle } from "./focus-result"
+import { RequestMocks } from "./request-mocks"
+import { PageTools, type OverlaySettings, type PageToolAction } from "./page-tools"
 import { PairScreen } from "./pair-screen"
+import { PickedElements, type PickAction } from "./picked-elements"
 import { PromptTools } from "./prompt-tools"
 import { RecentList } from "./recent-list"
 import { RegionCropper } from "./region-cropper"
 import { SiteQuestions } from "./site-questions"
+import { TextChanges } from "./text-changes"
 
 export interface SidePanelProps {
   api: BrowserApi
@@ -167,6 +255,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const [attachBusy, setAttachBusy] = useState<AttachAction | null>(null)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
   const [regionSource, setRegionSource] = useState<string | null>(null)
+  // A screenshot being marked up: its id, the clean shot, the marks so far.
+  const [annotating, setAnnotating] = useState<{
+    id: string
+    src: string
+    shapes: Shape[]
+  } | null>(null)
+  const [annotateBusy, setAnnotateBusy] = useState(false)
   // The recent list's search and the pages loaded past the polled first one.
   const [query, setQuery] = useState("")
   const [olderItems, setOlderItems] = useState<BrowserContextSubmissionSummaryV1[]>([])
@@ -177,7 +272,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const [staleTab, setStaleTab] = useState(false)
   // A restored draft that had attachments the draft could not keep.
   const [droppedAttachments, setDroppedAttachments] = useState(0)
-  const [preferences] = usePreferences(api)
+  const [preferences, updatePreferences] = usePreferences(api)
   const [includeFullUrl, setIncludeFullUrl] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -199,6 +294,65 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const [answers, setAnswers] = useState<Record<string, { text?: string; truncated?: boolean }>>({})
   const [expanded, setExpanded] = useState<string[]>([])
   const [stopping, setStopping] = useState<string | null>(null)
+  // Elements picked on the captured page, and what the picker is doing.
+  const [picks, setPicks] = useState<PickedElement[]>([])
+  const [detachedPicks, setDetachedPicks] = useState<string[]>([])
+  const [pickingTab, setPickingTab] = useState<number | null>(null)
+  // What the pointer on the page is for while `pickingTab` is set.
+  const [pointing, setPointing] = useState<"pick" | "measure" | "adjust">("pick")
+  // Distances measured between elements on the captured page.
+  const [measurements, setMeasurements] = useState<Measurement[]>([])
+  const [measureBusy, setMeasureBusy] = useState<string | null>(null)
+  const [detachedMeasures, setDetachedMeasures] = useState<string[]>([])
+  // Words edited on the page itself (Design Mode): the tab being edited, and
+  // what changed once the person was done.
+  const [textEditingTab, setTextEditingTab] = useState<number | null>(null)
+  const [textChanges, setTextChanges] = useState<{ tabId: number; changes: TextChange[] } | null>(
+    null
+  )
+  const textEditingTabRef = useRef<number | null>(null)
+  const [pickBusy, setPickBusy] = useState<{ elementId: string; action: PickAction } | null>(null)
+  // The console and network report, the recorder behind it, the design mock.
+  const [devReport, setDevReport] = useState<DevReport | null>(null)
+  const [recording, setRecording] = useState<{ tabId: number; since: number } | null>(null)
+  const [overlay, setOverlay] = useState<(OverlaySettings & { tabId: number }) | null>(null)
+  const [toolBusy, setToolBusy] = useState<PageToolAction | null>(null)
+  const [mocks, setMocks] = useState<MocksState | null>(null)
+  const [designDiff, setDesignDiff] = useState<(DesignDiff & { attachmentId?: string }) | null>(
+    null
+  )
+  // Whole-page checks — accessibility, design tokens, stack — and the colours
+  // sampled from the screen.
+  const [insights, setInsights] = useState<PageInsights>(NO_INSIGHTS)
+  const [auditBusy, setAuditBusy] = useState<AuditAction | null>(null)
+  const [issueBusy, setIssueBusy] = useState<string | null>(null)
+  const [pickedColors, setPickedColors] = useState<string[]>([])
+  const { copied: contextCopied, copy: copyText } = useCopy()
+  // Read by callbacks that must not be rebuilt on every edit.
+  const picksRef = useRef<PickedElement[]>([])
+  const measurementsRef = useRef<Measurement[]>([])
+  const attachmentsRef = useRef<PendingAttachment[]>([])
+  const previewTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const pickingTabRef = useRef<number | null>(null)
+  const overlayTabRef = useRef<number | null>(null)
+  const mocksTabRef = useRef<number | null>(null)
+  const mocksKeptRef = useRef<string | null>(null)
+  const [focusNumbers, setFocusNumbers] = useState(false)
+  /** Whether how the picks differ goes with the task. */
+  const [compareIncluded, setCompareIncluded] = useState(false)
+  /** The tab with the floating toolbar on it, while it is shown. */
+  const [toolbarTab, setToolbarTab] = useState<number | null>(null)
+  const toolbarTabRef = useRef<number | null>(null)
+  const toolbarStateRef = useRef<ToolbarState | null>(null)
+  const toolbarActionRef = useRef<((action: ToolbarAction, tabId: number) => void) | null>(null)
+  /** That tab's browser zoom: the toolbar keeps its size and shows a minimap when zoomed in. */
+  const [toolbarZoom, setToolbarZoom] = useState(1)
+  /** The tab with Tab stops numbered on it, so they come off when nothing shows them. */
+  const focusShownRef = useRef<number | null>(null)
+  /** The mock's bytes, kept for comparing: the page holds them, but in a closed shadow root. */
+  const overlayImageRef = useRef<string | null>(null)
+  const readingMocksRef = useRef(false)
+  const startPickRef = useRef<((tabId?: number) => Promise<void>) | null>(null)
   const clientRef = useRef<HostClient | null>(null)
   const portRef = useRef<PanelPort | null>(null)
   const queryRef = useRef("")
@@ -224,6 +378,141 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // be wrong on exactly the machines where the extension and the Host have
   // drifted, which is why the limits travel with the capability.
   const limitsRef = useRef<BrowserContextLimits>(BROWSER_CONTEXT_LIMITS)
+
+  useEffect(() => {
+    picksRef.current = picks
+  }, [picks])
+  useEffect(() => {
+    measurementsRef.current = measurements
+  }, [measurements])
+  useEffect(() => {
+    textEditingTabRef.current = textEditingTab
+  }, [textEditingTab])
+  // A panel closed while the page is being edited leaves the edits where they
+  // are, but not the page editable.
+  useEffect(
+    () => () => {
+      if (textEditingTabRef.current !== null)
+        void api.stopEditingPageText(textEditingTabRef.current, true).catch(() => undefined)
+    },
+    [api]
+  )
+  useEffect(() => {
+    attachmentsRef.current = attachments
+  }, [attachments])
+  useEffect(() => {
+    pickingTabRef.current = pickingTab
+  }, [pickingTab])
+  useEffect(() => {
+    overlayTabRef.current = overlay?.tabId ?? null
+  }, [overlay])
+  useEffect(() => {
+    mocksTabRef.current = mocks?.tabId ?? null
+    mocksKeptRef.current = mocks?.keptUrl ?? null
+  }, [mocks])
+  useEffect(() => {
+    toolbarTabRef.current = toolbarTab
+  }, [toolbarTab])
+  // The toolbar's buttons, answered by the latest handlers.
+  useEffect(
+    () => api.onToolbarAction((action, tabId) => toolbarActionRef.current?.(action, tabId)),
+    [api]
+  )
+  // Its tab's zoom, read when it is shown and followed from then on.
+  useEffect(() => {
+    if (toolbarTab === null) return
+    let live = true
+    void api.readTabZoom(toolbarTab).then((zoom) => {
+      if (live) setToolbarZoom(zoom)
+    })
+    const stop = api.onTabZoom((tabId, zoom) => {
+      if (tabId === toolbarTab) setToolbarZoom(zoom)
+    })
+    return () => {
+      live = false
+      stop()
+      setToolbarZoom(1)
+    }
+  }, [api, toolbarTab])
+  // A focus check sent, cleared or replaced by another tab's takes its
+  // numbers off the page with it.
+  const focusCheckTab = insights.focus?.tabId ?? null
+  useEffect(() => {
+    const shown = focusShownRef.current
+    if (shown === null || shown === focusCheckTab) return
+    focusShownRef.current = null
+    setFocusNumbers(false)
+    void api.showFocusOrder(shown, false).catch(() => undefined)
+  }, [api, focusCheckTab])
+  // A panel closed mid-pick takes the pick with it, rather than leaving the
+  // page waiting for a click nobody will act on; pending previews are dropped.
+  useEffect(() => {
+    const timers = previewTimersRef.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+      if (pickingTabRef.current !== null)
+        void api.cancelPick(pickingTabRef.current).catch(() => undefined)
+      // The mock's controls live here; a mock nobody can move or remove
+      // would stay on the page until it reloads.
+      if (overlayTabRef.current !== null)
+        void api.setDesignOverlay(overlayTabRef.current, null).catch(() => undefined)
+      // So are the simulated requests': a page left failing on purpose,
+      // with nothing to say so, would look broken.
+      if (mocksTabRef.current !== null)
+        void api.setRequestMocks(mocksTabRef.current, []).catch(() => undefined)
+      if (mocksKeptRef.current !== null)
+        void api.keepRequestMocks(mocksKeptRef.current, false).catch(() => undefined)
+      if (focusShownRef.current !== null)
+        void api.showFocusOrder(focusShownRef.current, false).catch(() => undefined)
+      // The toolbar is the panel's remote control: nothing answers it once
+      // the panel is gone.
+      if (toolbarTabRef.current !== null)
+        void api.setPageToolbar(toolbarTabRef.current, null).catch(() => undefined)
+    }
+  }, [api])
+
+  /**
+   * Put picked elements back as the page had them, and forget them there.
+   * Best effort: a tab that closed or navigated has nothing left to revert.
+   */
+  const releasePicks = useCallback(
+    (released: readonly PickedElement[]) => {
+      const byTab = new Map<number, string[]>()
+      for (const pick of released) {
+        const timer = previewTimersRef.current.get(pick.elementId)
+        if (timer) clearTimeout(timer)
+        previewTimersRef.current.delete(pick.elementId)
+        byTab.set(pick.tabId, [...(byTab.get(pick.tabId) ?? []), pick.elementId])
+      }
+      for (const [tabId, ids] of byTab) void api.releaseElements(tabId, ids).catch(() => undefined)
+    },
+    [api]
+  )
+
+  /**
+   * Forget measured elements on the page, except those a pick still holds:
+   * the picker hands one element one id, and a pick's preview must outlive
+   * a measurement taken from it.
+   */
+  const releaseMeasurements = useCallback(
+    (
+      released: readonly Measurement[],
+      keep: readonly { tabId: number; elementId: string }[] = picksRef.current
+    ) => {
+      const byTab = new Map<number, Set<string>>()
+      for (const measurement of released) {
+        const ids = byTab.get(measurement.tabId) ?? new Set<string>()
+        for (const id of [measurement.from.elementId, measurement.to.elementId])
+          if (!keep.some((held) => held.tabId === measurement.tabId && held.elementId === id))
+            ids.add(id)
+        byTab.set(measurement.tabId, ids)
+      }
+      for (const [tabId, ids] of byTab)
+        if (ids.size > 0) void api.releaseElements(tabId, [...ids]).catch(() => undefined)
+    },
+    [api]
+  )
 
   // Paint before anything else. The stored appearance is the Host's last
   // answer, so a panel reopened offline still looks like the app rather than
@@ -496,12 +785,32 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setStalled(null)
       setStaleTab(false)
       setScope(wanted)
+      // Picks and a report describe one page; a capture of another drops them.
+      const elsewhere = picksRef.current.filter(
+        (pick) => pick.tabId !== outcome.page.tabId || pick.pageUrl !== outcome.page.rawUrl
+      )
+      if (elsewhere.length > 0) {
+        releasePicks(elsewhere)
+        setPicks((current) => current.filter((pick) => !elsewhere.includes(pick)))
+      }
+      const measuredElsewhere = measurementsRef.current.filter(
+        (entry) => entry.tabId !== outcome.page.tabId || entry.pageUrl !== outcome.page.rawUrl
+      )
+      if (measuredElsewhere.length > 0) {
+        releaseMeasurements(measuredElsewhere, [])
+        setMeasurements((current) => current.filter((entry) => !measuredElsewhere.includes(entry)))
+      }
+      setDevReport((current) => (current && current.tabId !== outcome.page.tabId ? null : current))
+      setTextChanges((current) =>
+        current && current.tabId !== outcome.page.tabId ? null : current
+      )
+      setInsights((current) => insightsForTab(current, outcome.page.tabId))
       setState((current) =>
         current.kind === "ready" ? { ...current, captured: outcome.page } : current
       )
       return outcome.page
     },
-    [api, readPage]
+    [api, readPage, releasePicks, releaseMeasurements]
   )
 
   /**
@@ -573,6 +882,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         article: "article",
         link: "auto",
         image: "auto",
+        inspect: "auto",
       }
       const captured = await runCapture(scopeFor[request.mode], request.tabId, {
         ...(request.linkUrl
@@ -586,6 +896,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         ...(request.srcUrl ? { image: { url: request.srcUrl } } : {}),
       })
       if (!captured) return
+      // The picker starts on the page the gesture named, under its grant.
+      if (request.mode === "inspect") await startPickRef.current?.(request.tabId)
       if (request.quickAction)
         setInstruction(quickActionInstruction(request.quickAction, api.message))
       else if (request.instruction) setInstruction(request.instruction)
@@ -934,7 +1246,39 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     if (state.kind !== "ready" || !state.captured || !workspaceId) return
     const features = state.capability.features ?? []
     const limits = resolveBrowserContextLimits(state.capability.limits)
-    const captured = withDisplayUrl(state.captured, includeFullUrl)
+    // How often each simulated response matched, as of sending: the page
+    // kept counting since the panel last asked. Best effort — a page that
+    // went away keeps the last count read.
+    let sentMocks = mocks
+    if (mocks && mocks.tabId === state.captured.tabId) {
+      // Nothing else is awaited before the button turns busy, so this read is
+      // the one window a second click could start a second submission in.
+      if (readingMocksRef.current) return
+      readingMocksRef.current = true
+      try {
+        sentMocks = { ...mocks, hits: await api.setRequestMocks(mocks.tabId, null) }
+        setMocks(sentMocks)
+      } catch {
+        // Unreachable now; the counts read last stand.
+      } finally {
+        readingMocksRef.current = false
+      }
+    }
+    // The picks and the report ride in the page's selection, exactly as the
+    // preview counted them.
+    const captured = withInspection(
+      withDisplayUrl(state.captured, includeFullUrl),
+      inspectionFor(picks, devReport, insights, state.captured.tabId, {
+        measurements,
+        attachments: features.includes("attachments") ? attachments : [],
+        textChanges,
+        mocks: sentMocks,
+        designDiff,
+        compare: compareIncluded,
+      }),
+      features,
+      limits
+    )
     const mode: BrowserCaptureMode = captureModeFor(captured, scope, features)
     // Every page the person added, each sent in the mode it was captured for
     // (ADR-0228 §2); the Host fences each one separately.
@@ -1102,7 +1446,20 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setInstruction("")
       setExtraPages([])
       setAttachments([])
+      setAnnotating(null)
       setDroppedAttachments(0)
+      // Sent: the request now lives in the conversation, and the page goes
+      // back to what its source says until the agent changes that.
+      releasePicks(picks)
+      setPicks([])
+      setDetachedPicks([])
+      releaseMeasurements(measurements, [])
+      setMeasurements([])
+      setDetachedMeasures([])
+      setTextChanges(null)
+      setDevReport(null)
+      setInsights(NO_INSIGHTS)
+      setDesignDiff(null)
       void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
       portRef.current?.post({ kind: "refresh-status" })
       setState((current) => (current.kind === "ready" ? { ...current, captured: null } : current))
@@ -1161,12 +1518,22 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   }, [
     api,
     attachments,
+    compareIncluded,
+    devReport,
     extraPages,
     includeFullUrl,
+    insights,
     instruction,
     listFirstPage,
+    measurements,
+    mocks,
+    designDiff,
+    picks,
+    textChanges,
     preferredTargetId,
     refreshRecent,
+    releaseMeasurements,
+    releasePicks,
     scope,
     stalled,
     state,
@@ -1198,6 +1565,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         setTargetParams(draft.targetParams)
         setIncludeFullUrl(draft.includeFullUrl)
         setDroppedAttachments(draft.droppedAttachments)
+        setPicks(draft.picks)
+        setMeasurements(draft.measurements)
+        setTextChanges(draft.textChanges)
+        setDevReport(draft.devReport)
+        setInsights(draft.insights)
       })
       .catch(() => undefined)
     return () => {
@@ -1220,6 +1592,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         targetParams,
         includeFullUrl,
         droppedAttachments: attachments.length,
+        picks,
+        measurements,
+        textChanges,
+        devReport,
+        insights,
         savedAt: now(),
       }
       if (isEmptyDraft(draft)) void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
@@ -1230,14 +1607,19 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     api,
     attachments.length,
     captured0,
+    devReport,
     extraPages,
     includeFullUrl,
+    insights,
     instruction,
     isReady,
+    measurements,
     now,
+    picks,
     preferredTargetId,
     scope,
     targetParams,
+    textChanges,
     workspaceId,
   ])
 
@@ -1334,14 +1716,15 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           setRegionSource(visible)
           return
         }
-        addAttachment(
-          screenshotAttachment(
-            crypto.randomUUID(),
-            visible.replace(/^data:[^,]*,/, ""),
-            now(),
-            "visible"
-          )
+        const shot = screenshotAttachment(
+          crypto.randomUUID(),
+          visible.replace(/^data:[^,]*,/, ""),
+          now(),
+          "visible"
         )
+        addAttachment(shot)
+        // Mark up the screen: the shot, straight into the markup.
+        if (action === "markup") setAnnotating({ id: shot.id, src: visible, shapes: [] })
       } catch (error) {
         setSubmitError(
           error instanceof Error && error.message === "too_large"
@@ -1369,6 +1752,1046 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     },
     [addAttachment, api, now, regionSource]
   )
+
+  /** Open the markup for a screenshot, from the clean shot when it was marked before. */
+  const openAnnotator = useCallback((id: string) => {
+    const attachment = attachmentsRef.current.find((entry) => entry.id === id)
+    if (!attachment?.previewUrl || attachment.kind !== "screenshot") return
+    setSubmitError(null)
+    setAnnotating({
+      id,
+      src: attachment.annotation?.original ?? attachment.previewUrl,
+      shapes: attachment.annotation?.shapes ?? [],
+    })
+  }, [])
+
+  /**
+   * Burn the marks into the screenshot. The clean shot is kept beside it, so
+   * marking up again starts from it, and taking every mark away restores it.
+   */
+  const onAnnotated = useCallback(
+    async (shapes: Shape[]) => {
+      const session = annotating
+      if (!session) return
+      const attachment = attachmentsRef.current.find((entry) => entry.id === session.id)
+      if (!attachment) {
+        setAnnotating(null)
+        return
+      }
+      const original = session.src.replace(/^data:[^,]*,/, "")
+      setAnnotateBusy(true)
+      try {
+        const base64 = shapes.length > 0 ? await api.annotateImage(session.src, shapes) : original
+        const bytes = base64ToBytes(base64)
+        const limits = resolveBrowserContextLimits(limitsRef.current)
+        if (bytes.byteLength > limits.attachmentBytes) {
+          setSubmitError(api.message("attachTooLarge"))
+          return
+        }
+        setAttachments((current) =>
+          current.map((entry) => {
+            if (entry.id !== attachment.id) return entry
+            const { annotation: _previous, ...rest } = entry
+            return {
+              ...rest,
+              bytes,
+              previewUrl: `data:image/png;base64,${base64}`,
+              ...(shapes.length > 0 ? { annotation: { original: session.src, shapes } } : {}),
+            }
+          })
+        )
+        setAnnotating(null)
+      } catch {
+        setSubmitError(api.message("annotateFailed"))
+      } finally {
+        setAnnotateBusy(false)
+      }
+    },
+    [annotating, api]
+  )
+
+  /**
+   * The tab a page tool works on — the captured one, else the one in front —
+   * when it is a page the person may hand over at all.
+   */
+  const toolTab = useCallback(async (): Promise<TabRef | null> => {
+    const tab = await attachmentTab()
+    if (!tab) {
+      setSubmitError(api.message("captureNoGrant"))
+      return null
+    }
+    if (!normalizeCaptureUrl(tab.url).ok) {
+      setSubmitError(api.message("captureRestricted"))
+      return null
+    }
+    if (isBlockedUrl(tab.url, preferences.blockedHosts)) {
+      setSubmitError(api.message("captureBlocked"))
+      return null
+    }
+    return tab
+  }, [api, attachmentTab, preferences.blockedHosts])
+
+  /**
+   * A screenshot of one element, cropped from the visible area, as an
+   * attachment; its id, or nothing when the Host takes no attachments, there
+   * is no room, or the shot failed — a pick is still a pick without one.
+   */
+  const shootElement = useCallback(
+    async (tab: TabRef, box: ElementBox, dpr: number): Promise<string | undefined> => {
+      if (!featuresRef.current.includes("attachments")) return undefined
+      const limits = resolveBrowserContextLimits(limitsRef.current)
+      if (attachmentsRef.current.length >= limits.maxAttachments) return undefined
+      try {
+        const visible = await captureVisible(api, tab, sleep)
+        const base64 = await api.cropImage(visible, elementCrop(box, dpr))
+        const attachment = screenshotAttachment(crypto.randomUUID(), base64, now(), "element")
+        if (attachment.bytes.byteLength > limits.attachmentBytes) return undefined
+        addAttachment(attachment)
+        return attachment.id
+      } catch {
+        return undefined
+      }
+    },
+    [addAttachment, api, now, sleep]
+  )
+
+  /**
+   * Let the person point at an element (Design Mode, React Grab).
+   *
+   * The pick belongs to a captured page, so a panel with nothing captured — or
+   * a capture of a page the tab has since left — captures first, the way the
+   * capture button would. The tab comes to the front for the click, and the
+   * element's screenshot is taken the moment it is chosen.
+   */
+  /**
+   * The capture a page tool's result belongs to: the one in the panel when it
+   * shows this tab as it is now, otherwise a fresh one of it.
+   */
+  const ensureCapture = useCallback(
+    async (tab: TabRef): Promise<boolean> =>
+      Boolean(
+        (captured0 && captured0.tabId === tab.id && captured0.rawUrl === tab.url) ||
+        (await runCapture("auto", tab.id))
+      ),
+    [captured0, runCapture]
+  )
+
+  /**
+   * Add one described element to the picks, with its screenshot; false when
+   * it was already there — then what the page says is refreshed and what the
+   * person wrote is kept.
+   */
+  const addPick = useCallback(
+    async (tab: TabRef, description: ElementDescription, note = ""): Promise<boolean> => {
+      const again = picksRef.current.find(
+        (pick) => pick.tabId === tab.id && pick.elementId === description.elementId
+      )
+      if (again) {
+        setPicks((current) =>
+          current.map((pick) => (pick === again ? { ...pick, ...description } : pick))
+        )
+        return false
+      }
+      const shot = await shootElement(tab, description.box, description.viewport.dpr)
+      setPicks((current) => [
+        ...current,
+        {
+          ...description,
+          tabId: tab.id,
+          pageUrl: tab.url,
+          pickedAt: now(),
+          note,
+          edits: { styles: {} },
+          screenshotIds: shot ? [shot] : [],
+        },
+      ])
+      setInstruction((current) =>
+        current.trim() ? current : api.message("inspectDefaultInstruction")
+      )
+      return true
+    },
+    [api, now, shootElement]
+  )
+
+  const startPick = useCallback(
+    async (tabId?: number) => {
+      setSubmitError(null)
+      if (picksRef.current.length >= MAX_PICKS) {
+        setSubmitError(api.message("inspectFull"))
+        return
+      }
+      const known = tabId ?? captured0?.tabId
+      const tab = known !== undefined ? await api.tabById(known) : await api.activeTab()
+      if (!tab) {
+        setSubmitError(api.message("captureNoGrant"))
+        return
+      }
+      if (!(await ensureCapture(tab))) return
+      setPointing("pick")
+      setPickingTab(tab.id)
+      try {
+        await api.activateTab(tab.id).catch(() => undefined)
+        // One element or several — Shift-click, Alt-click for all alike, or
+        // a box dragged over the page — added in the order chosen.
+        let count = picksRef.current.length
+        const picked = await api.pickElements(
+          tab.id,
+          {
+            hint: api.message("inspectPickHint"),
+            selected: api.message("inspectPickSelected", ["{n}"]),
+            done: api.message("inspectPickDone"),
+          },
+          MAX_PICKS - count
+        )
+        if (!picked) return
+        for (const description of picked) {
+          if (count >= MAX_PICKS) {
+            setSubmitError(api.message("inspectFull"))
+            return
+          }
+          if (await addPick(tab, description)) count++
+        }
+      } catch {
+        // `activeTab` lapsed, or the page went away under the pick.
+        setSubmitError(api.message("inspectFailed"))
+      } finally {
+        setPickingTab(null)
+      }
+    },
+    [addPick, api, captured0, ensureCapture]
+  )
+  useEffect(() => {
+    startPickRef.current = startPick
+  }, [startPick])
+
+  /** One measurement into the list, for the tab it was taken on. */
+  const addMeasurement = useCallback(
+    (tab: TabRef, result: NonNullable<MeasureResult>) => {
+      const { more: _more, ...measured } = result
+      setMeasurements((current) => [
+        ...current,
+        {
+          ...measured,
+          id: crypto.randomUUID(),
+          tabId: tab.id,
+          pageUrl: tab.url,
+          measuredAt: now(),
+          note: "",
+        },
+      ])
+      setInstruction((current) =>
+        current.trim() ? current : api.message("measureDefaultInstruction")
+      )
+    },
+    [api, now]
+  )
+
+  /**
+   * Let the person measure between elements (VisBug): the first click
+   * anchors, the second measures; Shift-click keeps measuring from the same
+   * anchor. Belongs to a captured page, like a pick.
+   */
+  const startMeasure = useCallback(async () => {
+    setSubmitError(null)
+    if (measurementsRef.current.length >= MAX_MEASUREMENTS) {
+      setSubmitError(api.message("measureFull"))
+      return
+    }
+    const known = captured0?.tabId
+    const tab = known !== undefined ? await api.tabById(known) : await api.activeTab()
+    if (!tab) {
+      setSubmitError(api.message("captureNoGrant"))
+      return
+    }
+    if (!(await ensureCapture(tab))) return
+    setPointing("measure")
+    setPickingTab(tab.id)
+    try {
+      await api.activateTab(tab.id).catch(() => undefined)
+      const hints = {
+        hint: api.message("measureHint"),
+        anchorHint: api.message("measureAnchorHint"),
+      }
+      let count = measurementsRef.current.length
+      let anchorId: string | undefined
+      for (;;) {
+        const result = await api.measureElements(tab.id, hints, anchorId)
+        if (!result) return
+        addMeasurement(tab, result)
+        count++
+        if (!result.more) return
+        if (count >= MAX_MEASUREMENTS) {
+          setSubmitError(api.message("measureFull"))
+          return
+        }
+        anchorId = result.from.elementId
+      }
+    } catch {
+      setSubmitError(api.message("measureFailed"))
+    } finally {
+      setPickingTab(null)
+    }
+  }, [addMeasurement, api, captured0, ensureCapture])
+
+  /** Draw a measurement on the page again, and take its numbers as they are now. */
+  const showMeasurement = useCallback(
+    async (id: string) => {
+      const measurement = measurementsRef.current.find((entry) => entry.id === id)
+      if (!measurement) return
+      setMeasureBusy(id)
+      const mark = (gone: boolean) =>
+        setDetachedMeasures((current) =>
+          gone
+            ? current.includes(id)
+              ? current
+              : [...current, id]
+            : current.filter((entry) => entry !== id)
+        )
+      try {
+        await api.activateTab(measurement.tabId).catch(() => undefined)
+        const fresh = await api.showMeasurement(
+          measurement.tabId,
+          measurement.from.elementId,
+          measurement.to.elementId
+        )
+        mark(fresh === null)
+        if (!fresh) return
+        setMeasurements((current) =>
+          current.map((entry) =>
+            entry.id === id
+              ? { ...entry, from: fresh.from, to: fresh.to, measure: fresh.measure }
+              : entry
+          )
+        )
+      } catch {
+        mark(true)
+      } finally {
+        setMeasureBusy(null)
+      }
+    },
+    [api]
+  )
+
+  const removeMeasurement = useCallback(
+    (id: string) => {
+      const measurement = measurementsRef.current.find((entry) => entry.id === id)
+      if (!measurement) return
+      const rest = measurementsRef.current.filter((entry) => entry !== measurement)
+      // An element another measurement still measures stays held.
+      const stillMeasured = rest.flatMap((entry) =>
+        [entry.from, entry.to].map((element) => ({
+          tabId: entry.tabId,
+          elementId: element.elementId,
+        }))
+      )
+      releaseMeasurements([measurement], [...picksRef.current, ...stillMeasured])
+      setMeasurements(rest)
+      setDetachedMeasures((current) => current.filter((entry) => entry !== id))
+    },
+    [releaseMeasurements]
+  )
+
+  /**
+   * Make the page's words editable where they are (Design Mode). The edits
+   * belong to a captured page, like a pick; "Done" reads them back.
+   */
+  const startTextEditing = useCallback(async () => {
+    setSubmitError(null)
+    const known = captured0?.tabId
+    const tab = known !== undefined ? await api.tabById(known) : await api.activeTab()
+    if (!tab) {
+      setSubmitError(api.message("captureNoGrant"))
+      return
+    }
+    if (!(await ensureCapture(tab))) return
+    try {
+      await api.activateTab(tab.id).catch(() => undefined)
+      await api.editPageText(tab.id, api.message("textEditHint"))
+      setTextEditingTab(tab.id)
+    } catch {
+      setSubmitError(api.message("textEditFailed"))
+    }
+  }, [api, captured0, ensureCapture])
+
+  /** Leave editing: keep the edits and read them back, or unwind them all. */
+  const stopTextEditing = useCallback(
+    async (keep: boolean) => {
+      const tabId = textEditingTab
+      if (tabId === null) return
+      setTextEditingTab(null)
+      try {
+        const changes = await api.stopEditingPageText(tabId, keep)
+        if (!keep || changes.length === 0) return
+        setTextChanges({ tabId, changes })
+        setInstruction((current) =>
+          current.trim() ? current : api.message("textEditDefaultInstruction")
+        )
+      } catch {
+        setSubmitError(api.message("textEditFailed"))
+      }
+    },
+    [api, textEditingTab]
+  )
+
+  /**
+   * End the pass the panel shows as running. The panel shows it from the
+   * moment it asks, before the page has started it; a cancel that arrives in
+   * between finds nothing to end, so it asks again until the pass has
+   * started and ended, or the panel stopped pointing.
+   */
+  const cancelPick = useCallback(() => {
+    const tabId = pickingTab
+    if (tabId === null) return
+    void (async () => {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const ended = await api.cancelPick(tabId).catch(() => true)
+        if (ended || pickingTabRef.current !== tabId) return
+        await sleep(100)
+      }
+    })()
+  }, [api, pickingTab, sleep])
+
+  const markDetached = useCallback((elementId: string, detached: boolean) => {
+    setDetachedPicks((current) =>
+      detached
+        ? current.includes(elementId)
+          ? current
+          : [...current, elementId]
+        : current.filter((id) => id !== elementId)
+    )
+  }, [])
+
+  /** A note or an edit changed; edits preview on the page a moment after the last keystroke. */
+  const updatePick = useCallback(
+    (elementId: string, next: Pick<PickedElement, "note" | "edits">) => {
+      const pick = picksRef.current.find((entry) => entry.elementId === elementId)
+      if (!pick) return
+      setPicks((current) =>
+        current.map((entry) => (entry.elementId === elementId ? { ...entry, ...next } : entry))
+      )
+      if (JSON.stringify(next.edits) === JSON.stringify(pick.edits)) return
+      const timers = previewTimersRef.current
+      const pending = timers.get(elementId)
+      if (pending) clearTimeout(pending)
+      timers.set(
+        elementId,
+        setTimeout(() => {
+          timers.delete(elementId)
+          void api
+            .previewElementEdits(pick.tabId, elementId, sanitizeEdits(next.edits))
+            .then((applied) => markDetached(elementId, !applied))
+            .catch(() => markDetached(elementId, true))
+        }, 150)
+      )
+    },
+    [api, markDetached]
+  )
+
+  const removePick = useCallback(
+    (elementId: string) => {
+      const pick = picksRef.current.find((entry) => entry.elementId === elementId)
+      if (!pick) return
+      const measured = measurementsRef.current.some(
+        (entry) =>
+          entry.tabId === pick.tabId &&
+          (entry.from.elementId === elementId || entry.to.elementId === elementId)
+      )
+      // Still measured: put the page back, but keep the handle the measurement uses.
+      if (measured) void api.revertElement(pick.tabId, elementId).catch(() => undefined)
+      else releasePicks([pick])
+      setPicks((current) => current.filter((entry) => entry.elementId !== elementId))
+      setAttachments((current) =>
+        current.filter((attachment) => !pick.screenshotIds.includes(attachment.id))
+      )
+      markDetached(elementId, false)
+    },
+    [api, markDetached, releasePicks]
+  )
+
+  const locatePick = useCallback(
+    async (elementId: string, shoot: boolean) => {
+      const pick = picksRef.current.find((entry) => entry.elementId === elementId)
+      if (!pick) return
+      setPickBusy({ elementId, action: shoot ? "shoot" : "locate" })
+      try {
+        const tab = await api.tabById(pick.tabId)
+        if (!tab) {
+          markDetached(elementId, true)
+          return
+        }
+        await api.activateTab(tab.id).catch(() => undefined)
+        const box = await api.locateElement(tab.id, elementId, !shoot)
+        markDetached(elementId, box === null)
+        if (!box || !shoot) return
+        const shot = await shootElement(tab, box, box.dpr)
+        if (!shot) {
+          setSubmitError(api.message("attachFailed"))
+          return
+        }
+        setPicks((current) =>
+          current.map((entry) =>
+            entry.elementId === elementId
+              ? { ...entry, screenshotIds: [...entry.screenshotIds, shot] }
+              : entry
+          )
+        )
+      } catch {
+        markDetached(elementId, true)
+      } finally {
+        setPickBusy(null)
+      }
+    },
+    [api, markDetached, shootElement]
+  )
+
+  /**
+   * Resize a pick by its edges and nudge its spacing on the page (VisBug,
+   * UiToolbar); what it changed joins the pick's style edits.
+   */
+  const adjustPick = useCallback(
+    async (elementId: string) => {
+      const pick = picksRef.current.find((entry) => entry.elementId === elementId)
+      if (!pick) return
+      setSubmitError(null)
+      const tab = await api.tabById(pick.tabId)
+      if (!tab) {
+        markDetached(elementId, true)
+        return
+      }
+      setPointing("adjust")
+      setPickingTab(tab.id)
+      setPickBusy({ elementId, action: "adjust" })
+      try {
+        await api.activateTab(tab.id).catch(() => undefined)
+        const changes = await api.adjustElement(tab.id, elementId, api.message("adjustHint"), {
+          margin: api.message("adjustMargin"),
+          padding: api.message("adjustPadding"),
+        })
+        const current = picksRef.current.find((entry) => entry.elementId === elementId)
+        if (!changes || Object.keys(changes).length === 0 || !current) return
+        updatePick(elementId, {
+          note: current.note,
+          edits: { ...current.edits, styles: { ...current.edits.styles, ...changes } },
+        })
+      } catch {
+        setSubmitError(api.message("adjustFailed"))
+      } finally {
+        setPickingTab(null)
+        setPickBusy(null)
+      }
+    },
+    [api, markDetached, updatePick]
+  )
+
+  const finishAdjust = useCallback(() => {
+    if (pickingTab !== null) void api.finishAdjust(pickingTab).catch(() => undefined)
+  }, [api, pickingTab])
+
+  /** Float the tools on the page (VisBug, UiToolbar), or take them away. */
+  const toggleToolbar = useCallback(async () => {
+    setSubmitError(null)
+    if (toolbarTab !== null) {
+      void api.setPageToolbar(toolbarTab, null).catch(() => undefined)
+      setToolbarTab(null)
+      return
+    }
+    const tab = await toolTab()
+    const state = toolbarStateRef.current
+    if (!tab || !state) return
+    try {
+      await api.activateTab(tab.id).catch(() => undefined)
+      if (await api.setPageToolbar(tab.id, state)) setToolbarTab(tab.id)
+      else setSubmitError(api.message("toolbarFailed"))
+    } catch {
+      setSubmitError(api.message("toolbarFailed"))
+    }
+  }, [api, toolTab, toolbarTab])
+
+  /** Start listening to the tab's console and requests, for a bug report (Jam). */
+  const onRecord = useCallback(async () => {
+    setSubmitError(null)
+    setToolBusy("record")
+    try {
+      const tab = await toolTab()
+      if (!tab) return
+      await api.startDevRecording(tab.id)
+      setRecording({ tabId: tab.id, since: now() })
+    } catch {
+      setSubmitError(api.message("devRecordFailed"))
+    } finally {
+      setToolBusy(null)
+    }
+  }, [api, now, toolTab])
+
+  /** Read what the console and requests said into a report on the capture. */
+  const onAttachReport = useCallback(async () => {
+    setSubmitError(null)
+    setToolBusy("report")
+    try {
+      const tab = await toolTab()
+      if (!tab || !(await ensureCapture(tab))) return
+      const snapshot = await api.readDevSnapshot(tab.id)
+      const since = recording?.tabId === tab.id ? recording.since : null
+      if (since !== null && !snapshot.recording) {
+        // The page reloaded and took the recorder with it.
+        setRecording(null)
+        setSubmitError(api.message("devRecordingLost"))
+      }
+      setDevReport(
+        buildDevReport(snapshot, {
+          tabId: tab.id,
+          now: now(),
+          includeFullUrl,
+          recordingSince: since,
+        })
+      )
+      setInstruction((current) => (current.trim() ? current : api.message("devDefaultInstruction")))
+    } catch {
+      setSubmitError(api.message("devReportFailed"))
+    } finally {
+      setToolBusy(null)
+    }
+  }, [api, ensureCapture, includeFullUrl, now, recording, toolTab])
+
+  /** Lay a design mock over the tab (PerfectPixel). */
+  const onOverlayFile = useCallback(
+    async (file: File) => {
+      setSubmitError(null)
+      if (file.size > DESIGN_OVERLAY_MAX_BYTES) {
+        setSubmitError(api.message("attachTooLarge"))
+        return
+      }
+      setToolBusy("overlay")
+      try {
+        const tab = await toolTab()
+        if (!tab) return
+        const image = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        })
+        const settings: OverlaySettings = {
+          name: file.name,
+          opacity: overlay?.opacity ?? 0.5,
+          x: overlay?.x ?? 0,
+          y: overlay?.y ?? 0,
+          scale: overlay?.scale ?? 1,
+          difference: overlay?.difference ?? false,
+          visible: true,
+        }
+        if (overlay && overlay.tabId !== tab.id)
+          void api.setDesignOverlay(overlay.tabId, null).catch(() => undefined)
+        const { name: _name, ...state } = settings
+        await api.setDesignOverlay(tab.id, { ...state, image })
+        overlayImageRef.current = image
+        setOverlay({ ...settings, tabId: tab.id })
+      } catch {
+        setSubmitError(api.message("overlayFailed"))
+      } finally {
+        setToolBusy(null)
+      }
+    },
+    [api, overlay, toolTab]
+  )
+
+  const onOverlayChange = useCallback(
+    (next: OverlaySettings) => {
+      if (!overlay) return
+      setOverlay({ ...next, tabId: overlay.tabId })
+      const { name: _name, ...state } = next
+      void api.setDesignOverlay(overlay.tabId, { ...state, image: null }).catch(() => {
+        // The page reloaded and the mock went with it.
+        setOverlay(null)
+        setSubmitError(api.message("overlayFailed"))
+      })
+    },
+    [api, overlay]
+  )
+
+  const onOverlayRemove = useCallback(() => {
+    if (overlay) void api.setDesignOverlay(overlay.tabId, null).catch(() => undefined)
+    overlayImageRef.current = null
+    setOverlay(null)
+  }, [api, overlay])
+
+  const removeDesignDiff = useCallback(() => {
+    const attachmentId = designDiff?.attachmentId
+    if (attachmentId)
+      setAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId))
+    setDesignDiff(null)
+  }, [designDiff])
+
+  /**
+   * Measure the build against the mock (PerfectPixel): the visible page,
+   * captured with the overlay hidden for the moment of the shot, compared
+   * with the mock where the overlay puts it. The highlighted difference is
+   * attached and the numbers are sent.
+   */
+  const onCompareDesign = useCallback(async () => {
+    const mock = overlayImageRef.current
+    if (!overlay || !mock) return
+    setSubmitError(null)
+    setToolBusy("compare")
+    const { name, tabId, ...settings } = overlay
+    let hidden = false
+    try {
+      const tab = await api.tabById(tabId)
+      if (!tab) {
+        setSubmitError(api.message("overlayFailed"))
+        return
+      }
+      if (!(await ensureCapture(tab))) return
+      await api.activateTab(tab.id).catch(() => undefined)
+      await api.setDesignOverlay(tab.id, { ...settings, image: null, visible: false })
+      hidden = true
+      const view = await api.readPageView(tab.id)
+      const capture = await captureVisible(api, tab, sleep)
+      await api.setDesignOverlay(tab.id, { ...settings, image: null })
+      hidden = false
+      const diff = await api.diffDesign(
+        capture,
+        mock,
+        { x: settings.x, y: settings.y, scale: settings.scale },
+        view
+      )
+      if (!diff) {
+        setSubmitError(api.message("compareOutOfView"))
+        return
+      }
+      // The previous comparison's image goes: this one supersedes it.
+      const previous = designDiff?.attachmentId
+      const others = attachmentsRef.current.filter((attachment) => attachment.id !== previous)
+      const limits = resolveBrowserContextLimits(limitsRef.current)
+      const attachment = screenshotAttachment(
+        crypto.randomUUID(),
+        diff.image.slice(diff.image.indexOf(",") + 1),
+        now(),
+        "design-diff"
+      )
+      const attach =
+        featuresRef.current.includes("attachments") &&
+        others.length < limits.maxAttachments &&
+        attachment.bytes.byteLength <= limits.attachmentBytes
+      setAttachments(attach ? [...others, attachment] : others)
+      setDesignDiff({
+        ...diff.result,
+        tabId: tab.id,
+        ranAt: now(),
+        mock: name,
+        ...(attach ? { attachmentId: attachment.id } : {}),
+      })
+      setInstruction((current) =>
+        current.trim() ? current : api.message("compareDefaultInstruction")
+      )
+    } catch {
+      setSubmitError(api.message("compareFailed"))
+    } finally {
+      if (hidden)
+        void api.setDesignOverlay(tabId, { ...settings, image: null }).catch(() => undefined)
+      setToolBusy(null)
+    }
+  }, [api, designDiff, ensureCapture, now, overlay, sleep])
+
+  /** Open the page at another screen size (Responsive Viewer). */
+  const onViewport = useCallback(
+    async (presetId: (typeof VIEWPORT_PRESETS)[number]["id"]) => {
+      setSubmitError(null)
+      const preset = VIEWPORT_PRESETS.find((entry) => entry.id === presetId)
+      if (!preset) return
+      setToolBusy("viewport")
+      try {
+        const tab = await toolTab()
+        if (!tab) return
+        await api.openViewport(tab.url, { width: preset.width, height: preset.height })
+      } catch {
+        setSubmitError(api.message("viewportFailed"))
+      } finally {
+        setToolBusy(null)
+      }
+    },
+    [api, toolTab]
+  )
+
+  /**
+   * Install the rules on the tab (Requestly), replacing what it had: on the
+   * tab the rules were made for, or the panel's tab for the first one.
+   */
+  const applyMocks = useCallback(
+    async (rules: RequestMock[]) => {
+      setSubmitError(null)
+      setToolBusy("mocks")
+      try {
+        const known = mocks ? await api.tabById(mocks.tabId) : null
+        const tab = known ?? (mocks ? null : await toolTab())
+        if (!tab) {
+          if (mocks) setMocks(null)
+          return
+        }
+        const clean = rules.flatMap((rule) => cleanMock(rule) ?? [])
+        // Kept rules stay kept as they change; the last one gone ends that.
+        const kept = clean.length > 0 && mocks?.hits?.kept === true
+        const hits = await api.setRequestMocks(tab.id, clean, kept)
+        if (clean.length === 0 && mocks?.keptUrl)
+          await api.keepRequestMocks(mocks.keptUrl, false).catch(() => false)
+        setMocks(
+          clean.length > 0
+            ? { tabId: tab.id, url: tab.url, keptUrl: mocks?.keptUrl ?? null, rules: clean, hits }
+            : null
+        )
+      } catch {
+        setSubmitError(api.message("mockFailed"))
+      } finally {
+        setToolBusy(null)
+      }
+    },
+    [api, mocks, toolTab]
+  )
+
+  /**
+   * Keep the rules across reloads of the tab, or stop: the site's permission
+   * is asked for first, while the click still counts as the person's.
+   */
+  const keepMocks = useCallback(
+    async (keep: boolean) => {
+      if (!mocks) return
+      setSubmitError(null)
+      setToolBusy("mocks")
+      try {
+        // Stopping releases the site it was kept for, wherever the tab is now.
+        const url = keep ? mocks.url : (mocks.keptUrl ?? mocks.url)
+        if (!(await api.keepRequestMocks(url, keep))) {
+          if (keep) setSubmitError(api.message("mockKeepDenied"))
+          return
+        }
+        const hits = await api.setRequestMocks(mocks.tabId, mocks.rules, keep)
+        const keptUrl = keep ? url : null
+        setMocks((current) => (current ? { ...current, keptUrl, hits } : current))
+      } catch {
+        setSubmitError(api.message("mockFailed"))
+      } finally {
+        setToolBusy(null)
+      }
+    },
+    [api, mocks]
+  )
+
+  /** Read the counts and log again in the background; a miss just waits for the next. */
+  const pollMocks = useCallback(() => {
+    const tabId = mocks?.tabId
+    if (tabId === undefined || readingMocksRef.current) return
+    void api
+      .setRequestMocks(tabId, null)
+      .then((hits) =>
+        setMocks((current) => (current && current.tabId === tabId ? { ...current, hits } : current))
+      )
+      .catch(() => undefined)
+  }, [api, mocks?.tabId])
+
+  /** How often each rule matched so far — or, after a reload, that none are left. */
+  const refreshMocks = useCallback(async () => {
+    if (!mocks) return
+    setToolBusy("mocks")
+    try {
+      const hits = await api.setRequestMocks(mocks.tabId, null)
+      setMocks((current) => (current ? { ...current, hits } : current))
+    } catch {
+      setSubmitError(api.message("mockFailed"))
+    } finally {
+      setToolBusy(null)
+    }
+  }, [api, mocks])
+
+  /** Run one whole-page check on the tab in the panel. */
+  const onRunInsight = useCallback(
+    async (kind: InsightKind) => {
+      setSubmitError(null)
+      setAuditBusy(kind)
+      try {
+        const tab = await toolTab()
+        if (!tab || !(await ensureCapture(tab))) return
+        const ranAt = now()
+        // Included the first time — running it was the person asking — and
+        // left as the person set it when run again.
+        const previous = insights[kind]
+        const include = previous?.tabId === tab.id ? previous.include : true
+        if (kind === "audit") {
+          const audit = await api.auditAccessibility(tab.id)
+          setInsights((current) => ({
+            ...current,
+            audit: { ...audit, tabId: tab.id, ranAt, include },
+          }))
+        } else if (kind === "tokens") {
+          const tokens = await api.readDesignTokens(tab.id)
+          setInsights((current) => ({
+            ...current,
+            tokens: { ...tokens, tabId: tab.id, ranAt, include },
+          }))
+        } else if (kind === "focus") {
+          const focus = await api.checkFocus(tab.id)
+          setInsights((current) => ({
+            ...current,
+            focus: { ...focus, tabId: tab.id, ranAt, include },
+          }))
+          // The check numbers the stops on the page as it runs.
+          focusShownRef.current = focus.stops > 0 ? tab.id : null
+          setFocusNumbers(focus.stops > 0)
+        } else if (kind === "layout") {
+          const layout = await api.checkLayout(tab.id)
+          setInsights((current) => ({
+            ...current,
+            layout: { ...layout, tabId: tab.id, ranAt, include },
+          }))
+        } else if (kind === "seo") {
+          const seo = await api.readSeo(tab.id)
+          setInsights((current) => ({
+            ...current,
+            seo: { ...seo, tabId: tab.id, ranAt, include },
+          }))
+        } else if (kind === "perf") {
+          const perf = await api.readPerformance(tab.id)
+          setInsights((current) => ({
+            ...current,
+            perf: { ...perf, tabId: tab.id, ranAt, include },
+          }))
+        } else {
+          const stack = await api.detectStack(tab.id)
+          setInsights((current) => ({
+            ...current,
+            stack: { ...stack, tabId: tab.id, ranAt, include },
+          }))
+        }
+      } catch {
+        setSubmitError(api.message("insightFailed"))
+      } finally {
+        setAuditBusy(null)
+      }
+    },
+    [api, ensureCapture, insights, now, toolTab]
+  )
+
+  const onIncludeInsight = useCallback((kind: InsightKind, include: boolean) => {
+    setInsights((current) => {
+      const entry = current[kind]
+      return entry ? { ...current, [kind]: { ...entry, include } } : current
+    })
+  }, [])
+
+  const auditTabId = insights.audit?.tabId
+
+  /** Bring a finding's element into view, flashing it. */
+  /** Flash a check's finding on the page. */
+  const showFinding = useCallback(
+    async (tabId: number | undefined, elementId: string | undefined) => {
+      if (!elementId || tabId === undefined) return
+      setIssueBusy(elementId)
+      try {
+        await api.activateTab(tabId).catch(() => undefined)
+        if (!(await api.locateElement(tabId, elementId, true)))
+          setSubmitError(api.message("inspectDetached"))
+      } catch {
+        setSubmitError(api.message("inspectDetached"))
+      } finally {
+        setIssueBusy(null)
+      }
+    },
+    [api]
+  )
+
+  /** Turn a check's finding into a pick, its note saying what was found. */
+  const pickFinding = useCallback(
+    async (tabId: number | undefined, elementId: string | undefined, note: string) => {
+      if (!elementId || tabId === undefined) return
+      if (picksRef.current.length >= MAX_PICKS) {
+        setSubmitError(api.message("inspectFull"))
+        return
+      }
+      setIssueBusy(elementId)
+      try {
+        const tab = await api.tabById(tabId)
+        if (!tab) {
+          setSubmitError(api.message("captureNoGrant"))
+          return
+        }
+        await api.activateTab(tab.id).catch(() => undefined)
+        // In view first, so the description's box is the screenshot's.
+        await api.locateElement(tab.id, elementId, false)
+        const description = await api.describeElement(tab.id, elementId)
+        if (!description) {
+          setSubmitError(api.message("inspectDetached"))
+          return
+        }
+        await addPick(tab, description, note)
+      } catch {
+        setSubmitError(api.message("inspectFailed"))
+      } finally {
+        setIssueBusy(null)
+      }
+    },
+    [addPick, api]
+  )
+  const layoutTabId = insights.layout?.tabId
+  const onShowIssue = (issue: A11yIssue) => showFinding(auditTabId, issue.elementId)
+  const onPickIssue = (issue: A11yIssue) =>
+    pickFinding(
+      auditTabId,
+      issue.elementId,
+      [ruleTitle(issue.rule, api.message), issue.detail].filter(Boolean).join(" — ")
+    )
+  const focusTabId = insights.focus?.tabId
+  const onShowFocusIssue = (issue: FocusIssue) => showFinding(focusTabId, issue.elementId)
+  const onPickFocusIssue = (issue: FocusIssue) =>
+    pickFinding(
+      focusTabId,
+      issue.elementId,
+      [focusRuleTitle(issue.rule, api.message), issue.detail].filter(Boolean).join(" — ")
+    )
+  const onToggleFocusNumbers = (show: boolean) => {
+    if (focusTabId === undefined) return
+    void api
+      .showFocusOrder(focusTabId, show)
+      .then((done) => {
+        // Hiding always succeeds; showing needs the stops still on the page.
+        const shown = show && done
+        focusShownRef.current = shown ? focusTabId : null
+        setFocusNumbers(shown)
+      })
+      .catch(() => setFocusNumbers(false))
+  }
+  const onShowLayoutIssue = (issue: LayoutIssue) => showFinding(layoutTabId, issue.elementId)
+  const onPickLayoutIssue = (issue: LayoutIssue) =>
+    pickFinding(
+      layoutTabId,
+      issue.elementId,
+      [layoutRuleTitle(issue.rule, api.message), issue.detail].filter(Boolean).join(" — ")
+    )
+
+  /**
+   * Sample a colour from anywhere on the screen (ColorZilla). The panel's own
+   * eyedropper, so no page is touched; the colour joins the history.
+   */
+  const eyedrop = useCallback(async (): Promise<string | null> => {
+    const EyeDropper = (window as unknown as { EyeDropper?: new () => EyeDropperLike }).EyeDropper
+    if (!EyeDropper) return null
+    try {
+      const { sRGBHex } = await new EyeDropper().open()
+      const hex = sRGBHex.toLowerCase()
+      setPickedColors((current) => [hex, ...current.filter((entry) => entry !== hex)].slice(0, 8))
+      return hex
+    } catch {
+      // Escape, or the window lost focus: no colour, and nothing to say.
+      return null
+    }
+  }, [])
+
+  const onEyedropper = useCallback(async () => {
+    setAuditBusy("eyedropper")
+    try {
+      await eyedrop()
+    } finally {
+      setAuditBusy(null)
+    }
+  }, [eyedrop])
 
   /** Another tab, read whole, for the same submission. */
   const addExtraPage = useCallback(
@@ -1428,13 +2851,21 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     clientRef.current = null
     pendingSubmissionRef.current = null
     setStalled(null)
+    releasePicks(picksRef.current)
+    setPicks([])
+    releaseMeasurements(measurementsRef.current, [])
+    setMeasurements([])
+    setTextChanges(null)
+    setDevReport(null)
+    setInsights(NO_INSIGHTS)
+    setDesignDiff(null)
     // Said on the pairing screen, which is what replaces this one: the key is
     // gone from this browser, and the Host still lists the device until it is
     // revoked there. No call reaches the Host from here — a revoked or
     // unreachable Host must not be able to stop a user forgetting it locally.
     setDisconnected(true)
     setState({ kind: "unpaired" })
-  }, [api])
+  }, [api, releasePicks, releaseMeasurements])
 
   /**
    * Forget the local conveniences but stay paired.
@@ -1482,6 +2913,91 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     },
     [api]
   )
+
+  // What the floating toolbar shows, for the tab it is on: the tool running,
+  // what there is to act on, and how many picks and measurements it has.
+  const toolbarPicks = picks.filter((pick) => pick.tabId === toolbarTab)
+  const canShot =
+    state.kind === "ready" &&
+    state.captured !== null &&
+    hasFeature(state.capability, "attachments") &&
+    attachments.length < resolveBrowserContextLimits(state.capability.limits).maxAttachments
+  const toolbarState: ToolbarState = {
+    labels: {
+      title: api.message("toolbarTitle"),
+      pick: api.message("toolbarPick"),
+      measure: api.message("toolbarMeasure"),
+      adjust: api.message("toolbarAdjust"),
+      text: api.message("toolbarText"),
+      shot: api.message("toolbarShot"),
+      close: api.message("toolbarClose"),
+      collapse: api.message("toolbarCollapse"),
+      expand: api.message("toolbarExpand"),
+      drag: api.message("toolbarDrag"),
+      minimap: api.message("toolbarMinimap"),
+      minimapHide: api.message("toolbarMinimapHide"),
+    },
+    active: pickingTab !== null ? pointing : textEditingTab !== null ? "text" : null,
+    disabled: [
+      ...(toolbarPicks.length === 0 ? (["adjust"] as const) : []),
+      ...(canShot ? [] : (["shot"] as const)),
+    ],
+    counts: {
+      pick: toolbarPicks.length,
+      measure: measurements.filter((entry) => entry.tabId === toolbarTab).length,
+    },
+    zoom: toolbarZoom,
+    marks: toolbarPicks.map((pick) => pick.elementId),
+    snap: preferences.toolbarSnap,
+  }
+  const toolbarKey = JSON.stringify(toolbarState)
+  useEffect(() => {
+    toolbarStateRef.current = JSON.parse(toolbarKey) as ToolbarState
+  }, [toolbarKey])
+  // Redrawn whenever it changes; a tab that went away takes the toolbar with it.
+  useEffect(() => {
+    if (toolbarTab === null) return
+    void api
+      .setPageToolbar(toolbarTab, JSON.parse(toolbarKey) as ToolbarState)
+      .catch(() => setToolbarTab(null))
+  }, [api, toolbarKey, toolbarTab])
+  // A button on the page runs the tool as the panel's own button would. A
+  // tool already running ends instead (an adjustment kept), so two passes
+  // never compete for the page; a second press starts the next one.
+  useEffect(() => {
+    toolbarActionRef.current = (action, tabId) => {
+      if (tabId !== toolbarTabRef.current) return
+      if (action === "close") {
+        void api.setPageToolbar(tabId, null).catch(() => undefined)
+        setToolbarTab(null)
+        return
+      }
+      if (pickingTab !== null) {
+        if (pointing === "adjust") finishAdjust()
+        else cancelPick()
+        return
+      }
+      switch (action) {
+        case "pick":
+          void startPick(tabId)
+          return
+        case "measure":
+          void startMeasure()
+          return
+        case "adjust": {
+          const last = picksRef.current.filter((pick) => pick.tabId === tabId).at(-1)
+          if (last) void adjustPick(last.elementId)
+          return
+        }
+        case "text":
+          void (textEditingTab !== null ? stopTextEditing(true) : startTextEditing())
+          return
+        case "shot":
+          void onAttach("markup")
+          return
+      }
+    }
+  })
 
   if (state.kind === "loading") return <PanelSkeleton label={api.message("loading")} />
 
@@ -1544,9 +3060,25 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const captured = state.captured ? withDisplayUrl(state.captured, includeFullUrl) : null
   const features = state.capability.features ?? []
   const limits = resolveBrowserContextLimits(state.capability.limits)
-  const mode: BrowserCaptureMode = captured ? captureModeFor(captured, scope, features) : "metadata"
-  const contextBytes = captured
-    ? contextContentBytes(buildPageContext(captured, scope, features)) +
+  // What is sent is the capture with the picks and the report after its
+  // selection; the editor edits the person's own text, the preview counts all.
+  const inspection = captured
+    ? inspectionFor(picks, devReport, insights, captured.tabId, {
+        measurements,
+        attachments: hasFeature(state.capability, "attachments") ? attachments : [],
+        textChanges,
+        mocks,
+        designDiff,
+        compare: compareIncluded,
+      })
+    : ""
+  const sendable = captured ? withInspection(captured, inspection, features, limits) : null
+  const editorMode: BrowserCaptureMode = captured
+    ? captureModeFor(captured, scope, features)
+    : "metadata"
+  const mode: BrowserCaptureMode = sendable ? captureModeFor(sendable, scope, features) : "metadata"
+  const contextBytes = sendable
+    ? contextContentBytes(buildPageContext(sendable, scope, features)) +
       extraPages.reduce(
         (sum, page) =>
           sum +
@@ -1580,26 +3112,75 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     Boolean(workspaceId) &&
     paramsReady &&
     (!needsInstruction || Boolean(instruction.trim()))
+  const canEyedrop = typeof (window as { EyeDropper?: unknown }).EyeDropper === "function"
   const clearCapture = () => {
     setStalled(null)
     setExtraPages([])
     setAttachments([])
     setDroppedAttachments(0)
     setRegionSource(null)
+    setAnnotating(null)
+    releasePicks(picks)
+    setPicks([])
+    setDetachedPicks([])
+    releaseMeasurements(measurements, [])
+    setMeasurements([])
+    setDetachedMeasures([])
+    setTextChanges(null)
+    setDevReport(null)
+    setInsights(NO_INSIGHTS)
+    setDesignDiff(null)
     void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
     setState((current) => (current.kind === "ready" ? { ...current, captured: null } : current))
   }
 
   return (
-    <div className="flex flex-col gap-4 p-3">
+    <div className="flex min-h-screen flex-col gap-3 bg-muted/40 p-3">
+      <header className="flex items-center gap-2.5 px-0.5">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+          <SparklesIcon className="size-4" aria-hidden="true" />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm leading-tight font-semibold">{api.message("panelBrand")}</span>
+          <span className="truncate text-[11px] text-muted-foreground">
+            {api.message("panelTagline")}
+          </span>
+        </span>
+        <span
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground"
+          title={state.pairing.baseUrl}
+          data-testid="panel-paired"
+        >
+          <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
+          {api.message("panelPaired")}
+        </span>
+      </header>
       <SiteQuestions api={api} />
-      <section className="space-y-2">
-        <h1 className="text-sm font-semibold">{api.message("captureTitle")}</h1>
+      <PanelSection
+        icon={ScanTextIcon}
+        tone="info"
+        level="h1"
+        title={api.message("captureTitle")}
+        {...(captured
+          ? {
+              // Captured: capturing again is a small thing at the top, out
+              // of the way of reviewing and sending.
+              action: (
+                <CaptureActions
+                  api={api}
+                  compact
+                  article={hasFeature(state.capability, "article")}
+                  onCapture={(scope) => void runCapture(scope)}
+                />
+              ),
+            }
+          : { subtitle: api.message("captureSubtitle") })}
+      >
         {captured ? (
           <>
             <CapturePreview
               api={api}
-              page={captured}
+              page={sendable ?? captured}
               mode={mode}
               limits={state.capability.limits}
               includeFullUrl={includeFullUrl}
@@ -1631,7 +3212,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             <CaptureEditor
               api={api}
               page={captured}
-              mode={mode}
+              mode={editorMode}
               onChange={(next) =>
                 setState((current) =>
                   current.kind === "ready" && current.captured
@@ -1639,6 +3220,53 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                         ...current,
                         captured: { ...next, url: current.captured.url },
                       }
+                    : current
+                )
+              }
+            />
+            <PickedElements
+              api={api}
+              elements={picks.filter((pick) => pick.tabId === captured.tabId)}
+              detached={detachedPicks}
+              busy={pickBusy}
+              canShoot={
+                hasFeature(state.capability, "attachments") &&
+                attachments.length < limits.maxAttachments
+              }
+              preview={inspection}
+              onChange={updatePick}
+              onRemove={removePick}
+              onLocate={(elementId) => void locatePick(elementId, false)}
+              onShoot={(elementId) => void locatePick(elementId, true)}
+              onAdjust={(elementId) => void adjustPick(elementId)}
+              {...(canEyedrop ? { onEyedrop: eyedrop } : {})}
+            />
+            <PickComparisonCard
+              api={api}
+              picks={picks.filter((pick) => pick.tabId === captured.tabId)}
+              included={compareIncluded}
+              onInclude={setCompareIncluded}
+            />
+            <Measurements
+              api={api}
+              measurements={measurements.filter((entry) => entry.tabId === captured.tabId)}
+              detached={detachedMeasures}
+              busy={measureBusy}
+              onNote={(id, note) =>
+                setMeasurements((current) =>
+                  current.map((entry) => (entry.id === id ? { ...entry, note } : entry))
+                )
+              }
+              onShow={(id) => void showMeasurement(id)}
+              onRemove={removeMeasurement}
+            />
+            <TextChanges
+              api={api}
+              changes={textChanges?.tabId === captured.tabId ? textChanges.changes : []}
+              onRemove={(index) =>
+                setTextChanges((current) =>
+                  current
+                    ? { ...current, changes: current.changes.filter((_, at) => at !== index) }
                     : current
                 )
               }
@@ -1665,6 +3293,17 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                   onCancel={() => setRegionSource(null)}
                   onConfirm={(rect) => void onRegionChosen(rect)}
                 />
+              ) : annotating ? (
+                <ImageAnnotator
+                  // A fresh markup per screenshot, not one carried between them.
+                  key={annotating.id}
+                  api={api}
+                  src={annotating.src}
+                  initial={annotating.shapes}
+                  saving={annotateBusy}
+                  onCancel={() => setAnnotating(null)}
+                  onConfirm={(shapes) => void onAnnotated(shapes)}
+                />
               ) : (
                 <AttachmentsBar
                   api={api}
@@ -1677,6 +3316,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                   onRemove={(id) =>
                     setAttachments((current) => current.filter((entry) => entry.id !== id))
                   }
+                  onAnnotate={openAnnotator}
                 />
               )
             ) : null}
@@ -1810,6 +3450,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 <Textarea
                   ref={instructionRef}
                   rows={3}
+                  className="max-h-48 overflow-y-auto"
                   value={instruction}
                   onChange={(event) => setInstruction(event.target.value)}
                   onKeyDown={(event) => {
@@ -1828,13 +3469,73 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 </p>
               </>
             ) : null}
-            <div className="flex items-center gap-2">
-              <Button onClick={() => void onSubmit()} disabled={!canSubmit} data-testid="submit">
+            <div className="space-y-1.5">
+              <Button
+                className="w-full"
+                onClick={() => void onSubmit()}
+                disabled={!canSubmit}
+                data-testid="submit"
+              >
+                <SendIcon className="size-4" aria-hidden="true" />
                 {submitting ? api.message("submitting") : api.message("submit")}
               </Button>
-              <Button variant="ghost" onClick={clearCapture} data-testid="clear-capture">
-                {api.message("clearCapture")}
-              </Button>
+              {/* The other ways out, side by side under the main one. */}
+              <div className="grid grid-cols-3 gap-1.5">
+                {/* For a coding agent in the editor, or an issue: the same
+                  reviewed context, on the person's own clipboard. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal"
+                  onClick={() =>
+                    void copyText(promptForClipboard(sendable ?? captured, instruction, inspection))
+                  }
+                  data-testid="copy-context"
+                >
+                  {contextCopied ? (
+                    <CheckIcon className="size-3.5 text-success" aria-hidden="true" />
+                  ) : (
+                    <CopyIcon className="size-3.5" aria-hidden="true" />
+                  )}
+                  <span>
+                    {contextCopied ? api.message("copyContextDone") : api.message("copyContext")}
+                  </span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal"
+                  onClick={() =>
+                    downloadText(
+                      exportFileName(captured.title, now()),
+                      exportMarkdown(
+                        sendable ?? captured,
+                        instruction,
+                        inspection,
+                        attachments.map((attachment) => attachment.name),
+                        now()
+                      )
+                    )
+                  }
+                  data-testid="export-context"
+                >
+                  <DownloadIcon className="size-3.5" aria-hidden="true" />
+                  <span>{api.message("exportContext")}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal",
+                    "hover:border-destructive/40 hover:text-destructive"
+                  )}
+                  onClick={clearCapture}
+                  data-testid="clear-capture"
+                >
+                  <Trash2Icon className="size-3.5" aria-hidden="true" />
+                  <span>{api.message("clearCapture")}</span>
+                </Button>
+              </div>
             </div>
             {stalled ? (
               // Not the error alert: nothing failed. The Host has the capture
@@ -1857,53 +3558,226 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             ) : null}
           </>
         ) : (
-          <p className="text-xs text-muted-foreground" data-testid="capture-empty">
-            {api.message("captureEmpty")}
-          </p>
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted/40 px-4 py-5 text-center">
+            <span className="flex size-10 items-center justify-center rounded-full bg-info/12 text-info">
+              <MousePointerClickIcon className="size-5" aria-hidden="true" />
+            </span>
+            <p className="text-xs text-muted-foreground" data-testid="capture-empty">
+              {api.message("captureEmpty")}
+            </p>
+          </div>
         )}
         {/* Always offered, captured or not. Re-capturing is how a user sends
             the whole page after seeing that only their selection was picked
             up, and how they refresh a capture after the page changed under
             them. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={captured ? "outline" : "default"}
-            size="sm"
-            onClick={() => void runCapture("auto")}
-            data-testid="capture-now"
-          >
-            {captured ? api.message("captureRecapture") : api.message("captureNow")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void runCapture("page")}
-            data-testid="capture-whole-page"
-          >
-            {api.message("captureWholePage")}
-          </Button>
-          {hasFeature(state.capability, "article") ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void runCapture("article")}
-              data-testid="capture-article"
-            >
-              {api.message("captureArticle")}
-            </Button>
-          ) : null}
-        </div>
-        {submitError ? (
-          <Alert variant="destructive" data-testid="submit-error">
-            <AlertDescription>{submitError}</AlertDescription>
-          </Alert>
-        ) : null}
-      </section>
+        {captured ? null : (
+          <CaptureActions
+            api={api}
+            compact={false}
+            article={hasFeature(state.capability, "article")}
+            onCapture={(scope) => void runCapture(scope)}
+          />
+        )}
+      </PanelSection>
 
-      <section className="space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {api.message("recentTitle")}
-        </h2>
+      <PanelSection
+        icon={SquareMousePointerIcon}
+        tone="success"
+        title={api.message("inspectSectionTitle")}
+        subtitle={api.message("inspectSectionSubtitle")}
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <ToolTile
+            icon={MousePointer2Icon}
+            tone="info"
+            label={api.message("inspectPick")}
+            hint={api.message("inspectTilePickHint")}
+            pressed={pickingTab !== null && pointing === "pick"}
+            disabled={pickingTab !== null || picks.length >= MAX_PICKS}
+            onClick={() => void startPick()}
+            testId="pick-element"
+          />
+          <ToolTile
+            icon={RulerIcon}
+            tone="warning"
+            label={api.message("measureStart")}
+            hint={api.message("inspectTileMeasureHint")}
+            pressed={pickingTab !== null && pointing === "measure"}
+            disabled={pickingTab !== null || measurements.length >= MAX_MEASUREMENTS}
+            onClick={() => void startMeasure()}
+            testId="measure-element"
+          />
+          <ToolTile
+            icon={PencilLineIcon}
+            tone="success"
+            label={api.message("textEditStart")}
+            hint={api.message("inspectTileTextHint")}
+            pressed={textEditingTab !== null}
+            disabled={pickingTab !== null || textEditingTab !== null}
+            onClick={() => void startTextEditing()}
+            testId="text-edit-start"
+          />
+          <ToolTile
+            icon={PanelLeftIcon}
+            label={toolbarTab !== null ? api.message("toolbarHide") : api.message("toolbarShow")}
+            hint={api.message("toolbarToggleHint")}
+            pressed={toolbarTab !== null}
+            onClick={() => void toggleToolbar()}
+            testId="toolbar-toggle"
+          />
+        </div>
+        {toolbarTab !== null ? (
+          <div className="flex items-start justify-between gap-2 rounded-lg bg-muted/50 px-2.5 py-2">
+            <Label htmlFor="cognia-toolbar-snap" className="flex-col items-start gap-0.5 text-xs">
+              <span>{api.message("toolbarSnapLabel")}</span>
+              <span className="font-normal text-muted-foreground">
+                {api.message("toolbarSnapHint")}
+              </span>
+            </Label>
+            <Switch
+              id="cognia-toolbar-snap"
+              checked={preferences.toolbarSnap}
+              onCheckedChange={(next) => void updatePreferences({ toolbarSnap: next })}
+              data-testid="toolbar-snap"
+            />
+          </div>
+        ) : null}
+        {pickingTab !== null ? (
+          <ActivityStrip>
+            <p
+              role="status"
+              className="min-w-0 flex-1 text-[11px] leading-snug"
+              data-testid="pick-waiting"
+            >
+              {pointing === "measure"
+                ? api.message("measureWaiting")
+                : api.message("inspectPicking")}
+            </p>
+            {pointing === "adjust" ? (
+              <Button size="sm" onClick={finishAdjust} data-testid="adjust-done">
+                {api.message("adjustDone")}
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" onClick={cancelPick} data-testid="pick-cancel">
+              {pointing === "measure"
+                ? api.message("measureCancel")
+                : pointing === "adjust"
+                  ? api.message("adjustCancel")
+                  : api.message("inspectPickCancel")}
+            </Button>
+          </ActivityStrip>
+        ) : null}
+        {textEditingTab !== null ? (
+          <ActivityStrip testId="text-editing">
+            <p role="status" className="min-w-0 flex-1 text-[11px] leading-snug">
+              {api.message("textEditing")}
+            </p>
+            <Button
+              size="sm"
+              onClick={() => void stopTextEditing(true)}
+              data-testid="text-edit-done"
+            >
+              {api.message("textEditDone")}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void stopTextEditing(false)}
+              data-testid="text-edit-undo"
+            >
+              {api.message("textEditUndo")}
+            </Button>
+          </ActivityStrip>
+        ) : null}
+      </PanelSection>
+      {submitError ? (
+        <Alert variant="destructive" data-testid="submit-error">
+          <AlertDescription>{submitError}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <CollapsibleCard>
+        <PageTools
+          api={api}
+          // Shown while it is about the page in the panel, or before any capture.
+          recordingSince={
+            recording && (!captured || recording.tabId === captured.tabId) ? recording.since : null
+          }
+          report={devReport && captured && devReport.tabId === captured.tabId ? devReport : null}
+          overlay={overlay}
+          busy={toolBusy}
+          onRecord={() => void onRecord()}
+          onAttachReport={() => void onAttachReport()}
+          onReportChange={(text) =>
+            setDevReport((current) => (current ? { ...current, text } : current))
+          }
+          onRemoveReport={() => setDevReport(null)}
+          onOverlayFile={(file) => void onOverlayFile(file)}
+          onOverlayChange={onOverlayChange}
+          onOverlayRemove={onOverlayRemove}
+          onViewport={(preset) => void onViewport(preset)}
+          designDiff={
+            designDiff && (!captured || designDiff.tabId === captured.tabId) ? designDiff : null
+          }
+          onCompare={() => void onCompareDesign()}
+          onRemoveDiff={removeDesignDiff}
+          childrenActive={mocks !== null || designDiff !== null}
+        >
+          <RequestMocks
+            api={api}
+            rules={mocks?.rules ?? []}
+            hits={mocks?.hits ?? null}
+            busy={toolBusy !== null}
+            onAdd={(rule) => void applyMocks([...(mocks?.rules ?? []), rule])}
+            onRemove={(id) =>
+              void applyMocks((mocks?.rules ?? []).filter((rule) => rule.id !== id))
+            }
+            onToggle={(id, enabled) =>
+              void applyMocks(
+                (mocks?.rules ?? []).map((rule) => (rule.id === id ? { ...rule, enabled } : rule))
+              )
+            }
+            onClear={() => void applyMocks([])}
+            onRefresh={() =>
+              void (mocks?.hits && !mocks.hits.installed ? applyMocks(mocks.rules) : refreshMocks())
+            }
+            onPoll={pollMocks}
+            canKeep={/^https?:/.test(mocks?.url ?? "")}
+            onKeep={(keep) => void keepMocks(keep)}
+          />
+        </PageTools>
+      </CollapsibleCard>
+
+      <CollapsibleCard>
+        <PageAudit
+          api={api}
+          insights={captured ? insightsForTab(insights, captured.tabId) : NO_INSIGHTS}
+          busy={auditBusy}
+          issueBusy={issueBusy}
+          pickedIds={picks.map((pick) => pick.elementId)}
+          canPick={picks.length < MAX_PICKS}
+          pickedColors={pickedColors}
+          canEyedrop={canEyedrop}
+          onRun={(kind) => void onRunInsight(kind)}
+          onInclude={onIncludeInsight}
+          onShowIssue={(issue) => void onShowIssue(issue)}
+          onPickIssue={(issue) => void onPickIssue(issue)}
+          onShowLayoutIssue={(issue) => void onShowLayoutIssue(issue)}
+          onPickLayoutIssue={(issue) => void onPickLayoutIssue(issue)}
+          focusNumbers={focusNumbers}
+          onToggleFocusNumbers={onToggleFocusNumbers}
+          onShowFocusIssue={(issue) => void onShowFocusIssue(issue)}
+          onPickFocusIssue={(issue) => void onPickFocusIssue(issue)}
+          onEyedropper={() => void onEyedropper()}
+        />
+      </CollapsibleCard>
+
+      <PanelSection
+        icon={HistoryIcon}
+        title={api.message("recentTitle")}
+        subtitle={api.message("recentSubtitle")}
+      >
         <RecentList
           api={api}
           items={recent}
@@ -1925,12 +3799,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           followUpIds={followUpIds}
           onFollowUp={(item) => void onFollowUp(item)}
         />
-      </section>
+      </PanelSection>
 
-      <section className="space-y-1 border-t border-border pt-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {api.message("settingsTitle")}
-        </h2>
+      <PanelSection
+        icon={Settings2Icon}
+        title={api.message("settingsTitle")}
+        subtitle={api.message("settingsSubtitle")}
+      >
         <p className="font-mono text-[11px] text-muted-foreground" data-testid="diagnostics">
           {api.message("diagnostics")}: {state.pairing.baseUrl}
         </p>
@@ -2034,12 +3909,169 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             {api.message("clearLocalDone")}
           </p>
         ) : null}
-      </section>
+      </PanelSection>
     </div>
   )
 }
 
 const EMPTY: BrowserContextSubmissionSummaryV1[] = []
+
+/**
+ * Capture this page, the whole page, or its article: big buttons before
+ * anything is captured, small icon buttons in the card's heading after.
+ */
+function CaptureActions({
+  api,
+  compact,
+  article,
+  onCapture,
+}: {
+  api: BrowserApi
+  compact: boolean
+  article: boolean
+  onCapture: (scope: "auto" | "page" | "article") => void
+}) {
+  const actions = [
+    {
+      scope: "auto" as const,
+      testId: "capture-now",
+      label: compact ? api.message("captureRecapture") : api.message("captureNow"),
+      icon: compact ? RefreshCwIcon : CameraIcon,
+    },
+    {
+      scope: "page" as const,
+      testId: "capture-whole-page",
+      label: api.message("captureWholePage"),
+      icon: ScanLineIcon,
+    },
+    ...(article
+      ? [
+          {
+            scope: "article" as const,
+            testId: "capture-article",
+            label: api.message("captureArticle"),
+            icon: FileTextIcon,
+          },
+        ]
+      : []),
+  ]
+  if (compact)
+    return (
+      <div className="flex shrink-0 items-center gap-0.5">
+        {actions.map(({ scope, testId, label, icon: Icon }) => (
+          <Button
+            key={scope}
+            variant="ghost"
+            size="icon-sm"
+            className="size-7 text-muted-foreground hover:text-foreground"
+            title={label}
+            onClick={() => onCapture(scope)}
+            data-testid={testId}
+          >
+            <Icon className="size-3.5" aria-hidden="true" />
+            <span className="sr-only">{label}</span>
+          </Button>
+        ))}
+      </div>
+    )
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {actions.map(({ scope, testId, label, icon: Icon }, index) => (
+        <Button
+          key={scope}
+          variant={index === 0 ? "default" : "outline"}
+          size="sm"
+          className={index === 0 || actions.length === 2 ? "col-span-2" : undefined}
+          onClick={() => onCapture(scope)}
+          data-testid={testId}
+        >
+          <Icon className="size-3.5" aria-hidden="true" />
+          {label}
+        </Button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The inspection Markdown for one captured tab: its picks and measurements,
+ * the notes on marked-up screenshots, its report and checks.
+ */
+/** The simulated responses installed on a tab, and how often each has matched. */
+interface MocksState {
+  tabId: number
+  /** The page the tab was on when the rules last changed, for keeping them across reloads. */
+  url: string
+  /** The page whose site keeps them across reloads; null when they end with the page. */
+  keptUrl: string | null
+  rules: RequestMock[]
+  hits: MockHits | null
+}
+
+function inspectionFor(
+  picks: readonly PickedElement[],
+  report: DevReport | null,
+  insights: PageInsights,
+  tabId: number,
+  {
+    measurements = [],
+    attachments = [],
+    textChanges = null,
+    mocks = null,
+    designDiff = null,
+    compare = false,
+  }: {
+    measurements?: readonly Measurement[]
+    attachments?: readonly PendingAttachment[]
+    textChanges?: { tabId: number; changes: TextChange[] } | null
+    mocks?: MocksState | null
+    designDiff?: DesignDiff | null
+    /** Send how the tab's picks differ, as the person asked. */
+    compare?: boolean
+  } = {}
+): string {
+  const { context, reports } = insightSections(insights, tabId)
+  const elements = picks.filter((pick) => pick.tabId === tabId)
+  const comparison = compare ? comparePicks(elements) : null
+  return inspectionMarkdown({
+    context,
+    elements,
+    reports: [
+      comparison ? comparisonMarkdown(comparison) : null,
+      measurementsMarkdown(measurements.filter((entry) => entry.tabId === tabId)),
+      textChanges?.tabId === tabId ? textChangesMarkdown(textChanges.changes) : null,
+      designDiff?.tabId === tabId ? designDiffMarkdown(designDiff) : null,
+      annotationsMarkdown(
+        attachments.map((attachment) => ({
+          name: attachment.name,
+          shapes: attachment.annotation?.shapes ?? [],
+        }))
+      ),
+      // Before the report, so its staged failures are read as staged.
+      mocks?.tabId === tabId ? mocksMarkdown(mocks.rules, mocks.hits) : null,
+      report?.tabId === tabId ? report.text : null,
+      ...reports,
+    ],
+  })
+}
+
+/**
+ * Save text as a file through the page's own download, which needs no
+ * permission: the person clicked, and the file goes where their downloads go.
+ */
+function downloadText(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }))
+  const link = document.createElement("a")
+  link.href = url
+  link.download = name
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+/** The browser's screen eyedropper, where it has one. */
+interface EyeDropperLike {
+  open(): Promise<{ sRGBHex: string }>
+}
 
 /**
  * Whether this browser's system theme is dark.

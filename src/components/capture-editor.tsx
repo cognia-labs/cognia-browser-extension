@@ -1,5 +1,6 @@
 import type { BrowserCaptureMode } from "@cognia/companion-client"
-import { Badge, Input, Label, Textarea } from "@cognia/plugin-ui"
+import { useState } from "react"
+import { Badge, Button, Input, Label, Textarea, cn } from "@cognia/plugin-ui"
 
 import type { BrowserApi } from "@ext/src/lib/browser-api"
 import { editableText, withEditedText } from "@ext/src/lib/panel/page-context"
@@ -20,8 +21,15 @@ export interface CaptureEditorProps {
  * a right-clicked link or image are shown as they will go, so nothing rides
  * along unseen.
  */
+/** Past this, the text is shown in a box of its own height that scrolls, until opened. */
+export const LONG_TEXT_CHARS = 600
+export const LONG_TEXT_LINES = 10
+
 export function CaptureEditor({ api, page, mode, onChange }: CaptureEditorProps) {
   const text = editableText(page, mode)
+  const [expanded, setExpanded] = useState(false)
+  const lines = text === null ? 0 : text.split("\n").length
+  const long = text !== null && (text.length > LONG_TEXT_CHARS || lines > LONG_TEXT_LINES)
   const metadata = page.metadata
   return (
     <div className="space-y-2" data-testid="capture-editor">
@@ -39,17 +47,42 @@ export function CaptureEditor({ api, page, mode, onChange }: CaptureEditorProps)
       </div>
       {text !== null ? (
         <div className="space-y-1">
-          <Label htmlFor="cognia-capture-text" className="text-xs text-muted-foreground">
-            {api.message("captureEditText")}
-          </Label>
+          <div className="flex items-end justify-between gap-2">
+            <Label htmlFor="cognia-capture-text" className="text-xs text-muted-foreground">
+              {api.message("captureEditText")}
+            </Label>
+            <span
+              className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums"
+              data-testid="capture-text-size"
+            >
+              {api.message("captureTextSize", [text.length.toLocaleString(), String(lines)])}
+            </span>
+          </div>
           <Textarea
             id="cognia-capture-text"
             rows={6}
-            className="font-mono text-[11px]"
+            className={cn(
+              "resize-none overflow-y-auto font-mono text-[11px] leading-relaxed break-words",
+              // A whole page of text scrolls in its box instead of stretching the panel.
+              expanded ? "max-h-[60vh]" : "max-h-44"
+            )}
             value={text}
             onChange={(event) => onChange(withEditedText(page, mode, event.target.value))}
             data-testid="capture-text-input"
           />
+          {long ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 w-full text-[11px] text-muted-foreground"
+              onClick={() => setExpanded((open) => !open)}
+              aria-expanded={expanded}
+              data-testid="capture-text-expand"
+            >
+              {expanded ? api.message("captureTextCollapse") : api.message("captureTextExpand")}
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {metadata && Object.keys(metadata).length > 0 ? (

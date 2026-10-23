@@ -35,6 +35,36 @@ const PAGE: CapturedPage = {
 }
 
 describe("CaptureEditor", () => {
+  it("keeps a whole page of text in a box that scrolls, opened on request", () => {
+    const sizes: unknown[] = []
+    const counting = {
+      message: (key: string, values?: string[]) => {
+        if (key === "captureTextSize") sizes.push(values)
+        return key
+      },
+    } as unknown as BrowserApi
+    const long = Array.from({ length: 40 }, (_, line) => `Line ${line}`).join("\n")
+    render(
+      <CaptureEditor
+        api={counting}
+        page={{ ...PAGE, selection: { ...PAGE.selection!, markdown: long } }}
+        mode="selection"
+        onChange={jest.fn()}
+      />
+    )
+    expect(sizes.at(-1)).toEqual([long.length.toLocaleString(), "40"])
+    const box = screen.getByTestId("capture-text-input")
+    expect(box.className).toContain("max-h-44")
+    fireEvent.click(screen.getByTestId("capture-text-expand"))
+    expect(box.className).toContain("max-h-[60vh]")
+    expect(screen.getByTestId("capture-text-expand")).toHaveAttribute("aria-expanded", "true")
+  })
+
+  it("offers no toggle for text that fits", () => {
+    render(<CaptureEditor api={api} page={PAGE} mode="selection" onChange={jest.fn()} />)
+    expect(screen.queryByTestId("capture-text-expand")).toBeNull()
+  })
+
   it("edits the title and the mode's text", () => {
     const onChange = jest.fn()
     render(<CaptureEditor api={api} page={PAGE} mode="selection" onChange={onChange} />)

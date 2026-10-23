@@ -3,7 +3,7 @@
 // jsdom, so without this the button throws instead of unpairing.
 import "fake-indexeddb/auto"
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import type {
   BrowserCompanionCapabilityV1,
@@ -11,6 +11,9 @@ import type {
 } from "@cognia/companion-client"
 
 import type { BrowserApi } from "@ext/src/lib/browser-api"
+import type { DevSnapshot } from "@ext/src/lib/inspect/dev-report"
+import type { ElementDescription } from "@ext/src/lib/inspect/element-context"
+import { measureBoxes, type MeasureResult } from "@ext/src/lib/inspect/measure"
 import { STORAGE_KEYS } from "@ext/src/lib/browser-api"
 import { CAPTURE_REQUEST_KEY } from "@ext/src/lib/capture/capture-request"
 import { SidePanel } from "./side-panel"
@@ -116,6 +119,89 @@ interface Harness {
   olderPage: BrowserContextSubmissionSummaryV1[]
   /** Upload calls, in order, as `command:arg`. */
   uploads: string[]
+  /** What the element picker answers next; `null` is a cancelled pick. */
+  pickResult: ElementDescription | null
+  /** Picker and recorder calls, in order, as `command:arg`. */
+  inspectCalls: string[]
+  /** Each previewed edit, as `[elementId, edits]`. */
+  previews: [string, unknown][]
+  /** Whether a preview finds its element. */
+  previewFinds: boolean
+  devSnapshot: DevSnapshot
+  overlayStates: unknown[]
+  viewports: [string, { width: number; height: number }][]
+  /** What the page checks answer. */
+  audit: Awaited<ReturnType<BrowserApi["auditAccessibility"]>>
+  tokens: Awaited<ReturnType<BrowserApi["readDesignTokens"]>>
+  stack: Awaited<ReturnType<BrowserApi["detectStack"]>>
+  /** What describing a held element answers, by element id. */
+  described: Map<string, ElementDescription>
+  /** Picks answered in turn before `pickResult`, for a Shift-click run. */
+  pickQueue: (ElementDescription & { more?: boolean })[]
+  /** Measurements answered in turn; an empty queue is a cancelled one. */
+  measureQueue: NonNullable<MeasureResult>[]
+  /** What showing a measurement again answers. */
+  shownMeasure: MeasureResult
+  /** Each annotate call's shapes. */
+  annotated: unknown[]
+  /** What the performance read answers. */
+  perf: Awaited<ReturnType<BrowserApi["readPerformance"]>>
+  /** What the SEO read answers. */
+  seo: Awaited<ReturnType<BrowserApi["readSeo"]>>
+  /** What the layout check answers. */
+  layout: Awaited<ReturnType<BrowserApi["checkLayout"]>>
+  /** What an adjustment answers, once finished; held until then. */
+  adjusted: Awaited<ReturnType<BrowserApi["adjustElement"]>>
+  /** Ends the adjustment in progress with what it answers. */
+  endAdjust: ((result: Awaited<ReturnType<BrowserApi["adjustElement"]>>) => void) | null
+  /** Each set of simulated responses installed; `null` for a read. */
+  mockCalls: (Parameters<BrowserApi["setRequestMocks"]>[1] | null)[]
+  /** What reading the simulated responses answers. */
+  mockHits: Awaited<ReturnType<BrowserApi["setRequestMocks"]>>
+  /** Each ask to keep simulated responses across reloads, or stop. */
+  keepCalls: [string, boolean][]
+  /** Whether the site's permission is granted when asked. */
+  keepAllowed: boolean
+  /** What the focus check answers. */
+  focus: Awaited<ReturnType<BrowserApi["checkFocus"]>>
+  /** What comparing with the mock answers; each call's overlay geometry. */
+  diff: Awaited<ReturnType<BrowserApi["diffDesign"]>>
+  diffCalls: unknown[]
+  /** Each floating-toolbar state drawn, `null` when it was taken away. */
+  toolbarStates: (Parameters<BrowserApi["setPageToolbar"]>[1] | null)[]
+  /** Presses a floating-toolbar button, as the page would report it. */
+  pressToolbar: ((action: string, tabId: number) => void) | null
+  /** The browser zoom a tab reports, and how a change in it reaches the panel. */
+  zoom: number
+  zoomTab: ((tabId: number, zoom: number) => void) | null
+  /** What leaving text editing answers, when the edits are kept. */
+  textEdits: Awaited<ReturnType<BrowserApi["stopEditingPageText"]>>
+}
+
+const DESCRIPTION: ElementDescription = {
+  elementId: "el-1",
+  selector: "main > button.primary",
+  tag: "button",
+  label: "button.primary",
+  role: "button",
+  name: "Save changes",
+  text: "Save changes",
+  textEditable: true,
+  attributes: { class: "primary", type: "submit" },
+  box: { x: 10, y: 20, width: 120, height: 36 },
+  viewport: { width: 1280, height: 800, dpr: 2, scrollX: 0, scrollY: 0 },
+  styles: { display: "inline-flex", "font-size": "14px", "background-color": "rgb(229, 231, 235)" },
+  parent: { label: "main", styles: { display: "flex", gap: "16px" } },
+  outline: 'button.primary "Save changes"',
+  sourceHints: [],
+  framework: {
+    framework: "react",
+    components: [
+      { name: "SaveButton", source: { file: "/src/SaveButton.tsx", line: 4 } },
+      { name: "SettingsForm" },
+    ],
+    source: { file: "/src/SaveButton.tsx", line: 12, column: 5 },
+  },
 }
 
 function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: never } {
@@ -146,6 +232,181 @@ function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: neve
     listCalls: [],
     olderPage: [],
     uploads: [],
+    pickResult: DESCRIPTION,
+    inspectCalls: [],
+    previews: [],
+    adjusted: { width: "160px", padding: "8px 16px" },
+    endAdjust: null,
+    mockCalls: [],
+    mockHits: { installed: true, kept: false, hits: {}, log: [] },
+    keepCalls: [],
+    keepAllowed: true,
+    focus: {
+      stops: 14,
+      issues: [
+        { rule: "unreachable-control", elementId: "el-8", selector: "#card", label: "div#card" },
+      ],
+      truncated: false,
+    },
+    diff: {
+      image: "data:image/png;base64,iVBORw0KGgo=",
+      result: {
+        area: { x: 0, y: 0, width: 1280, height: 800 },
+        compared: 1_024_000,
+        mismatched: 51_200,
+        regions: [{ x: 32, y: 96, width: 320, height: 48 }],
+      },
+    },
+    diffCalls: [],
+    toolbarStates: [],
+    pressToolbar: null,
+    zoom: 1,
+    zoomTab: null,
+    previewFinds: true,
+    devSnapshot: {
+      recording: true,
+      console: [{ level: "error", text: "TypeError: x is undefined", ts: 1_000 }],
+      network: [
+        {
+          url: "https://example.com/api/save?token=secret",
+          method: "POST",
+          status: 500,
+          ok: false,
+          durationMs: 12,
+          ts: 1_000,
+        },
+      ],
+      resources: [],
+      environment: {
+        userAgent: "Chrome",
+        language: "en",
+        viewport: { width: 1280, height: 800, dpr: 2 },
+        readyState: "complete",
+      },
+    },
+    overlayStates: [],
+    viewports: [],
+    audit: {
+      issues: [
+        {
+          rule: "color-contrast",
+          impact: "serious",
+          elementId: "el-9",
+          selector: "p.muted",
+          label: "p.muted",
+          detail: "2.10:1, needs 4.5:1 (#aaaaaa on #ffffff)",
+        },
+        { rule: "html-lang", impact: "serious" },
+      ],
+      checked: 40,
+      truncated: false,
+    },
+    tokens: {
+      colors: [{ hex: "#2563eb", count: 4, uses: ["background"] }],
+      fonts: [{ value: "Inter", count: 9 }],
+      type: [
+        {
+          family: "Inter",
+          size: "14px",
+          weight: "400",
+          lineHeight: "20px",
+          count: 9,
+          sample: "Hi",
+        },
+      ],
+      spacing: [{ value: "8px", count: 5 }],
+      radii: [{ value: "6px", count: 2 }],
+      shadows: [],
+      variables: [{ name: "--brand", value: "#2563eb" }],
+      breakpoints: ["768px"],
+      scanned: 40,
+    },
+    stack: {
+      entries: [
+        { name: "React", category: "framework", version: "19.1.0" },
+        { name: "Tailwind CSS", category: "styling" },
+      ],
+      development: true,
+    },
+    described: new Map(),
+    pickQueue: [],
+    measureQueue: [],
+    shownMeasure: null,
+    annotated: [],
+    perf: {
+      navigation: {
+        type: "navigate",
+        ttfb: 200,
+        fcp: 700,
+        domContentLoaded: 900,
+        load: 1_500,
+        transferBytes: 8_000,
+      },
+      lcp: { ms: 4_800, element: "img.hero" },
+      cls: 0.01,
+      interaction: null,
+      longTasks: { count: 0, blockingMs: 0 },
+      scripts: [],
+      resources: {
+        count: 10,
+        bytes: 400_000,
+        byType: [],
+        largest: [],
+        slowest: [],
+        renderBlocking: [],
+        thirdParty: [],
+      },
+      images: { oversized: [], unsized: 0 },
+      dom: { elements: 300, depth: 9 },
+    },
+    seo: {
+      url: "https://example.com/a",
+      title: "A page",
+      description: null,
+      canonical: null,
+      robots: null,
+      lang: "en",
+      viewport: "width=device-width",
+      social: [],
+      structuredData: [],
+      alternates: [],
+      headings: [{ level: 1, text: "A page" }],
+      counts: {
+        h1: 1,
+        images: 0,
+        imagesWithoutAlt: 0,
+        links: 3,
+        internalLinks: 3,
+        nofollowLinks: 0,
+        linksWithoutText: 0,
+        words: 120,
+      },
+      issues: [{ rule: "description-missing", severity: "warning" }],
+    },
+    layout: {
+      viewport: { width: 390, height: 844 },
+      pageWidth: 600,
+      issues: [
+        {
+          rule: "horizontal-overflow",
+          elementId: "el-7",
+          selector: "#wide",
+          label: "div#wide",
+          detail: "extends 210px past the 390px viewport",
+        },
+      ],
+      checked: 30,
+      truncated: false,
+    },
+    textEdits: [
+      {
+        selector: "#title",
+        label: "h1#title",
+        before: "Pricing plans",
+        after: "Plans and pricing",
+      },
+      { label: "p.note", before: "Old note", after: "" },
+    ],
     ...overrides,
     // After the spread, not before: `overrides` carries its own `store`, and
     // letting it win here would leave the harness reading one Map while the
@@ -262,6 +523,10 @@ function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: neve
       }),
       scrollTo: async (_tab, y) => y,
       cropImage: async () => "Y3JvcA==",
+      annotateImage: async (_dataUrl, shapes) => {
+        state.annotated.push(shapes)
+        return "bWFya2Vk"
+      },
       stitchImages: async () => "c3RpdGNo",
       fetchBytes: async () => ({
         bytes: new Uint8Array([1, 2, 3]),
@@ -283,6 +548,157 @@ function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: neve
       },
       forgetSiteDecision: async (origin) => {
         state.forgottenDecisions.push(origin)
+      },
+      pickElement: async (tabId) => {
+        state.inspectCalls.push(`pick:${tabId}`)
+        return state.pickQueue.shift() ?? state.pickResult
+      },
+      // The old Shift-click queue, read as one pass that chose several.
+      pickElements: async (tabId, _labels, max) => {
+        const chosen = []
+        for (;;) {
+          state.inspectCalls.push(`pick:${tabId}`)
+          const next = state.pickQueue.shift() ?? state.pickResult
+          if (!next) break
+          const { more, ...description } = next as typeof next & { more?: boolean }
+          chosen.push(description)
+          if (!more || chosen.length >= max) break
+        }
+        return chosen.length > 0 ? chosen : null
+      },
+      measureElements: async (tabId, _hints, anchorId) => {
+        state.inspectCalls.push(`measure:${tabId}:${anchorId ?? ""}`)
+        return state.measureQueue.shift() ?? null
+      },
+      showMeasurement: async (_tabId, fromId, toId) => {
+        state.inspectCalls.push(`show-measure:${fromId}:${toId}`)
+        return state.shownMeasure
+      },
+      describeElement: async (_tabId, elementId) => {
+        state.inspectCalls.push(`describe:${elementId}`)
+        return state.described.get(elementId) ?? null
+      },
+      auditAccessibility: async (tabId) => {
+        state.inspectCalls.push(`audit:${tabId}`)
+        return state.audit
+      },
+      readDesignTokens: async (tabId) => {
+        state.inspectCalls.push(`tokens:${tabId}`)
+        return state.tokens
+      },
+      detectStack: async (tabId) => {
+        state.inspectCalls.push(`stack:${tabId}`)
+        return state.stack
+      },
+      editPageText: async (tabId) => {
+        state.inspectCalls.push(`edit-text:${tabId}`)
+        return true
+      },
+      stopEditingPageText: async (tabId, keep) => {
+        state.inspectCalls.push(`stop-text:${tabId}:${keep}`)
+        return keep ? state.textEdits : []
+      },
+      readSeo: async (tabId) => {
+        state.inspectCalls.push(`seo:${tabId}`)
+        return state.seo
+      },
+      setPageToolbar: async (_tabId, toolbar) => {
+        state.toolbarStates.push(toolbar)
+        return true
+      },
+      hidePageChrome: async () => undefined,
+      readTabZoom: async () => state.zoom,
+      onTabZoom: (listener) => {
+        state.zoomTab = listener
+        return () => {
+          state.zoomTab = null
+        }
+      },
+      onToolbarAction: (listener) => {
+        state.pressToolbar = listener as (action: string, tabId: number) => void
+        return () => {
+          state.pressToolbar = null
+        }
+      },
+      checkFocus: async (tabId) => {
+        state.inspectCalls.push(`focus:${tabId}`)
+        return state.focus
+      },
+      showFocusOrder: async (tabId, show) => {
+        state.inspectCalls.push(`focus-numbers:${tabId}:${show}`)
+        return true
+      },
+      readPageView: async () => ({ scrollX: 0, scrollY: 0, width: 1280, height: 800 }),
+      diffDesign: async (capture, mock, overlay, view) => {
+        state.diffCalls.push({ capture, mock: mock.slice(0, 22), overlay, view })
+        return state.diff
+      },
+      checkLayout: async (tabId) => {
+        state.inspectCalls.push(`layout:${tabId}`)
+        return state.layout
+      },
+      readPerformance: async (tabId) => {
+        state.inspectCalls.push(`perf:${tabId}`)
+        return state.perf
+      },
+      adjustElement: async (_tabId, elementId) => {
+        state.inspectCalls.push(`adjust:${elementId}`)
+        return new Promise((resolve) => {
+          state.endAdjust = resolve
+        })
+      },
+      finishAdjust: async (tabId) => {
+        state.inspectCalls.push(`finish-adjust:${tabId}`)
+        state.endAdjust?.(state.adjusted)
+      },
+      setRequestMocks: async (_tabId, mocks, keep = false) => {
+        state.mockCalls.push(mocks)
+        if (mocks === null) return state.mockHits
+        state.mockHits = {
+          installed: mocks.length > 0,
+          kept: keep && mocks.length > 0,
+          hits: {},
+          log: [],
+        }
+        return state.mockHits
+      },
+      keepRequestMocks: async (url, keep) => {
+        state.keepCalls.push([url, keep])
+        return state.keepAllowed
+      },
+      cancelPick: async (tabId) => {
+        state.endAdjust?.(null)
+        state.inspectCalls.push(`cancel:${tabId}`)
+        return true
+      },
+      previewElementEdits: async (_tabId, elementId, edits) => {
+        state.previews.push([elementId, edits])
+        return state.previewFinds
+      },
+      revertElement: async (_tabId, elementId) => {
+        state.inspectCalls.push(`revert:${elementId}`)
+        return true
+      },
+      locateElement: async (_tabId, elementId, flash) => {
+        state.inspectCalls.push(`locate:${elementId}:${flash}`)
+        return state.previewFinds ? { x: 10, y: 20, width: 120, height: 36, dpr: 2 } : null
+      },
+      releaseElements: async (_tabId, elementIds) => {
+        state.inspectCalls.push(`release:${(elementIds ?? []).join(",")}`)
+      },
+      startDevRecording: async (tabId) => {
+        state.inspectCalls.push(`record:${tabId}`)
+      },
+      isDevRecording: async () => true,
+      readDevSnapshot: async (tabId) => {
+        state.inspectCalls.push(`snapshot:${tabId}`)
+        return state.devSnapshot
+      },
+      setDesignOverlay: async (_tabId, overlay) => {
+        state.overlayStates.push(overlay)
+      },
+      openViewport: async (url, size) => {
+        state.viewports.push([url, size])
       },
       ...overrides.api,
     },
@@ -1800,5 +2216,975 @@ describe("SidePanel — ADR-0228", () => {
     renderPanel(state, FEATURED)
     fireEvent.click(await screen.findByTestId("site-allow-always-q1"))
     await waitFor(() => expect(state.siteAnswers).toEqual([["q1", "always"]]))
+  })
+
+  describe("inspecting the page", () => {
+    type Sent = {
+      instruction: string
+      context: { captureMode: string; selection?: { text: string; format?: string } }
+      attachments?: { kind: string }[]
+    }
+
+    it("picks an element, shoots it, and sends what finds it in the source", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      // Nothing captured yet: the pick captures the page it belongs to first.
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      expect(await screen.findByTestId("pick-0")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("pick:1")
+      expect(screen.getByTestId("pick-components-0")).toHaveTextContent("SaveButton ← SettingsForm")
+      expect(screen.getByTestId("instruction")).toHaveValue("inspectDefaultInstruction")
+      expect(screen.getByAltText(/^screenshot-element-/)).toBeInTheDocument()
+
+      fireEvent.change(screen.getByTestId("pick-note-0"), { target: { value: "Make it primary" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const sent = state.submitted[0] as Sent
+      expect(sent.context.captureMode).toBe("selection")
+      expect(sent.context.selection?.format).toBe("markdown")
+      const text = sent.context.selection?.text ?? ""
+      // The person's own selection keeps its place at the top.
+      expect(text.startsWith("**plain**\n\n## Picked elements (1)")).toBe(true)
+      expect(text).toContain("- Selector: `main > button.primary`")
+      expect(text).toContain("`SaveButton` → `SettingsForm`")
+      expect(text).toContain("- Written at: `/src/SaveButton.tsx:12:5`")
+      expect(text).toContain("**Requested:** Make it primary")
+      expect(text).toContain("- Screenshot: attached")
+      expect(sent.attachments).toEqual([{ attachmentId: expect.any(String), kind: "screenshot" }])
+      expect(state.uploads[0]).toMatch(/^init:screenshot-element-/)
+      // Sent: the picks are gone from the panel and put back on the page.
+      await waitFor(() => expect(screen.queryByTestId("pick-0")).toBeNull())
+      expect(state.inspectCalls).toContain("release:el-1")
+    })
+
+    it("previews style edits on the page and sends them as the change asked for", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      await captureAndAsk()
+      fireEvent.click(screen.getByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      fireEvent.click(screen.getByTestId("pick-styles-toggle-0"))
+      fireEvent.change(screen.getByTestId("style-font-size"), { target: { value: "18px" } })
+      fireEvent.change(screen.getByTestId("pick-text-0"), { target: { value: "Save" } })
+      await waitFor(() =>
+        expect(state.previews.at(-1)).toEqual([
+          "el-1",
+          { styles: { "font-size": "18px" }, text: "Save" },
+        ])
+      )
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("  font-size: 18px; /* was 14px */")
+      expect(text).toContain('**Text change:** "Save changes" → "Save"')
+      // The person's instruction is theirs; a pick does not overwrite it.
+      expect((state.submitted[0] as Sent).instruction).toBe("Go")
+    })
+
+    it("says so when an edited element has left the page", async () => {
+      const state = paired({ previewFinds: false })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      fireEvent.change(screen.getByTestId("pick-text-0"), { target: { value: "Gone" } })
+      expect(await screen.findByTestId("pick-detached-0")).toBeInTheDocument()
+    })
+
+    it("puts the page back and drops the screenshot when a pick is removed", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      expect(screen.getAllByTestId(/^attachment-remove-/)).toHaveLength(1)
+      fireEvent.click(screen.getByTestId("pick-remove-0"))
+      expect(screen.queryByTestId("pick-0")).toBeNull()
+      expect(screen.queryAllByTestId(/^attachment-remove-/)).toHaveLength(0)
+      expect(state.inspectCalls).toContain("release:el-1")
+    })
+
+    it("adds nothing for a cancelled pick, and re-shoots an element on request", async () => {
+      const state = paired({ pickResult: null })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await waitFor(() => expect(state.inspectCalls).toContain("pick:1"))
+      await screen.findByTestId("capture-preview")
+      expect(screen.queryByTestId("picked-elements")).toBeNull()
+
+      state.pickResult = DESCRIPTION
+      fireEvent.click(screen.getByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      fireEvent.click(screen.getByTestId("pick-shoot-0"))
+      await waitFor(() => expect(screen.getAllByTestId(/^attachment-remove-/)).toHaveLength(2))
+      expect(state.inspectCalls).toContain("locate:el-1:false")
+      // Two attachments is this Host's ceiling: no third shot is offered.
+      expect(screen.getByTestId("pick-shoot-0")).toBeDisabled()
+    })
+
+    it("starts the picker on the tab the context menu named", async () => {
+      const state = paired({
+        store: new Map<string, unknown>([
+          [STORAGE_KEYS.pairing, PAIRING],
+          [CAPTURE_REQUEST_KEY, { tabId: 4, mode: "inspect", requestedAt: 990 }],
+        ]) as never,
+      })
+      renderPanel(state, FEATURED)
+      expect(await screen.findByTestId("pick-0")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("pick:4")
+    })
+
+    it("attaches what the console and requests said, without their query strings", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.click(screen.getByTestId("dev-record"))
+      expect(await screen.findByTestId("dev-recording")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("record:1")
+      fireEvent.click(screen.getByTestId("dev-attach"))
+      expect(await screen.findByTestId("dev-report")).toBeInTheDocument()
+      expect(screen.getByText("devReportErrors")).toBeInTheDocument()
+      expect(screen.getByTestId("instruction")).toHaveValue("devDefaultInstruction")
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Console and network")
+      expect(text).toContain("[error] TypeError: x is undefined")
+      expect(text).toContain("`POST https://example.com/api/save` → 500")
+      expect(text).not.toContain("token=secret")
+    })
+
+    it("tells the steps the person took first in the report", async () => {
+      const state = paired()
+      state.devSnapshot = {
+        ...state.devSnapshot,
+        steps: [
+          { ts: 1_200, kind: "click", selector: "#save", label: "button#save", detail: "Save" },
+          { ts: 1_900, kind: "key", selector: "#email", detail: "Enter" },
+        ],
+      }
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.click(screen.getByTestId("dev-record"))
+      await screen.findByTestId("dev-recording")
+      fireEvent.click(screen.getByTestId("dev-attach"))
+      expect(await screen.findByTestId("dev-report-steps")).toHaveTextContent("devReportSteps")
+      expect((screen.getByTestId("dev-report-text") as HTMLTextAreaElement).value).toContain(
+        '1. +0.0s Clicked `#save` "Save"\n2. +0.7s Pressed Enter in `#email`'
+      )
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text.indexOf("### Steps to reproduce (2)")).toBeLessThan(
+        text.indexOf("### Console errors and warnings")
+      )
+    })
+
+    it("measures this visit's performance and sends it while included", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-audit-toggle"))
+      fireEvent.click(screen.getByTestId("insight-run-perf"))
+      expect(await screen.findByTestId("perf-vital-lcp")).toHaveTextContent("4.80 s")
+      expect(state.inspectCalls).toContain("perf:1")
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Speed it up" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Performance (this visit)")
+      expect(text).toContain("- Largest contentful paint: 4.80 s (poor) — `img.hero`")
+    })
+
+    it("edits the page's words in place and sends what changed, minus what was left out", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("text-edit-start"))
+      expect(await screen.findByTestId("text-editing")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("edit-text:1")
+      // Its tile shows it running, and cannot start it twice.
+      expect(screen.getByTestId("text-edit-start")).toBeDisabled()
+      expect(screen.getByTestId("text-edit-start")).toHaveAttribute("aria-pressed", "true")
+      fireEvent.click(screen.getByTestId("text-edit-done"))
+      expect(await screen.findByTestId("text-change-1")).toHaveTextContent("Old note")
+      expect(state.inspectCalls).toContain("stop-text:1:true")
+      expect(screen.getByTestId("instruction")).toHaveValue("textEditDefaultInstruction")
+      fireEvent.click(screen.getByTestId("text-change-remove-1"))
+      expect(screen.queryByTestId("text-change-1")).toBeNull()
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Text changes (1)")
+      expect(text).toContain('   - Before: "Pricing plans"\n   - After: "Plans and pricing"')
+      expect(text).not.toContain("Old note")
+      await waitFor(() => expect(screen.queryByTestId("text-changes")).toBeNull())
+    })
+
+    it("unwinds every edit on request, and leaves the page editable no longer when closed", async () => {
+      const state = paired()
+      const { unmount } = renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("text-edit-start"))
+      await screen.findByTestId("text-editing")
+      fireEvent.click(screen.getByTestId("text-edit-undo"))
+      await waitFor(() => expect(state.inspectCalls).toContain("stop-text:1:false"))
+      expect(screen.queryByTestId("text-changes")).toBeNull()
+      fireEvent.click(await screen.findByTestId("text-edit-start"))
+      await screen.findByTestId("text-editing")
+      unmount()
+      expect(state.inspectCalls.at(-1)).toBe("stop-text:1:true")
+    })
+
+    it("checks SEO and sends the findings while included", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-audit-toggle"))
+      fireEvent.click(screen.getByTestId("insight-run-seo"))
+      expect(await screen.findByTestId("seo-result")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("seo:1")
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Fix the SEO" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## SEO and link previews")
+      expect(text).toContain("- [warning] No meta description")
+    })
+
+    it("checks the layout and turns a finding into a pick", async () => {
+      const state = paired()
+      state.described.set("el-7", {
+        ...DESCRIPTION,
+        elementId: "el-7",
+        selector: "#wide",
+        label: "div#wide",
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-audit-toggle"))
+      fireEvent.click(screen.getByTestId("insight-run-layout"))
+      expect(await screen.findByTestId("layout-result")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("layout:1")
+      fireEvent.click(screen.getByTestId("layout-show-0"))
+      await waitFor(() => expect(state.inspectCalls).toContain("locate:el-7:true"))
+      fireEvent.click(screen.getByTestId("layout-pick-0"))
+      expect(await screen.findByTestId("pick-0")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("describe:el-7")
+      expect(screen.getByTestId("pick-note-0")).toHaveValue(
+        "layoutRuleOverflow — extends 210px past the 390px viewport"
+      )
+      expect(screen.getByTestId("layout-pick-0")).toBeDisabled()
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Layout check (1 findings)")
+      expect(text).toContain("the page is 600px wide, so it scrolls sideways")
+    })
+
+    it("saves the reviewed context as a Markdown file", async () => {
+      const blobs: Blob[] = []
+      const createObjectURL = jest.fn((blob: Blob) => {
+        blobs.push(blob)
+        return "blob:cognia/1"
+      })
+      const revokeObjectURL = jest.fn()
+      Object.assign(URL, { createObjectURL, revokeObjectURL })
+      const names: string[] = []
+      const click = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+        this: HTMLAnchorElement
+      ) {
+        names.push(this.download)
+      })
+      try {
+        const state = paired()
+        renderPanel(state, FEATURED)
+        fireEvent.click(await screen.findByTestId("pick-element"))
+        await screen.findByTestId("pick-0")
+        fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Tighten this" } })
+        fireEvent.click(screen.getByTestId("export-context"))
+        expect(names).toEqual([expect.stringMatching(/^cognia-.+-\d{4}-\d{2}-\d{2}\.md$/)])
+        expect(blobs[0]?.type).toBe("text/markdown;charset=utf-8")
+        // jsdom's Blob has no `text()`; its FileReader reads it.
+        const text = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.readAsText(blobs[0]!)
+        })
+        expect(text).toContain("Tighten this")
+        expect(text).toContain("https://example.com/tab-1")
+        expect(text).toContain("## Picked elements (1)")
+        await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:cognia/1"))
+      } finally {
+        click.mockRestore()
+      }
+    })
+
+    it("adjusts a pick on the page and sends what changed as its style edits", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      fireEvent.click(screen.getByTestId("pick-adjust-0"))
+      // Adjusting: kept from the panel, or put back.
+      fireEvent.click(await screen.findByTestId("adjust-done"))
+      expect(screen.getByTestId("pick-cancel")).toHaveTextContent("adjustCancel")
+      await waitFor(() => expect(screen.queryByTestId("adjust-done")).toBeNull())
+      expect(state.inspectCalls).toEqual(expect.arrayContaining(["adjust:el-1", "finish-adjust:1"]))
+      await waitFor(() =>
+        expect(state.previews.at(-1)).toEqual([
+          "el-1",
+          { styles: { width: "160px", padding: "8px 16px" } },
+        ])
+      )
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("  width: 160px;")
+      expect(text).toContain("  padding: 8px 16px;")
+    })
+
+    it("leaves a pick's edits alone when the adjustment is undone", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      fireEvent.click(screen.getByTestId("pick-adjust-0"))
+      await screen.findByTestId("adjust-done")
+      fireEvent.click(screen.getByTestId("pick-cancel"))
+      await waitFor(() => expect(screen.queryByTestId("adjust-done")).toBeNull())
+      expect(state.previews).toEqual([])
+    })
+
+    it("simulates a failing request, says so in what is sent, and clears it on close", async () => {
+      const state = paired()
+      const { unmount } = renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.change(screen.getByTestId("mock-match"), { target: { value: "/api/orders" } })
+      fireEvent.click(screen.getByTestId("mock-add"))
+      expect(await screen.findByTestId("mock-rule-0")).toHaveTextContent("mockRuleFail")
+      expect(state.mockCalls).toEqual([
+        [expect.objectContaining({ match: "/api/orders", action: "fail", method: "" })],
+      ])
+      state.mockHits = {
+        installed: true,
+        kept: false,
+        hits: {
+          [state.mockCalls[0]![0]!.id]: { count: 2, lastUrl: "https://example.com/api/orders" },
+        },
+        log: [],
+      }
+      fireEvent.click(screen.getByTestId("mock-refresh"))
+      // The harness's messages are bare keys; the last URL matched is the badge's title.
+      await waitFor(() =>
+        expect(screen.getByTestId("mock-hits-0")).toHaveAttribute(
+          "title",
+          "https://example.com/api/orders"
+        )
+      )
+      fireEvent.click(screen.getByTestId("capture-now"))
+      await screen.findByTestId("capture-preview")
+      fireEvent.change(screen.getByTestId("instruction"), {
+        target: { value: "Handle the outage" },
+      })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Simulated requests (1)")
+      expect(text).toContain("- Any method `/api/orders` → network error — matched 2 times")
+      // Read again as it was sent: the page kept counting.
+      expect(state.mockCalls.at(-1)).toBeNull()
+      // Still on the page after sending: they are a tool, not part of the capture.
+      expect(screen.getByTestId("mock-rule-0")).toBeInTheDocument()
+      unmount()
+      expect(state.mockCalls.at(-1)).toEqual([])
+    })
+
+    it("says when the page reloaded under its rules, and applies them again", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.change(screen.getByTestId("mock-match"), { target: { value: "/api" } })
+      fireEvent.click(screen.getByTestId("mock-add"))
+      await screen.findByTestId("mock-rule-0")
+      state.mockHits = { installed: false, kept: false, hits: {}, log: [] }
+      fireEvent.click(screen.getByTestId("mock-refresh"))
+      expect(await screen.findByTestId("mock-lost")).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId("mock-refresh"))
+      await waitFor(() => expect(screen.queryByTestId("mock-lost")).toBeNull())
+      expect(state.mockCalls.at(-1)).toEqual([expect.objectContaining({ match: "/api" })])
+      fireEvent.click(screen.getByTestId("mock-clear"))
+      await waitFor(() => expect(screen.queryByTestId("mock-rule-0")).toBeNull())
+      expect(state.mockCalls.at(-1)).toEqual([])
+    })
+
+    it("keeps simulated requests across reloads, pauses one, and stops keeping when cleared", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.change(screen.getByTestId("mock-match"), { target: { value: "/api" } })
+      fireEvent.click(screen.getByTestId("mock-add"))
+      await screen.findByTestId("mock-rule-0")
+      expect(screen.getByTestId("mock-keep")).not.toBeChecked()
+      fireEvent.click(screen.getByTestId("mock-keep"))
+      await waitFor(() => expect(screen.getByTestId("mock-keep")).toBeChecked())
+      const url = state.keepCalls[0]![0]
+      expect(state.keepCalls).toEqual([[url, true]])
+      expect(url).toMatch(/^https?:/)
+      // Paused, and still kept.
+      fireEvent.click(screen.getByTestId("mock-toggle-0"))
+      await waitFor(() =>
+        expect(state.mockCalls.at(-1)).toEqual([expect.objectContaining({ enabled: false })])
+      )
+      expect(state.mockHits.kept).toBe(true)
+      expect(screen.getByTestId("mock-toggle-0")).toHaveAccessibleName("mockResume")
+      fireEvent.click(screen.getByTestId("mock-clear"))
+      await waitFor(() => expect(screen.queryByTestId("mock-rule-0")).toBeNull())
+      expect(state.keepCalls.at(-1)).toEqual([url, false])
+    })
+
+    it("stops keeping simulated requests when the panel closes", async () => {
+      const state = paired()
+      const { unmount } = renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.change(screen.getByTestId("mock-match"), { target: { value: "/api" } })
+      fireEvent.click(screen.getByTestId("mock-add"))
+      await screen.findByTestId("mock-rule-0")
+      fireEvent.click(screen.getByTestId("mock-keep"))
+      await waitFor(() => expect(screen.getByTestId("mock-keep")).toBeChecked())
+      unmount()
+      expect(state.mockCalls.at(-1)).toEqual([])
+      expect(state.keepCalls.at(-1)).toEqual([state.keepCalls[0]![0], false])
+    })
+
+    it("says so when the site's permission to keep them is refused", async () => {
+      const state = paired()
+      state.keepAllowed = false
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.change(screen.getByTestId("mock-match"), { target: { value: "/api" } })
+      fireEvent.click(screen.getByTestId("mock-add"))
+      await screen.findByTestId("mock-rule-0")
+      const installs = state.mockCalls.length
+      fireEvent.click(screen.getByTestId("mock-keep"))
+      expect(await screen.findByText("mockKeepDenied")).toBeInTheDocument()
+      expect(screen.getByTestId("mock-keep")).not.toBeChecked()
+      expect(state.mockCalls).toHaveLength(installs)
+    })
+
+    it("checks the keyboard focus order, numbers it on the page, and takes the numbers off when sent", async () => {
+      const state = paired()
+      state.described.set("el-8", {
+        ...DESCRIPTION,
+        elementId: "el-8",
+        selector: "#card",
+        label: "div#card",
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-audit-toggle"))
+      fireEvent.click(screen.getByTestId("insight-run-focus"))
+      expect(await screen.findByTestId("focus-result")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("focus:1")
+      fireEvent.click(screen.getByTestId("focus-numbers"))
+      await waitFor(() => expect(state.inspectCalls).toContain("focus-numbers:1:false"))
+      expect(await screen.findByText("focusShowNumbers")).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId("focus-numbers"))
+      await waitFor(() => expect(state.inspectCalls).toContain("focus-numbers:1:true"))
+      fireEvent.click(screen.getByTestId("focus-pick-0"))
+      expect(await screen.findByTestId("pick-0")).toBeInTheDocument()
+      expect(screen.getByTestId("pick-note-0")).toHaveValue("focusRuleUnreachable")
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Keyboard focus check (1 findings)")
+      expect(text).toContain("Tab moves through 14 stops on this page.")
+      // Sent with the check: the numbers come off the page.
+      await waitFor(() => expect(state.inspectCalls.at(-1)).toBe("focus-numbers:1:false"))
+    })
+
+    it("compares the page with the mock, attaching the difference and sending the numbers", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      const file = new File([new Uint8Array([137, 80, 78, 71])], "home.png", { type: "image/png" })
+      fireEvent.change(screen.getByTestId("overlay-file"), { target: { files: [file] } })
+      await screen.findByTestId("overlay-controls")
+      fireEvent.click(screen.getByTestId("overlay-compare"))
+      expect(await screen.findByTestId("design-diff")).toBeInTheDocument()
+      expect(screen.getByTestId("design-diff-share")).toHaveTextContent("5.0%")
+      // Hidden for the shot, and back after it.
+      const visibility = state.overlayStates.map(
+        (entry) => (entry as { visible?: boolean } | null)?.visible
+      )
+      expect(visibility.slice(-2)).toEqual([false, true])
+      expect(state.diffCalls).toEqual([
+        {
+          capture: "data:image/png;base64,iVBORw0KGgo=",
+          mock: "data:image/png;base64,",
+          overlay: { x: 0, y: 0, scale: 1 },
+          view: { scrollX: 0, scrollY: 0, width: 1280, height: 800 },
+        },
+      ])
+      expect(screen.getByTestId("instruction")).toHaveValue("compareDefaultInstruction")
+      await screen.findByTestId(/^attachment-remove-/)
+      // Compared again: the new difference replaces the old one.
+      fireEvent.click(screen.getByTestId("overlay-compare"))
+      await waitFor(() => expect(state.diffCalls).toHaveLength(2))
+      await waitFor(() => expect(screen.getAllByTestId(/^attachment-remove-/)).toHaveLength(1))
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Design comparison")
+      expect(text).toContain("`home.png`")
+      expect(text).toContain("1. 320×48 at (32, 96)")
+      expect(state.uploads[0]).toMatch(/^init:screenshot-design-diff-/)
+      await waitFor(() => expect(screen.queryByTestId("design-diff")).toBeNull())
+    })
+
+    it("says so when the mock is out of view, and leaves it showing", async () => {
+      const state = paired({ diff: null })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      const file = new File([new Uint8Array([137, 80, 78, 71])], "home.png", { type: "image/png" })
+      fireEvent.change(screen.getByTestId("overlay-file"), { target: { files: [file] } })
+      await screen.findByTestId("overlay-controls")
+      fireEvent.click(screen.getByTestId("overlay-compare"))
+      expect(await screen.findByText("compareOutOfView")).toBeInTheDocument()
+      expect((state.overlayStates.at(-1) as { visible: boolean }).visible).toBe(true)
+      expect(screen.queryByTestId("design-diff")).toBeNull()
+    })
+
+    it("floats its tools on the page and runs them from there, until it closes", async () => {
+      const state = paired({
+        pickQueue: [{ ...DESCRIPTION }],
+        zoom: 1.25,
+      })
+      const { unmount } = renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("toolbar-toggle"))
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toMatchObject({ zoom: 1.25 }))
+      expect(state.toolbarStates.at(-1)).toMatchObject({
+        active: null,
+        disabled: ["adjust", "shot"],
+        counts: { pick: 0, measure: 0 },
+        labels: { pick: "toolbarPick", close: "toolbarClose", minimap: "toolbarMinimap" },
+        marks: [],
+      })
+      // The tab zooms: the toolbar hears, another tab's zoom it does not.
+      act(() => state.zoomTab?.(99, 3))
+      act(() => state.zoomTab?.(1, 2))
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toMatchObject({ zoom: 2 }))
+      expect(screen.getByTestId("toolbar-toggle")).toHaveTextContent("toolbarHide")
+      // Pressed on another tab: not this toolbar's.
+      state.pressToolbar?.("pick", 99)
+      expect(state.inspectCalls.some((call) => call.startsWith("pick:"))).toBe(false)
+      state.pressToolbar?.("pick", 1)
+      expect(await screen.findByTestId("pick-0")).toBeInTheDocument()
+      await waitFor(() =>
+        expect(state.toolbarStates.at(-1)).toMatchObject({
+          active: null,
+          disabled: [],
+          counts: { pick: 1, measure: 0 },
+          marks: ["el-1"],
+        })
+      )
+      // Adjusting from the page, and ending it from there too.
+      state.pressToolbar?.("adjust", 1)
+      await waitFor(() => expect(state.inspectCalls).toContain("adjust:el-1"))
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toMatchObject({ active: "adjust" }))
+      state.pressToolbar?.("text", 1)
+      await waitFor(() => expect(state.inspectCalls).toContain("finish-adjust:1"))
+      expect(state.inspectCalls).not.toContain("edit-text:1")
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toMatchObject({ active: null }))
+      state.pressToolbar?.("text", 1)
+      await waitFor(() => expect(state.inspectCalls).toContain("edit-text:1"))
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toMatchObject({ active: "text" }))
+      state.pressToolbar?.("close", 1)
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toBeNull())
+      expect(screen.getByTestId("toolbar-toggle")).toHaveTextContent("toolbarShow")
+      fireEvent.click(screen.getByTestId("toolbar-toggle"))
+      await waitFor(() => expect(state.toolbarStates.at(-1)).not.toBeNull())
+      unmount()
+      expect(state.toolbarStates.at(-1)).toBeNull()
+    })
+
+    it("offers snapping for the floating toolbar while it is shown, and remembers the choice", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      await screen.findByTestId("toolbar-toggle")
+      expect(screen.queryByTestId("toolbar-snap")).toBeNull()
+      fireEvent.click(screen.getByTestId("toolbar-toggle"))
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toMatchObject({ snap: false }))
+      fireEvent.click(screen.getByTestId("toolbar-snap"))
+      await waitFor(() =>
+        expect(state.store.get(STORAGE_KEYS.preferences)).toMatchObject({ toolbarSnap: true })
+      )
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toMatchObject({ snap: true }))
+      expect(screen.getByTestId("toolbar-snap")).toHaveAttribute("aria-checked", "true")
+    })
+
+    it("copies a pick as its markup and CSS, with the previewed edit", async () => {
+      const writeText = jest.fn(async () => undefined)
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+      const state = paired({
+        pickResult: { ...DESCRIPTION, html: '<button class="primary">Save changes</button>' },
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      fireEvent.click(screen.getByTestId("pick-styles-toggle-0"))
+      fireEvent.change(screen.getByTestId("style-font-size"), { target: { value: "18px" } })
+      fireEvent.click(screen.getByTestId("pick-copy-code-0"))
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+      const copied = (writeText.mock.calls[0] as unknown as [string])[0]
+      expect(copied).toContain('<button class="primary">Save changes</button>')
+      expect(copied).toContain("font-size: 18px;")
+      // And the markup goes with the pick, in place of the outline it supersedes.
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("Markup (cleaned):")
+      expect(text).not.toContain("Structure:")
+    })
+
+    it("lays a design mock over the page, adjusts it, and takes it away", async () => {
+      const state = paired()
+      const { unmount } = renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      const file = new File([new Uint8Array([137, 80, 78, 71])], "home.png", { type: "image/png" })
+      fireEvent.change(screen.getByTestId("overlay-file"), { target: { files: [file] } })
+      expect(await screen.findByTestId("overlay-controls")).toBeInTheDocument()
+      expect(state.overlayStates[0]).toMatchObject({
+        image: expect.stringMatching(/^data:image\/png;base64,/),
+        opacity: 0.5,
+        visible: true,
+      })
+      fireEvent.click(screen.getByTestId("overlay-difference"))
+      expect(state.overlayStates.at(-1)).toMatchObject({ image: null, difference: true })
+      unmount()
+      // Its controls are gone with the panel, so the mock goes too.
+      expect(state.overlayStates.at(-1)).toBeNull()
+    })
+
+    it("opens the page at a screen size", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.click(screen.getByTestId("viewport-mobile"))
+      await waitFor(() =>
+        expect(state.viewports).toEqual([
+          ["https://example.com/a?x=1", { width: 390, height: 844 }],
+        ])
+      )
+    })
+
+    it("checks accessibility and turns a finding into a pick that says what was found", async () => {
+      const state = paired()
+      state.described.set("el-9", {
+        ...DESCRIPTION,
+        elementId: "el-9",
+        selector: "p.muted",
+        label: "p.muted",
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-audit-toggle"))
+      fireEvent.click(screen.getByTestId("insight-run-audit"))
+      expect(await screen.findByTestId("a11y-result")).toBeInTheDocument()
+      expect(state.inspectCalls).toContain("audit:1")
+      fireEvent.click(screen.getByTestId("a11y-pick-0"))
+      expect(await screen.findByTestId("pick-0")).toBeInTheDocument()
+      expect(state.inspectCalls).toEqual(
+        expect.arrayContaining(["locate:el-9:false", "describe:el-9"])
+      )
+      expect(screen.getByTestId("pick-note-0")).toHaveValue(
+        "accessRuleContrast — 2.10:1, needs 4.5:1 (#aaaaaa on #ffffff)"
+      )
+      expect(screen.getByTestId("a11y-pick-0")).toBeDisabled()
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Picked elements (1)")
+      expect(text).toContain("## Accessibility check (2 findings)")
+      expect(text).toContain("- [serious] Text contrast is below WCAG AA — `p.muted`")
+      // Sent: the checks are spent with the submission.
+      await waitFor(() => expect(screen.queryByTestId("a11y-result")).toBeNull())
+    })
+
+    it("frames the submission with the stack, and leaves out what the person excluded", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-audit-toggle"))
+      fireEvent.click(screen.getByTestId("insight-run-stack"))
+      expect(await screen.findByTestId("stack-result")).toHaveTextContent("React19.1.0")
+      fireEvent.click(screen.getByTestId("insight-run-tokens"))
+      expect(await screen.findByTestId("tokens-result")).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId("insight-include-tokens"))
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Restyle" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text.startsWith("**plain**\n\n## Tech stack")).toBe(true)
+      expect(text).toContain("- Framework: React 19.1.0")
+      expect(text).not.toContain("Design tokens")
+    })
+
+    it("keeps picking while the person Shift-clicks", async () => {
+      const state = paired({
+        pickQueue: [
+          { ...DESCRIPTION, more: true },
+          { ...DESCRIPTION, elementId: "el-2", selector: "#two", label: "div#two" },
+        ],
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      expect(await screen.findByTestId("pick-1")).toBeInTheDocument()
+      expect(state.inspectCalls.filter((call) => call.startsWith("pick:"))).toHaveLength(2)
+      expect(screen.getByTestId("pick-1")).toHaveTextContent("div#two")
+    })
+
+    it("chooses several in one pass, and compares them when asked", async () => {
+      const writeText = jest.fn(async () => undefined)
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+      const state = paired({
+        pickQueue: [
+          { ...DESCRIPTION, styles: { "font-size": "14px" }, more: true },
+          {
+            ...DESCRIPTION,
+            elementId: "el-2",
+            selector: "#two",
+            label: "div#two",
+            styles: { "font-size": "16px" },
+          },
+        ],
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      expect(await screen.findByTestId("pick-compare")).toBeInTheDocument()
+      expect(screen.getByTestId("pick-compare-row-0")).toHaveTextContent("font-size")
+      // Not sent until asked for.
+      fireEvent.click(screen.getByTestId("copy-context"))
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+      expect((writeText.mock.calls[0] as unknown as [string])[0]).not.toContain(
+        "How the picks differ"
+      )
+      fireEvent.click(screen.getByTestId("pick-compare-include"))
+      fireEvent.click(screen.getByTestId("copy-context"))
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+      const text = (writeText.mock.calls[1] as unknown as [string])[0]
+      expect(text).toContain("## How the picks differ (1 property)")
+      expect(text).toContain("| font-size | `14px` | `16px` |")
+    })
+
+    it("copies the reviewed context as one prompt for another tool", async () => {
+      const writeText = jest.fn(async () => undefined)
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      fireEvent.click(screen.getByTestId("copy-context"))
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+      const text = (writeText.mock.calls[0] as unknown as [string])[0]
+      expect(
+        text.startsWith("# A page\n\nhttps://example.com/tab-1\n\ninspectDefaultInstruction")
+      ).toBe(true)
+      expect(text).toContain("## Picked elements (1)")
+      expect(await screen.findByText("copyContextDone")).toBeInTheDocument()
+      expect(state.submitted).toHaveLength(0)
+    })
+
+    it("samples colours from the screen where the browser has an eyedropper", async () => {
+      const win = window as unknown as { EyeDropper?: unknown }
+      win.EyeDropper = class {
+        async open() {
+          return { sRGBHex: "#FF0000" }
+        }
+      }
+      try {
+        const state = paired()
+        renderPanel(state, FEATURED)
+        fireEvent.click(await screen.findByTestId("page-audit-toggle"))
+        fireEvent.click(screen.getByTestId("eyedropper"))
+        expect(await screen.findByTestId("eyedropper-colors")).toHaveTextContent("#ff0000")
+      } finally {
+        delete win.EyeDropper
+      }
+    })
+
+    const SAVE = {
+      elementId: "el-1",
+      selector: "#save",
+      label: "button#save",
+      box: { x: 0, y: 0, width: 120, height: 36 },
+    }
+    const CARD = {
+      elementId: "el-2",
+      selector: "#card",
+      label: "div#card",
+      box: { x: 0, y: 48, width: 300, height: 120 },
+    }
+    const TITLE = {
+      elementId: "el-3",
+      selector: "h2",
+      label: "h2",
+      box: { x: 2, y: 52, width: 100, height: 20 },
+    }
+    const measured = (from: typeof SAVE, to: typeof SAVE, more?: boolean) => ({
+      from,
+      to,
+      measure: measureBoxes(from.box, to.box),
+      ...(more ? { more } : {}),
+    })
+
+    it("measures between elements, keeps measuring from the anchor on Shift, and sends the numbers", async () => {
+      const state = paired({
+        measureQueue: [measured(SAVE, CARD, true), measured(SAVE, TITLE)],
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("measure-element"))
+      expect(await screen.findByTestId("measure-1")).toBeInTheDocument()
+      // The second pass measures from where the first began.
+      expect(state.inspectCalls.filter((call) => call.startsWith("measure:"))).toEqual([
+        "measure:1:",
+        "measure:1:el-1",
+      ])
+      expect(screen.getByTestId("measure-distances-0")).toHaveTextContent("↕ 12px")
+      expect(screen.getByTestId("measure-near-1")).toBeInTheDocument()
+      expect(screen.getByTestId("instruction")).toHaveValue("measureDefaultInstruction")
+      fireEvent.change(screen.getByTestId("measure-note-0"), { target: { value: "Make it 16px" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Measurements (2)")
+      expect(text).toContain("1. `div#card` is 12px below `button#save`")
+      expect(text).toContain("   - **Requested:** Make it 16px")
+      // Sent: the measured elements are forgotten on the page.
+      await waitFor(() => expect(state.inspectCalls).toContain("release:el-1,el-2,el-3"))
+      expect(screen.queryByTestId("measurements")).toBeNull()
+    })
+
+    it("re-measures on Show, and keeps a removed measurement's element while a pick holds it", async () => {
+      const state = paired({
+        pickResult: { ...DESCRIPTION, elementId: "el-1" },
+        measureQueue: [measured(SAVE, CARD)],
+        shownMeasure: measured(SAVE, { ...CARD, box: { ...CARD.box, y: 52 } }),
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      fireEvent.click(screen.getByTestId("measure-element"))
+      await screen.findByTestId("measure-0")
+      fireEvent.click(screen.getByTestId("measure-show-0"))
+      await waitFor(() =>
+        expect(screen.getByTestId("measure-distances-0")).toHaveTextContent("↕ 16px")
+      )
+      expect(state.inspectCalls).toContain("show-measure:el-1:el-2")
+      fireEvent.click(screen.getByTestId("measure-remove-0"))
+      expect(screen.queryByTestId("measure-0")).toBeNull()
+      expect(state.inspectCalls).toContain("release:el-2")
+      expect(state.inspectCalls).not.toContain("release:el-1,el-2")
+      // A cancelled measurement adds nothing.
+      fireEvent.click(screen.getByTestId("measure-element"))
+      await waitFor(() => expect(screen.getByTestId("measure-element")).toBeEnabled())
+      expect(screen.queryByTestId("measurements")).toBeNull()
+    })
+
+    it("says a measured element left the page", async () => {
+      const state = paired({ measureQueue: [measured(SAVE, CARD)] })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("measure-element"))
+      await screen.findByTestId("measure-0")
+      fireEvent.click(screen.getByTestId("measure-show-0"))
+      expect(await screen.findByTestId("measure-detached-0")).toBeInTheDocument()
+    })
+
+    function sized(element: HTMLElement) {
+      element.getBoundingClientRect = () =>
+        ({
+          left: 0,
+          top: 0,
+          width: 200,
+          height: 100,
+          right: 200,
+          bottom: 100,
+          x: 0,
+          y: 0,
+        }) as DOMRect
+    }
+
+    it("marks up the screen with numbered notes, and sends the marks with the shot", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      await captureAndAsk()
+      fireEvent.click(screen.getByTestId("attach-markup"))
+      const surface = await screen.findByTestId("annotate-surface")
+      sized(surface)
+      // A box, then a numbered marker with its note.
+      fireEvent.pointerDown(surface, { clientX: 10, clientY: 10, pointerId: 1 })
+      fireEvent.pointerMove(surface, { clientX: 100, clientY: 60, pointerId: 1 })
+      fireEvent.pointerUp(surface, { pointerId: 1 })
+      fireEvent.click(screen.getByTestId("annotate-tool-marker"))
+      fireEvent.pointerDown(surface, { clientX: 50, clientY: 50, pointerId: 1 })
+      fireEvent.pointerUp(surface, { pointerId: 1 })
+      fireEvent.change(screen.getByTestId("annotate-note-1"), { target: { value: "Too tight" } })
+      fireEvent.click(screen.getByTestId("annotate-confirm"))
+      expect(await screen.findByTestId(/^attachment-marked-/)).toBeInTheDocument()
+      expect(state.annotated).toEqual([
+        [
+          expect.objectContaining({
+            kind: "box",
+            from: { x: 0.05, y: 0.1 },
+            to: { x: 0.5, y: 0.6 },
+          }),
+          expect.objectContaining({
+            kind: "marker",
+            n: 1,
+            note: "Too tight",
+            at: { x: 0.25, y: 0.5 },
+          }),
+        ],
+      ])
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const text = (state.submitted[0] as Sent).context.selection?.text ?? ""
+      expect(text).toContain("## Screenshot annotations")
+      expect(text).toMatch(/- `screenshot-visible-[^`]+\.png`: 1 box, 1 numbered marker/)
+      expect(text).toContain("  1. Too tight")
+      expect((state.submitted[0] as { attachments: unknown[] }).attachments).toHaveLength(1)
+    })
+
+    it("marks up again from the clean shot, and taking every mark away restores it", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      await captureAndAsk()
+      fireEvent.click(screen.getByTestId("attach-visible"))
+      const annotate = await screen.findByTestId(/^attachment-annotate-/)
+      fireEvent.click(annotate)
+      const surface = await screen.findByTestId("annotate-surface")
+      sized(surface)
+      fireEvent.click(screen.getByTestId("annotate-tool-arrow"))
+      fireEvent.pointerDown(surface, { clientX: 10, clientY: 10, pointerId: 1 })
+      fireEvent.pointerMove(surface, { clientX: 150, clientY: 80, pointerId: 1 })
+      fireEvent.pointerUp(surface, { pointerId: 1 })
+      fireEvent.click(screen.getByTestId("annotate-confirm"))
+      await screen.findByTestId(/^attachment-marked-/)
+      fireEvent.click(screen.getByTestId(/^attachment-annotate-/))
+      expect(await screen.findByTestId("annotate-shape-0")).toBeInTheDocument()
+      // Opened from the shot as taken, not the one with the arrow burned in.
+      expect(
+        screen.getByTestId("annotate-surface").querySelector("img")?.getAttribute("src")
+      ).not.toContain("bWFya2Vk")
+      fireEvent.click(screen.getByTestId("annotate-clear"))
+      fireEvent.click(screen.getByTestId("annotate-confirm"))
+      await waitFor(() => expect(screen.queryByTestId(/^attachment-marked-/)).toBeNull())
+      expect(state.annotated).toHaveLength(1)
+      expect(screen.queryByTestId("annotator")).toBeNull()
+    })
+
+    it("refuses the tools on a page the person blocked", async () => {
+      const state = paired({
+        store: new Map<string, unknown>([
+          [STORAGE_KEYS.pairing, PAIRING],
+          [STORAGE_KEYS.preferences, { blockedHosts: ["example.com"] }],
+        ]) as never,
+      })
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("page-tools-toggle"))
+      fireEvent.click(screen.getByTestId("dev-record"))
+      expect(await screen.findByTestId("submit-error")).toHaveTextContent("captureBlocked")
+      expect(state.inspectCalls).not.toContain("record:1")
+    })
   })
 })

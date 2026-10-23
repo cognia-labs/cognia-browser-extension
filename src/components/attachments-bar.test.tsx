@@ -43,6 +43,23 @@ function setup(overrides: Partial<Parameters<typeof AttachmentsBar>[0]> = {}) {
 }
 
 describe("AttachmentsBar", () => {
+  it("offers to mark up the screen, and each screenshot but not a PDF", () => {
+    const onAnnotate = jest.fn()
+    const props = setup({
+      onAnnotate,
+      attachments: [
+        { ...SHOT, annotation: { original: "data:image/png;base64,AA==", shapes: [] } },
+        PDF,
+      ],
+    })
+    fireEvent.click(screen.getByTestId("attach-markup"))
+    expect(props.onAttach).toHaveBeenCalledWith("markup")
+    fireEvent.click(screen.getByTestId("attachment-annotate-a1"))
+    expect(onAnnotate).toHaveBeenCalledWith("a1")
+    expect(screen.queryByTestId("attachment-annotate-a2")).toBeNull()
+    expect(screen.getByTestId("attachment-marked-a1")).toHaveTextContent("annotateMarked")
+  })
+
   it("offers each capture, the PDF only when the tab shows one", () => {
     const props = setup()
     expect(screen.queryByTestId("attach-pdf")).toBeNull()
