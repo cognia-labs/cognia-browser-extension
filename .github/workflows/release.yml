@@ -2,6 +2,12 @@ name: Release extension archive
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to verify and publish again
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
@@ -12,6 +18,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -20,7 +28,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Match the tag to the extension version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: node --input-type=module -e 'import p from "./package.json" with { type:"json" }; if (`v${p.version}` !== process.env.RELEASE_TAG) process.exit(1)'
       - run: pnpm format:check
       - run: pnpm check
@@ -31,5 +39,10 @@ jobs:
       - name: Publish tested archive
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" build/*.zip --verify-tag --generate-notes
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" build/*.zip --clobber
+          else
+            gh release create "$RELEASE_TAG" build/*.zip --verify-tag --generate-notes
+          fi
