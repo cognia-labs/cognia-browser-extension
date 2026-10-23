@@ -9,6 +9,13 @@
  * that re-taking represents better than restoring. The draft says how many
  * there were, so the panel can say so.
  */
+import type { DevReport } from "../inspect/dev-report"
+import type { PickedElement } from "../inspect/element-context"
+import { MAX_PICKS } from "../inspect/inspect-markdown"
+import { NO_INSIGHTS, insightsForTab, parseInsights, type PageInsights } from "../inspect/insights"
+import { MAX_MEASUREMENTS, parseMeasurement, type Measurement } from "../inspect/measure"
+import { parseTextChanges, type TextChange } from "../inspect/text-edits"
+import { sanitizeEdits } from "../inspect/style-edits"
 import type { CapturedPage, CaptureScope } from "../panel-state"
 
 export interface PanelDraft {
@@ -24,6 +31,16 @@ export interface PanelDraft {
   includeFullUrl: boolean
   /** Attachments on screen when saved, which the draft does not carry. */
   droppedAttachments: number
+  /** Elements picked on the captured page, with the person's notes and edits. */
+  picks: PickedElement[]
+  /** Distances measured on the captured page, with the person's notes. */
+  measurements: Measurement[]
+  /** Words the person edited on the captured page. */
+  textChanges: { tabId: number; changes: TextChange[] } | null
+  /** The console and network report, as the person left it. */
+  devReport: DevReport | null
+  /** Accessibility, design-token and stack checks run on the captured page. */
+  insights: PageInsights
   savedAt: number
 }
 
@@ -52,6 +69,88 @@ export function isCapturedPage(value: unknown): value is CapturedPage {
     (value.readableText === null || isText(value.readableText)) &&
     (value.article === undefined || value.article === null || isText(value.article))
   )
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string")
+}
+
+function isBox(value: unknown): boolean {
+  return (
+    isRecord(value) && ["x", "y", "width", "height"].every((key) => typeof value[key] === "number")
+  )
+}
+
+/**
+ * A stored pick this build can show, with its screenshots dropped — the draft
+ * keeps no attachment — and its edits re-checked as if just typed.
+ */
+export function parsePick(value: unknown): PickedElement | null {
+  if (!isRecord(value)) return null
+  if (
+    typeof value.elementId !== "string" ||
+    typeof value.tabId !== "number" ||
+    typeof value.pageUrl !== "string" ||
+    typeof value.pickedAt !== "number" ||
+    typeof value.selector !== "string" ||
+    typeof value.tag !== "string" ||
+    typeof value.label !== "string" ||
+    typeof value.text !== "string" ||
+    typeof value.note !== "string" ||
+    typeof value.outline !== "string" ||
+    !isBox(value.box) ||
+    !isRecord(value.viewport) ||
+    !isStringRecord(value.styles) ||
+    !isStringRecord(value.attributes) ||
+    !Array.isArray(value.sourceHints) ||
+    !isRecord(value.edits) ||
+    !isStringRecord(value.edits.styles)
+  ) {
+    return null
+  }
+  const edits = sanitizeEdits({
+    styles: value.edits.styles,
+    ...(typeof value.edits.text === "string" ? { text: value.edits.text } : {}),
+  })
+  const { html: _html, contrast: _contrast, ...rest } = value as unknown as PickedElement
+  const contrast = value.contrast
+  const keepContrast =
+    isRecord(contrast) &&
+    typeof contrast.ratio === "number" &&
+    typeof contrast.foreground === "string" &&
+    typeof contrast.background === "string" &&
+    typeof contrast.aa === "boolean" &&
+    typeof contrast.aaa === "boolean" &&
+    typeof contrast.large === "boolean" &&
+    (contrast.suggestion === undefined || typeof contrast.suggestion === "string")
+  return {
+    ...rest,
+    ...(keepContrast
+      ? { contrast: contrast as unknown as NonNullable<PickedElement["contrast"]> }
+      : {}),
+    ...(typeof value.html === "string" ? { html: value.html.slice(0, 4_000) } : {}),
+    textEditable: value.textEditable === true,
+    edits,
+    screenshotIds: [],
+  }
+}
+
+function parseReport(value: unknown): DevReport | null {
+  if (!isRecord(value) || typeof value.text !== "string" || typeof value.tabId !== "number")
+    return null
+  const counts = isRecord(value.counts) ? value.counts : {}
+  const count = (key: string) => (typeof counts[key] === "number" ? (counts[key] as number) : 0)
+  return {
+    tabId: value.tabId,
+    capturedAt: typeof value.capturedAt === "number" ? value.capturedAt : 0,
+    counts: {
+      errors: count("errors"),
+      warnings: count("warnings"),
+      failedRequests: count("failedRequests"),
+      steps: count("steps"),
+    },
+    text: value.text,
+  }
 }
 
 export function parseDraft(value: unknown, now: number): PanelDraft | null {
@@ -83,6 +182,34 @@ export function parseDraft(value: unknown, now: number): PanelDraft | null {
       typeof value.droppedAttachments === "number" && value.droppedAttachments > 0
         ? Math.floor(value.droppedAttachments)
         : 0,
+    // Only picks of the page the draft captured: one of another page cannot be
+    // sent with it.
+    picks:
+      captured && Array.isArray(value.picks)
+        ? value.picks
+            .map(parsePick)
+            .filter((pick): pick is PickedElement => pick?.tabId === captured.tabId)
+            .slice(0, MAX_PICKS)
+        : [],
+    measurements:
+      captured && Array.isArray(value.measurements)
+        ? value.measurements
+            .map(parseMeasurement)
+            .filter(
+              (measurement): measurement is Measurement => measurement?.tabId === captured.tabId
+            )
+            .slice(0, MAX_MEASUREMENTS)
+        : [],
+    textChanges: (() => {
+      const stored = isRecord(value.textChanges) ? value.textChanges : null
+      if (!captured || stored?.tabId !== captured.tabId) return null
+      const changes = parseTextChanges(stored.changes)
+      return changes.length > 0 ? { tabId: captured.tabId, changes } : null
+    })(),
+    devReport: captured ? parseReport(value.devReport) : null,
+    insights: captured
+      ? insightsForTab(parseInsights(value.insights), captured.tabId)
+      : NO_INSIGHTS,
     savedAt: value.savedAt,
   }
 }

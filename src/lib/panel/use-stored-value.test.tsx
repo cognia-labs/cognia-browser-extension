@@ -76,6 +76,7 @@ describe("usePreferences", () => {
       notifications: true,
       agentMode: true,
       blockedHosts: ["a.test"],
+      toolbarSnap: false,
     })
     expect(result.current[0].agentMode).toBe(true)
   })

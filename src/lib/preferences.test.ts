@@ -31,7 +31,10 @@ describe("preferences", () => {
       notifications: true,
       agentMode: false,
       blockedHosts: ["bank.example.com", "corp.test"],
+      toolbarSnap: false,
     })
+    expect(parsePreferences({ toolbarSnap: true }).toolbarSnap).toBe(true)
+    expect(parsePreferences({ toolbarSnap: "yes" }).toolbarSnap).toBe(false)
   })
 
   it("normalizes typed hosts", () => {

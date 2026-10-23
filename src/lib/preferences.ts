@@ -14,12 +14,15 @@ export interface ExtensionPreferences {
   agentMode: boolean
   /** Hosts the panel refuses to capture, e.g. a bank. Lower-case. */
   blockedHosts: string[]
+  /** The floating toolbar snaps to the window's edges when let go (opt-in). */
+  toolbarSnap: boolean
 }
 
 export const DEFAULT_PREFERENCES: ExtensionPreferences = Object.freeze({
   notifications: false,
   agentMode: false,
   blockedHosts: [],
+  toolbarSnap: false,
 }) as ExtensionPreferences
 
 export const MAX_BLOCKED_HOSTS = 200
@@ -56,6 +59,7 @@ export function parsePreferences(value: unknown): ExtensionPreferences {
     notifications: record.notifications === true,
     agentMode: record.agentMode === true,
     blockedHosts,
+    toolbarSnap: record.toolbarSnap === true,
   }
 }
 

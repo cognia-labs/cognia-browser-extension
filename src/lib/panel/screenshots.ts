@@ -9,6 +9,7 @@
 import type { BrowserAttachmentKind } from "@cognia/companion-client"
 
 import { MAX_CANVAS_SIDE } from "../agent/image-ops"
+import type { AttachmentAnnotation } from "./annotations"
 import { base64ToBytes } from "../attachment-upload"
 import type { BrowserApi, TabRef } from "../browser-api"
 
@@ -20,12 +21,28 @@ export interface PendingAttachment {
   bytes: Uint8Array
   /** A data URL for an image's thumbnail; absent for a PDF. */
   previewUrl?: string
+  /** The clean shot and the marks drawn on it, when the person marked it up. */
+  annotation?: AttachmentAnnotation
 }
 
 type ShotApi = Pick<
   BrowserApi,
   "captureVisible" | "activateTab" | "scrollMetrics" | "scrollTo" | "cropImage" | "stitchImages"
->
+> &
+  Partial<Pick<BrowserApi, "hidePageChrome">>
+
+/**
+ * Run a capture with the floating toolbar out of the picture, and put it
+ * back after — on a page with no toolbar, or none reachable, as is.
+ */
+async function withoutChrome<T>(api: ShotApi, tabId: number, capture: () => Promise<T>) {
+  await api.hidePageChrome?.(tabId, true).catch(() => undefined)
+  try {
+    return await capture()
+  } finally {
+    await api.hidePageChrome?.(tabId, false).catch(() => undefined)
+  }
+}
 
 /** Chrome refuses more than two visible-tab captures a second. */
 export const CAPTURE_SPACING_MS = 550
@@ -39,7 +56,7 @@ export function screenshotAttachment(
   id: string,
   base64Png: string,
   now: number,
-  label: "visible" | "region" | "full-page"
+  label: "visible" | "region" | "full-page" | "element" | "design-diff"
 ): PendingAttachment {
   return {
     id,
@@ -63,8 +80,10 @@ export async function captureVisible(
   sleep: (ms: number) => Promise<void>
 ) {
   await api.activateTab(tab.id)
-  await sleep(150)
-  return api.captureVisible(windowOf(tab))
+  return withoutChrome(api, tab.id, async () => {
+    await sleep(150)
+    return api.captureVisible(windowOf(tab))
+  })
 }
 
 /** A dragged rectangle on a preview of `preview` size, in the image's own pixels. */
@@ -110,21 +129,23 @@ export async function captureFullPage(
   )
   const shots: string[] = []
   const heights: number[] = []
-  try {
-    for (let step = 0; step < steps; step++) {
-      const landed = await api.scrollTo(tab.id, step * metrics.viewportHeight)
-      await sleep(step === 0 ? 150 : CAPTURE_SPACING_MS)
-      shots.push(await api.captureVisible(windowId))
-      // A last segment that could not scroll a full viewport overlaps the one
-      // before it; only the rows below the previous bottom are new.
-      const previousBottom = step * metrics.viewportHeight
-      const fresh =
-        step === 0 ? metrics.viewportHeight : landed + metrics.viewportHeight - previousBottom
-      heights.push(Math.round(Math.max(0, Math.min(metrics.viewportHeight, fresh)) * metrics.dpr))
+  await withoutChrome(api, tab.id, async () => {
+    try {
+      for (let step = 0; step < steps; step++) {
+        const landed = await api.scrollTo(tab.id, step * metrics.viewportHeight)
+        await sleep(step === 0 ? 150 : CAPTURE_SPACING_MS)
+        shots.push(await api.captureVisible(windowId))
+        // A last segment that could not scroll a full viewport overlaps the one
+        // before it; only the rows below the previous bottom are new.
+        const previousBottom = step * metrics.viewportHeight
+        const fresh =
+          step === 0 ? metrics.viewportHeight : landed + metrics.viewportHeight - previousBottom
+        heights.push(Math.round(Math.max(0, Math.min(metrics.viewportHeight, fresh)) * metrics.dpr))
+      }
+    } finally {
+      await api.scrollTo(tab.id, metrics.scrollY).catch(() => undefined)
     }
-  } finally {
-    await api.scrollTo(tab.id, metrics.scrollY).catch(() => undefined)
-  }
+  })
   const width = Math.min(MAX_CANVAS_SIDE, Math.round(metrics.viewportWidth * metrics.dpr))
   const rows = heights.reduce((sum, value) => sum + value, 0)
   return {
@@ -134,6 +155,25 @@ export async function captureFullPage(
     truncated:
       rows > MAX_CANVAS_SIDE ||
       (steps === MAX_SEGMENTS && metrics.scrollHeight > steps * metrics.viewportHeight),
+  }
+}
+
+/**
+ * A picked element's box in a visible-area capture's own pixels, with a
+ * margin so its edges and shadow are in the shot.
+ */
+export function elementCrop(
+  box: { x: number; y: number; width: number; height: number },
+  dpr: number,
+  margin = 8
+): { x: number; y: number; width: number; height: number } {
+  const left = Math.max(0, box.x - margin)
+  const top = Math.max(0, box.y - margin)
+  return {
+    x: Math.round(left * dpr),
+    y: Math.round(top * dpr),
+    width: Math.max(1, Math.round((box.x + box.width + margin - left) * dpr)),
+    height: Math.max(1, Math.round((box.y + box.height + margin - top) * dpr)),
   }
 }
 

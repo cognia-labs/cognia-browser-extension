@@ -4,6 +4,7 @@ import {
   CAPTURE_SPACING_MS,
   captureFullPage,
   captureVisible,
+  elementCrop,
   fileNameFromUrl,
   regionInImagePixels,
   screenshotAttachment,
@@ -57,6 +58,32 @@ describe("captureVisible", () => {
       "window"
     )
   })
+
+  it("takes the floating toolbar out of the shot, and puts it back even when the shot fails", async () => {
+    const { api, calls, sleep } = fakeApi()
+    const hidePageChrome = jest.fn(async (tabId: number, hidden: boolean) => {
+      calls.push(`chrome:${tabId}:${hidden}`)
+    })
+    await captureVisible({ ...api, hidePageChrome }, TAB, sleep)
+    expect(calls).toEqual(["activate:7", "chrome:7:true", "capture:3", "chrome:7:false"])
+    calls.length = 0
+    const failing = {
+      ...api,
+      hidePageChrome,
+      captureVisible: async () => {
+        throw new Error("denied")
+      },
+    }
+    await expect(captureVisible(failing, TAB, sleep)).rejects.toThrow("denied")
+    expect(calls.at(-1)).toBe("chrome:7:false")
+    // A page it cannot reach is captured as it is.
+    const unreachable = jest.fn(async () => {
+      throw new Error("no access")
+    })
+    await expect(captureVisible({ ...api, hidePageChrome: unreachable }, TAB, sleep)).resolves.toBe(
+      "data:image/png;base64,AAAA"
+    )
+  })
 })
 
 describe("captureFullPage", () => {
@@ -73,6 +100,16 @@ describe("captureFullPage", () => {
     expect(calls.at(-1)).toBe("scroll:40")
   })
 
+  it("keeps the floating toolbar out of every segment", async () => {
+    const { api, calls, sleep } = fakeApi()
+    const hidePageChrome = async (_tabId: number, hidden: boolean) => {
+      calls.push(`chrome:${hidden}`)
+    }
+    await captureFullPage({ ...api, hidePageChrome }, TAB, sleep)
+    const shown = calls.filter((call) => call.startsWith("chrome:") || call.startsWith("capture:"))
+    expect(shown).toEqual(["chrome:true", "capture:3", "capture:3", "capture:3", "chrome:false"])
+  })
+
   it("says when the page was cut", async () => {
     const { api, sleep } = fakeApi({
       scrollHeight: 50_000,
@@ -84,6 +121,23 @@ describe("captureFullPage", () => {
     const result = await captureFullPage(api, TAB, sleep)
     expect(result.truncated).toBe(true)
     expect(result.height).toBeLessThanOrEqual(MAX_CANVAS_SIDE)
+  })
+})
+
+describe("elementCrop", () => {
+  it("frames a picked element with a margin, in device pixels, never off the top-left", () => {
+    expect(elementCrop({ x: 100, y: 50, width: 40, height: 20 }, 2)).toEqual({
+      x: 184,
+      y: 84,
+      width: 112,
+      height: 72,
+    })
+    expect(elementCrop({ x: 2, y: 0, width: 10, height: 10 }, 1)).toEqual({
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 18,
+    })
   })
 })
 
