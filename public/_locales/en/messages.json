@@ -743,5 +743,1458 @@
   },
   "agentSocketIncompatible": {
     "message": "Protocol incompatible. Update Cognia and the extension, then reconnect."
+  },
+  "inspectCommand": {
+    "message": "Pick an element on the page to send to Cognia"
+  },
+  "contextMenuInspect": {
+    "message": "Pick an element for Cognia"
+  },
+  "inspectPick": {
+    "message": "Pick element"
+  },
+  "inspectPickCancel": {
+    "message": "Stop picking"
+  },
+  "inspectPicking": {
+    "message": "Click an element on the page. Shift-click or drag a box to choose several, Alt-click to take all alike, then Enter or Done. ↑ and ↓ move to the parent or child, Esc cancels."
+  },
+  "inspectPickHint": {
+    "message": "Cognia: click an element · Shift-click or drag a box to choose several · Alt-click for all alike · Esc cancel"
+  },
+  "inspectFull": {
+    "message": "That is as many elements as one request takes. Remove one to pick another."
+  },
+  "inspectFailed": {
+    "message": "The element could not be picked. Click the extension's icon on the page and try again."
+  },
+  "inspectDefaultInstruction": {
+    "message": "Update the source so the picked elements match what I asked for. Use the component names, source positions and selectors to find them."
+  },
+  "inspectPickedTitle": {
+    "message": "Picked elements ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectComponents": {
+    "message": "Components:"
+  },
+  "inspectSource": {
+    "message": "Source:"
+  },
+  "inspectApproximate": {
+    "message": "approx."
+  },
+  "inspectNoSource": {
+    "message": "No source position: the page does not expose one (production build or unknown framework). The selector still finds it."
+  },
+  "inspectCopy": {
+    "message": "Copy $LABEL$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectDetached": {
+    "message": "No longer on the page"
+  },
+  "inspectNoteLabel": {
+    "message": "What should change"
+  },
+  "inspectNotePlaceholder": {
+    "message": "e.g. make it the primary action, align it with the title"
+  },
+  "inspectTextLabel": {
+    "message": "Text"
+  },
+  "inspectStylesShow": {
+    "message": "Adjust styles"
+  },
+  "inspectStylesHide": {
+    "message": "Hide styles"
+  },
+  "inspectEdited": {
+    "message": "edited"
+  },
+  "inspectLocate": {
+    "message": "Show on page"
+  },
+  "inspectShoot": {
+    "message": "Screenshot"
+  },
+  "inspectRevert": {
+    "message": "Undo edits"
+  },
+  "inspectRemove": {
+    "message": "Remove $LABEL$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectPreviewShow": {
+    "message": "Review what is sent"
+  },
+  "inspectPreviewHide": {
+    "message": "Hide what is sent"
+  },
+  "styleGroupLayout": {
+    "message": "Layout"
+  },
+  "styleGroupSpacing": {
+    "message": "Spacing"
+  },
+  "styleGroupType": {
+    "message": "Text"
+  },
+  "styleGroupAppearance": {
+    "message": "Appearance"
+  },
+  "stylePickColor": {
+    "message": "Pick a colour for $PROPERTY$",
+    "placeholders": {
+      "property": {
+        "content": "$1"
+      }
+    }
+  },
+  "styleReset": {
+    "message": "Reset styles"
+  },
+  "pageToolsTitle": {
+    "message": "Page tools"
+  },
+  "devReportTitle": {
+    "message": "Console and network"
+  },
+  "devReportHint": {
+    "message": "Start recording, reproduce the problem, then attach what you did and what the console and requests said. Clicks, keys and navigation are recorded, never what you type. Recording stops if the page reloads; requests that failed since the page loaded are always included."
+  },
+  "devRecordStart": {
+    "message": "Start recording"
+  },
+  "devRecordRestart": {
+    "message": "Restart recording"
+  },
+  "devRecordingSince": {
+    "message": "Recording since $TIME$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "devReportAttach": {
+    "message": "Attach console and network"
+  },
+  "devReportRefresh": {
+    "message": "Read again"
+  },
+  "devReportErrors": {
+    "message": "$COUNT$ errors",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "devReportWarnings": {
+    "message": "$COUNT$ warnings",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "devReportFailed": {
+    "message": "The console and network could not be read on this page."
+  },
+  "devReportEdit": {
+    "message": "Sent with the page — trim anything private"
+  },
+  "devRecordFailed": {
+    "message": "Recording could not start on this page. Click the extension's icon on the page and try again."
+  },
+  "devRecordingLost": {
+    "message": "The page reloaded, which stopped the recording. The report has the failed requests only; start recording again to catch the console."
+  },
+  "devDefaultInstruction": {
+    "message": "Find and fix the cause of the errors and failed requests reported for this page."
+  },
+  "overlayTitle": {
+    "message": "Design overlay"
+  },
+  "overlayHint": {
+    "message": "Lay a design export over the page to compare. Take a visible-area screenshot while it is shown to send the comparison."
+  },
+  "overlayChoose": {
+    "message": "Choose design image"
+  },
+  "overlayReplace": {
+    "message": "Replace image"
+  },
+  "overlayOpacity": {
+    "message": "Opacity $PERCENT$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "overlayOffsetX": {
+    "message": "Left (px)"
+  },
+  "overlayOffsetY": {
+    "message": "Top (px)"
+  },
+  "overlayScale": {
+    "message": "Export"
+  },
+  "overlayVisible": {
+    "message": "Show"
+  },
+  "overlayDifference": {
+    "message": "Difference"
+  },
+  "overlayFailed": {
+    "message": "The design overlay could not be shown on this page."
+  },
+  "viewportTitle": {
+    "message": "Screen sizes"
+  },
+  "viewportHint": {
+    "message": "Open the page in a window of that viewport size."
+  },
+  "viewportMobile": {
+    "message": "Phone"
+  },
+  "viewportTablet": {
+    "message": "Tablet"
+  },
+  "viewportLaptop": {
+    "message": "Laptop"
+  },
+  "viewportDesktop": {
+    "message": "Desktop"
+  },
+  "viewportFailed": {
+    "message": "The page could not be opened at that size."
+  },
+  "pageAuditTitle": {
+    "message": "Page audit"
+  },
+  "insightInclude": {
+    "message": "Send with the page"
+  },
+  "insightRunAgain": {
+    "message": "Run again"
+  },
+  "insightFailed": {
+    "message": "This check could not run on the page. Click the extension's icon on the page and try again."
+  },
+  "accessTitle": {
+    "message": "Accessibility"
+  },
+  "accessHint": {
+    "message": "A first pass with WCAG 2.2 AA thresholds: names, labels, contrast, headings, targets. Not a conformance audit."
+  },
+  "accessRun": {
+    "message": "Check accessibility"
+  },
+  "accessClean": {
+    "message": "No findings in $COUNT$ elements.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accessPick": {
+    "message": "Add to picks"
+  },
+  "accessPicked": {
+    "message": "Picked"
+  },
+  "accessShowAll": {
+    "message": "Show all $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accessShowFewer": {
+    "message": "Show fewer"
+  },
+  "accessImpactCritical": {
+    "message": "Critical"
+  },
+  "accessImpactSerious": {
+    "message": "Serious"
+  },
+  "accessImpactModerate": {
+    "message": "Moderate"
+  },
+  "accessImpactMinor": {
+    "message": "Minor"
+  },
+  "accessRuleImageAlt": {
+    "message": "Image has no text alternative"
+  },
+  "accessRuleButtonName": {
+    "message": "Button has no accessible name"
+  },
+  "accessRuleLinkName": {
+    "message": "Link has no accessible name"
+  },
+  "accessRuleLabel": {
+    "message": "Form field has no label"
+  },
+  "accessRuleContrast": {
+    "message": "Text contrast is too low"
+  },
+  "accessRuleLang": {
+    "message": "Page has no language"
+  },
+  "accessRuleTitle": {
+    "message": "Page has no title"
+  },
+  "accessRuleHeadingOrder": {
+    "message": "Heading skips a level"
+  },
+  "accessRuleEmptyHeading": {
+    "message": "Heading is empty"
+  },
+  "accessRuleDuplicateId": {
+    "message": "Id is used more than once"
+  },
+  "accessRuleTargetSize": {
+    "message": "Target is smaller than 24×24"
+  },
+  "accessRuleHiddenFocus": {
+    "message": "Focusable element hidden from assistive technology"
+  },
+  "accessRuleFrameTitle": {
+    "message": "Frame has no title"
+  },
+  "accessRuleTabindex": {
+    "message": "Positive tabindex changes the focus order"
+  },
+  "tokensTitle": {
+    "message": "Design tokens"
+  },
+  "tokensHint": {
+    "message": "The colours, type, spacing, radii and variables the page actually uses, most used first. Click a swatch to copy it."
+  },
+  "tokensRun": {
+    "message": "Read design tokens"
+  },
+  "eyedropperRun": {
+    "message": "Pick a colour from the screen"
+  },
+  "tokensColors": {
+    "message": "Colours"
+  },
+  "tokensType": {
+    "message": "Type (family · size / weight / line height)"
+  },
+  "tokensSpacing": {
+    "message": "Spacing"
+  },
+  "tokensRadii": {
+    "message": "Radii"
+  },
+  "tokensBreakpoints": {
+    "message": "Breakpoints:"
+  },
+  "tokensVariables": {
+    "message": "CSS variables on :root: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "stackTitle": {
+    "message": "Tech stack"
+  },
+  "stackHint": {
+    "message": "What the page is built with — frameworks, CMS, styling, build, libraries, analytics and hosting, with versions and how each was found — so the agent starts from the right tools."
+  },
+  "stackRun": {
+    "message": "Detect tech stack"
+  },
+  "stackNone": {
+    "message": "Nothing recognisable: plain HTML, or a build that hides its tooling."
+  },
+  "stackDevelopment": {
+    "message": "Development build: component names and source positions are available."
+  },
+  "stackProduction": {
+    "message": "Production build: component names and source positions may be missing."
+  },
+  "styleEyedrop": {
+    "message": "Pick $PROPERTY$ from the screen",
+    "placeholders": {
+      "property": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectProps": {
+    "message": "Props of $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "copyContext": {
+    "message": "Copy as prompt"
+  },
+  "copyContextDone": {
+    "message": "Copied"
+  },
+  "measureStart": {
+    "message": "Measure"
+  },
+  "measureCancel": {
+    "message": "Stop measuring"
+  },
+  "measureWaiting": {
+    "message": "Click the first element, then the one to measure to; Shift-click to keep measuring from the first. Esc cancels."
+  },
+  "measureHint": {
+    "message": "Cognia: click the first element to measure from · Esc cancel"
+  },
+  "measureAnchorHint": {
+    "message": "Cognia: click the element to measure to · Shift-click for more · Esc cancel"
+  },
+  "measureFailed": {
+    "message": "The page could not be measured. Click the extension's icon on the page and try again."
+  },
+  "measureFull": {
+    "message": "That is as many measurements as one request takes. Remove one to measure another."
+  },
+  "measureDefaultInstruction": {
+    "message": "Fix the spacing and alignment I measured so it matches my notes. Use the selectors to find the elements."
+  },
+  "measureTitle": {
+    "message": "Measurements ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "measureSame": {
+    "message": "Same box"
+  },
+  "measureOverlap": {
+    "message": "Overlapping"
+  },
+  "measureInside": {
+    "message": "Second inside first:"
+  },
+  "measureContains": {
+    "message": "First inside second:"
+  },
+  "measureApart": {
+    "message": "Gap:"
+  },
+  "measureNearlyAligned": {
+    "message": "Edges a few px off"
+  },
+  "measureNotePlaceholder": {
+    "message": "e.g. should be 16px, align the left edges"
+  },
+  "measureNoteLabel": {
+    "message": "What measurement $NUMBER$ should be",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "measureShow": {
+    "message": "Show & re-measure"
+  },
+  "attachMarkup": {
+    "message": "Mark up screen"
+  },
+  "annotateEdit": {
+    "message": "Mark up"
+  },
+  "annotateEditLabel": {
+    "message": "Mark up $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "annotateMarked": {
+    "message": "Marked"
+  },
+  "annotateHint": {
+    "message": "Draw on the screenshot. Numbered markers take a note each, sent as text with the image."
+  },
+  "annotateToolBox": {
+    "message": "Box"
+  },
+  "annotateToolArrow": {
+    "message": "Arrow"
+  },
+  "annotateToolPen": {
+    "message": "Freehand"
+  },
+  "annotateToolMarker": {
+    "message": "Numbered marker"
+  },
+  "annotateColor": {
+    "message": "Colour $COLOR$",
+    "placeholders": {
+      "color": {
+        "content": "$1"
+      }
+    }
+  },
+  "annotateUndo": {
+    "message": "Undo the last mark"
+  },
+  "annotateClear": {
+    "message": "Clear all"
+  },
+  "annotateAlt": {
+    "message": "Screenshot to mark up"
+  },
+  "annotateFull": {
+    "message": "That is as many marks as one screenshot takes."
+  },
+  "annotateNotePlaceholder": {
+    "message": "What this marker points at"
+  },
+  "annotateNoteLabel": {
+    "message": "Note for marker $NUMBER$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "annotateRemoveMarker": {
+    "message": "Remove marker $NUMBER$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "annotateConfirm": {
+    "message": "Save marks"
+  },
+  "annotateSaving": {
+    "message": "Saving…"
+  },
+  "annotateFailed": {
+    "message": "The marks could not be drawn onto the screenshot."
+  },
+  "devReportSteps": {
+    "message": "$COUNT$ steps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectCopyCode": {
+    "message": "Copy code"
+  },
+  "inspectCopyCodeHint": {
+    "message": "Copy the element's cleaned HTML and its CSS, with your previewed changes"
+  },
+  "perfTitle": {
+    "message": "Performance"
+  },
+  "perfHint": {
+    "message": "How this visit loaded and responded, from the browser's own timeline: Web Vitals, slow scripts, heavy resources, oversized images."
+  },
+  "perfRun": {
+    "message": "Measure performance"
+  },
+  "perfVitalLcp": {
+    "message": "Largest paint (LCP)"
+  },
+  "perfVitalCls": {
+    "message": "Layout shift (CLS)"
+  },
+  "perfVitalInp": {
+    "message": "Slowest interaction"
+  },
+  "perfVitalFcp": {
+    "message": "First paint (FCP)"
+  },
+  "perfVitalTtfb": {
+    "message": "First byte (TTFB)"
+  },
+  "perfVitalTbt": {
+    "message": "Blocked time (TBT)"
+  },
+  "perfGood": {
+    "message": "Good"
+  },
+  "perfNeedsWork": {
+    "message": "Needs work"
+  },
+  "perfPoor": {
+    "message": "Poor"
+  },
+  "perfNoVitals": {
+    "message": "The browser recorded no Web Vitals for this visit. Reload the page and measure again."
+  },
+  "perfSummary": {
+    "message": "Resources: $COUNT$ · $BYTES$ · Elements: $ELEMENTS$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "bytes": {
+        "content": "$2"
+      },
+      "elements": {
+        "content": "$3"
+      }
+    }
+  },
+  "perfOversized": {
+    "message": "Images served much larger than shown: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "perfUnsized": {
+    "message": "Images without width and height: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "perfBlocking": {
+    "message": "Render-blocking resources: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "perfSlowScript": {
+    "message": "Slowest script: $SOURCE$ ($MS$ ms in long frames)",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "ms": {
+        "content": "$2"
+      }
+    }
+  },
+  "perfDetailsShow": {
+    "message": "Show the full report"
+  },
+  "perfDetailsHide": {
+    "message": "Hide the full report"
+  },
+  "devReportFailedRequests": {
+    "message": "$COUNT$ failed requests",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "seoTitle": {
+    "message": "SEO and link previews"
+  },
+  "seoHint": {
+    "message": "The title, description, canonical, robots, Open Graph and Twitter tags, structured data and heading outline, with a preview of the card a shared link shows."
+  },
+  "seoRun": {
+    "message": "Check SEO"
+  },
+  "seoClean": {
+    "message": "No common SEO mistakes found."
+  },
+  "seoSeverityError": {
+    "message": "Error"
+  },
+  "seoSeverityWarning": {
+    "message": "Warning"
+  },
+  "seoSeverityInfo": {
+    "message": "Note"
+  },
+  "seoRuleTitleMissing": {
+    "message": "The page has no title"
+  },
+  "seoRuleTitleLength": {
+    "message": "The title will be cut off or is too short"
+  },
+  "seoRuleDescriptionMissing": {
+    "message": "No meta description"
+  },
+  "seoRuleDescriptionLength": {
+    "message": "The description will be cut off or is too short"
+  },
+  "seoRuleCanonicalMissing": {
+    "message": "No canonical link"
+  },
+  "seoRuleCanonicalMultiple": {
+    "message": "More than one canonical link"
+  },
+  "seoRuleNoindex": {
+    "message": "Search engines are told not to index this page"
+  },
+  "seoRuleViewport": {
+    "message": "No viewport tag: phones show the page zoomed out"
+  },
+  "seoRuleHeadingOne": {
+    "message": "There should be exactly one h1"
+  },
+  "seoRuleOpenGraph": {
+    "message": "Open Graph tags for link previews are missing"
+  },
+  "seoRuleOpenGraphImage": {
+    "message": "og:image is not an absolute URL"
+  },
+  "seoRuleTwitter": {
+    "message": "No Twitter card"
+  },
+  "seoRuleStructuredMissing": {
+    "message": "No structured data"
+  },
+  "seoRuleStructuredInvalid": {
+    "message": "Structured data that does not parse"
+  },
+  "seoRuleImageAlt": {
+    "message": "Images without alt text"
+  },
+  "seoRuleLinkText": {
+    "message": "Links with no text"
+  },
+  "seoPreviewTitle": {
+    "message": "Shared link preview"
+  },
+  "seoPreviewNoImage": {
+    "message": "No preview image"
+  },
+  "seoPreviewNoTitle": {
+    "message": "No title"
+  },
+  "seoSummary": {
+    "message": "Words: $WORDS$ · Links: $LINKS$ · Structured data: $TYPES$",
+    "placeholders": {
+      "words": {
+        "content": "$1"
+      },
+      "links": {
+        "content": "$2"
+      },
+      "types": {
+        "content": "$3"
+      }
+    }
+  },
+  "seoOutline": {
+    "message": "Heading outline ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "seoEmptyHeading": {
+    "message": "(empty)"
+  },
+  "textEditStart": {
+    "message": "Edit text"
+  },
+  "textEditHint": {
+    "message": "Cognia: click any words on the page to change them · finish in the side panel"
+  },
+  "textEditing": {
+    "message": "Editing the page's text: click any words to change them."
+  },
+  "textEditDone": {
+    "message": "Done editing"
+  },
+  "textEditUndo": {
+    "message": "Undo all edits"
+  },
+  "textEditFailed": {
+    "message": "The page's text could not be edited. Click the extension's icon on the page and try again."
+  },
+  "textEditDefaultInstruction": {
+    "message": "Update the copy in the source to match my text changes. Use the selectors to find each one."
+  },
+  "textChangesTitle": {
+    "message": "Text changes ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "textChangeDeleted": {
+    "message": "deleted"
+  },
+  "textChangeRemoved": {
+    "message": "(removed)"
+  },
+  "textChangeRemove": {
+    "message": "Leave out change $NUMBER$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "exportContext": {
+    "message": "Export .md"
+  },
+  "inspectContrastFix": {
+    "message": "Use $COLOR$",
+    "placeholders": {
+      "color": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectContrastFixHint": {
+    "message": "Preview the nearest colour that passes WCAG AA on this background"
+  },
+  "layoutTitle": {
+    "message": "Layout"
+  },
+  "layoutHint": {
+    "message": "What makes the page scroll sideways, text cut off by its box, stretched images and text too small to read, at this window size."
+  },
+  "layoutRun": {
+    "message": "Check layout"
+  },
+  "layoutRuleOverflow": {
+    "message": "Wider than the window: the page scrolls sideways"
+  },
+  "layoutRuleClipped": {
+    "message": "Text cut off by its box"
+  },
+  "layoutRuleDistorted": {
+    "message": "Image stretched out of shape"
+  },
+  "layoutRuleSmallText": {
+    "message": "Text smaller than 12px"
+  },
+  "layoutScrolls": {
+    "message": "The page is $PAGE$px wide in a $VIEWPORT$px window, so it scrolls sideways.",
+    "placeholders": {
+      "page": {
+        "content": "$1"
+      },
+      "viewport": {
+        "content": "$2"
+      }
+    }
+  },
+  "layoutFits": {
+    "message": "The page fits the $VIEWPORT$px window.",
+    "placeholders": {
+      "viewport": {
+        "content": "$1"
+      }
+    }
+  },
+  "layoutClean": {
+    "message": "No layout problems in $COUNT$ elements.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectState": {
+    "message": "State of $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "adjustButton": {
+    "message": "Adjust on page"
+  },
+  "adjustButtonHint": {
+    "message": "Resize it by dragging its edges and nudge its spacing with the arrow keys, on the page itself"
+  },
+  "adjustWorking": {
+    "message": "Adjusting…"
+  },
+  "adjustHint": {
+    "message": "Drag the right or bottom edge to resize. Arrows add margin, Alt+arrow takes it away, Shift for 10px, P switches to padding. Enter keeps it, Esc undoes it."
+  },
+  "adjustMargin": {
+    "message": "Margin"
+  },
+  "adjustPadding": {
+    "message": "Padding"
+  },
+  "adjustDone": {
+    "message": "Keep adjustment"
+  },
+  "adjustCancel": {
+    "message": "Undo adjustment"
+  },
+  "adjustFailed": {
+    "message": "Couldn't adjust the element on this page."
+  },
+  "mockTitle": {
+    "message": "Simulate requests"
+  },
+  "mockHint": {
+    "message": "Make the page's own requests fail, answer, change, wait or go elsewhere, to see how it copes. Rules last until the page reloads unless kept, and what you send says which requests were simulated."
+  },
+  "mockMatch": {
+    "message": "URL matches"
+  },
+  "mockMethod": {
+    "message": "Method"
+  },
+  "mockMethodAny": {
+    "message": "Any"
+  },
+  "mockAction": {
+    "message": "Then"
+  },
+  "mockActionFail": {
+    "message": "Fail (network error)"
+  },
+  "mockActionRespond": {
+    "message": "Respond with"
+  },
+  "mockActionDelay": {
+    "message": "Delay"
+  },
+  "mockStatus": {
+    "message": "Status"
+  },
+  "mockBody": {
+    "message": "Body (optional)"
+  },
+  "mockDelay": {
+    "message": "Delay (ms)"
+  },
+  "mockAdd": {
+    "message": "Add rule"
+  },
+  "mockFull": {
+    "message": "Rule limit reached"
+  },
+  "mockLost": {
+    "message": "The page reloaded, so these rules no longer apply."
+  },
+  "mockHits": {
+    "message": "$COUNT$ matched",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRemove": {
+    "message": "Remove rule"
+  },
+  "mockRefresh": {
+    "message": "Refresh matches"
+  },
+  "mockReapply": {
+    "message": "Apply again"
+  },
+  "mockClear": {
+    "message": "Clear rules"
+  },
+  "mockFailed": {
+    "message": "Couldn't change the requests on this page."
+  },
+  "mockRuleFail": {
+    "message": "Fails with a network error"
+  },
+  "mockRuleRespond": {
+    "message": "Answers $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleDelay": {
+    "message": "Held back $MS$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "compareRun": {
+    "message": "Compare with page"
+  },
+  "compareHint": {
+    "message": "Measure how far the page is from the mock: the overlay is hidden for a moment, the visible page captured, and the two compared pixel by pixel"
+  },
+  "compareSummary": {
+    "message": "$REGIONS$ regions differ, over $AREA$",
+    "placeholders": {
+      "regions": {
+        "content": "$1"
+      },
+      "area": {
+        "content": "$2"
+      }
+    }
+  },
+  "compareOutOfView": {
+    "message": "The mock isn't in view. Scroll to it or move it, then compare again."
+  },
+  "compareFailed": {
+    "message": "Couldn't compare the page with the mock."
+  },
+  "compareDefaultInstruction": {
+    "message": "Make the page match the design mock where they differ."
+  },
+  "focusTitle": {
+    "message": "Keyboard focus"
+  },
+  "focusHint": {
+    "message": "The order Tab moves through the page, numbered on it, and where it goes wrong: positive tabindex, hidden stops, focus jumping back up, and clickable things the keyboard can't reach."
+  },
+  "focusRun": {
+    "message": "Check focus order"
+  },
+  "focusStops": {
+    "message": "$COUNT$ Tab stops",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "focusShowNumbers": {
+    "message": "Number them on the page"
+  },
+  "focusHideNumbers": {
+    "message": "Hide numbers"
+  },
+  "focusClean": {
+    "message": "No keyboard problems found."
+  },
+  "focusRulePositive": {
+    "message": "Positive tabindex reorders the page"
+  },
+  "focusRuleHidden": {
+    "message": "Tab stops on something that can't be seen"
+  },
+  "focusRuleJump": {
+    "message": "Focus jumps back up the page"
+  },
+  "focusRuleUnreachable": {
+    "message": "Looks clickable, but the keyboard can't reach it"
+  },
+  "toolbarTitle": {
+    "message": "Cognia tools"
+  },
+  "toolbarPick": {
+    "message": "Pick an element"
+  },
+  "toolbarMeasure": {
+    "message": "Measure between elements"
+  },
+  "toolbarAdjust": {
+    "message": "Adjust the last pick"
+  },
+  "toolbarText": {
+    "message": "Edit the page's text"
+  },
+  "toolbarShot": {
+    "message": "Screenshot and mark up"
+  },
+  "toolbarClose": {
+    "message": "Close toolbar"
+  },
+  "toolbarCollapse": {
+    "message": "Collapse"
+  },
+  "toolbarExpand": {
+    "message": "Show tools"
+  },
+  "toolbarDrag": {
+    "message": "Drag to move"
+  },
+  "toolbarShow": {
+    "message": "Floating toolbar"
+  },
+  "toolbarHide": {
+    "message": "Hide toolbar"
+  },
+  "toolbarToggleHint": {
+    "message": "Float pick, measure, adjust, text editing and screenshots on the page itself"
+  },
+  "toolbarFailed": {
+    "message": "Couldn't show the toolbar on this page."
+  },
+  "toolbarMinimap": {
+    "message": "Minimap"
+  },
+  "toolbarMinimapHide": {
+    "message": "Hide the minimap"
+  },
+  "panelBrand": {
+    "message": "Cognia Companion"
+  },
+  "panelTagline": {
+    "message": "Capture, inspect and hand pages to Cognia"
+  },
+  "panelPaired": {
+    "message": "Paired"
+  },
+  "captureSubtitle": {
+    "message": "Start from the page in front of you"
+  },
+  "inspectSectionTitle": {
+    "message": "Inspect & edit"
+  },
+  "inspectSectionSubtitle": {
+    "message": "Point at the page to pick, measure and change it"
+  },
+  "inspectTilePickHint": {
+    "message": "Pick an element on the page to describe it to Cognia"
+  },
+  "inspectTileMeasureHint": {
+    "message": "Measure the distance between two elements"
+  },
+  "inspectTileTextHint": {
+    "message": "Change the page's words in place"
+  },
+  "pageToolsSubtitle": {
+    "message": "Console, design overlay, screen sizes, mocks"
+  },
+  "pageAuditSubtitle": {
+    "message": "Accessibility, layout, performance, SEO"
+  },
+  "recentSubtitle": {
+    "message": "Tasks started from this browser"
+  },
+  "settingsSubtitle": {
+    "message": "This browser's connection and preferences"
+  },
+  "toolbarSnapLabel": {
+    "message": "Snap to the window's edges"
+  },
+  "toolbarSnapHint": {
+    "message": "Let go of the toolbar and it moves to the nearer side; along the top or bottom, to a side or the middle"
+  },
+  "captureTextSize": {
+    "message": "$CHARS$ chars · $LINES$ lines",
+    "placeholders": {
+      "chars": {
+        "content": "$1"
+      },
+      "lines": {
+        "content": "$2"
+      }
+    }
+  },
+  "captureTextExpand": {
+    "message": "Show more"
+  },
+  "captureTextCollapse": {
+    "message": "Show less"
+  },
+  "inspectPickSelected": {
+    "message": "Cognia: $COUNT$ chosen · Shift-click to add or remove · Enter or Done to add them · Esc cancel",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectPickDone": {
+    "message": "Done"
+  },
+  "compareTitle": {
+    "message": "Compare the $COUNT$ picks",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "compareDifferences": {
+    "message": "$COUNT$ differ",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "compareSame": {
+    "message": "All the same"
+  },
+  "compareProperty": {
+    "message": "Property"
+  },
+  "compareAllSame": {
+    "message": "They share every reported style ($COUNT$ properties).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "compareInclude": {
+    "message": "Send the comparison with the task"
+  },
+  "compareCopy": {
+    "message": "Copy table"
+  },
+  "inspectExpandAll": {
+    "message": "Expand all"
+  },
+  "inspectCollapseAll": {
+    "message": "Collapse all"
+  },
+  "inspectNoted": {
+    "message": "Note"
+  },
+  "mockActionModify": {
+    "message": "Change the real response"
+  },
+  "mockActionRedirect": {
+    "message": "Send elsewhere"
+  },
+  "mockRuleFailAfter": {
+    "message": "Fails with a network error after $MS$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleModify": {
+    "message": "Real response, changed"
+  },
+  "mockRuleModifyStatus": {
+    "message": "Real response, changed, as $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleRedirect": {
+    "message": "Goes to $TARGET$",
+    "placeholders": {
+      "target": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleTimes": {
+    "message": "first $TIMES$ only",
+    "placeholders": {
+      "times": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleChance": {
+    "message": "$CHANCE$% of the time",
+    "placeholders": {
+      "chance": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockStatusKeep": {
+    "message": "Status (optional)"
+  },
+  "mockStatusSame": {
+    "message": "Keep the real one"
+  },
+  "mockBodyMerge": {
+    "message": "Merge into the body (JSON fields, or text to append)"
+  },
+  "mockTarget": {
+    "message": "Send to"
+  },
+  "mockTargetHint": {
+    "message": "A full URL, or what replaces the matched part. With a /regex/ match, $$1 and $$2 take its groups."
+  },
+  "mockHeaders": {
+    "message": "Response headers (one name: value per line)"
+  },
+  "mockTimes": {
+    "message": "Only the first (0 = always)"
+  },
+  "mockChance": {
+    "message": "Chance (%)"
+  },
+  "mockLimitsHint": {
+    "message": "Limit a rule to its first few matches, or let it strike at random to find flaky handling."
+  },
+  "mockMore": {
+    "message": "More options"
+  },
+  "mockMatchHint": {
+    "message": "Part of the URL; * matches anything, /…/ is a regular expression."
+  },
+  "mockBadMatch": {
+    "message": "That regular expression doesn't compile."
+  },
+  "mockPause": {
+    "message": "Pause rule"
+  },
+  "mockResume": {
+    "message": "Resume rule"
+  },
+  "mockKeep": {
+    "message": "Keep after reload"
+  },
+  "mockKeepHint": {
+    "message": "Rules come back before the page's scripts run, in this tab, until cleared. Asks for access to this site."
+  },
+  "mockKeepDenied": {
+    "message": "Without access to this site, the rules end when the page reloads."
+  },
+  "mockLog": {
+    "message": "Caught requests ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockLogEmpty": {
+    "message": "Nothing caught yet — use the page and they appear here."
+  },
+  "mockPresetOffline": {
+    "message": "Offline"
+  },
+  "mockPresetSlow": {
+    "message": "Slow 3 s"
+  },
+  "mockPresetError": {
+    "message": "Server error 500"
+  },
+  "mockPresetEmpty": {
+    "message": "Empty list"
+  },
+  "mockPresetUnauthorized": {
+    "message": "Signed out 401"
+  },
+  "mockPresetFlaky": {
+    "message": "Flaky 50%"
+  },
+  "stackCategoryMetaFramework": {
+    "message": "App framework"
+  },
+  "stackCategoryFramework": {
+    "message": "Framework"
+  },
+  "stackCategoryCms": {
+    "message": "CMS / site"
+  },
+  "stackCategoryUi": {
+    "message": "Components"
+  },
+  "stackCategoryStyling": {
+    "message": "Styling"
+  },
+  "stackCategoryState": {
+    "message": "State & data"
+  },
+  "stackCategoryBuild": {
+    "message": "Build"
+  },
+  "stackCategoryLibrary": {
+    "message": "Libraries"
+  },
+  "stackCategoryAnalytics": {
+    "message": "Analytics"
+  },
+  "stackCategoryMonitoring": {
+    "message": "Monitoring"
+  },
+  "stackCategoryPayments": {
+    "message": "Payments"
+  },
+  "stackCategoryAuth": {
+    "message": "Auth & security"
+  },
+  "stackCategoryService": {
+    "message": "Services"
+  },
+  "stackCategoryHosting": {
+    "message": "Hosting / CDN"
+  },
+  "stackCount": {
+    "message": "$COUNT$ technologies found",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "stackEvidence": {
+    "message": "How each was found"
+  },
+  "stackFactScripts": {
+    "message": "Scripts (inline)"
+  },
+  "stackFactScriptsValue": {
+    "message": "$SCRIPTS$ ($INLINE$)",
+    "placeholders": {
+      "scripts": {
+        "content": "$1"
+      },
+      "inline": {
+        "content": "$2"
+      }
+    }
+  },
+  "stackFactJs": {
+    "message": "JavaScript size"
+  },
+  "stackFactCss": {
+    "message": "CSS size"
+  },
+  "stackFactServiceWorker": {
+    "message": "Service worker"
+  },
+  "stackFactManifest": {
+    "message": "Web app manifest"
+  },
+  "stackFactImportMap": {
+    "message": "Import map"
+  },
+  "stackFactElements": {
+    "message": "Custom elements:"
+  },
+  "stackFactThirdParty": {
+    "message": "Loads from other sites (requests)"
   }
 }

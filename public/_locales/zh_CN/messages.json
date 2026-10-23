@@ -743,5 +743,1458 @@
   },
   "agentSocketIncompatible": {
     "message": "协议不兼容。请更新 Cognia 和扩展后重新连接。"
+  },
+  "inspectCommand": {
+    "message": "在页面上选取元素发送给 Cognia"
+  },
+  "contextMenuInspect": {
+    "message": "为 Cognia 选取元素"
+  },
+  "inspectPick": {
+    "message": "选取元素"
+  },
+  "inspectPickCancel": {
+    "message": "停止选取"
+  },
+  "inspectPicking": {
+    "message": "在页面上点击一个元素。Shift 点击或拖出选框可以多选，Alt 点击会选中所有相似元素，然后按回车或点“完成”。↑ 和 ↓ 切换到父元素或子元素，Esc 取消。"
+  },
+  "inspectPickHint": {
+    "message": "Cognia：点击元素 · Shift 点击或拖框可多选 · Alt 点击选中所有相似元素 · Esc 取消"
+  },
+  "inspectFull": {
+    "message": "一次请求最多包含这么多元素。移除一个后才能继续选取。"
+  },
+  "inspectFailed": {
+    "message": "无法选取元素。请在该页面上点击扩展图标后重试。"
+  },
+  "inspectDefaultInstruction": {
+    "message": "请修改源码，让所选元素符合我的要求。可借助组件名、源码位置和选择器定位它们。"
+  },
+  "inspectPickedTitle": {
+    "message": "已选元素（$COUNT$）",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectComponents": {
+    "message": "组件："
+  },
+  "inspectSource": {
+    "message": "源码："
+  },
+  "inspectApproximate": {
+    "message": "近似"
+  },
+  "inspectNoSource": {
+    "message": "没有源码位置：页面未暴露（生产构建或未知框架）。仍可通过选择器找到它。"
+  },
+  "inspectCopy": {
+    "message": "复制 $LABEL$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectDetached": {
+    "message": "已不在页面上"
+  },
+  "inspectNoteLabel": {
+    "message": "需要怎么改"
+  },
+  "inspectNotePlaceholder": {
+    "message": "例如：改成主要操作按钮，与标题对齐"
+  },
+  "inspectTextLabel": {
+    "message": "文本"
+  },
+  "inspectStylesShow": {
+    "message": "调整样式"
+  },
+  "inspectStylesHide": {
+    "message": "收起样式"
+  },
+  "inspectEdited": {
+    "message": "已修改"
+  },
+  "inspectLocate": {
+    "message": "在页面中定位"
+  },
+  "inspectShoot": {
+    "message": "截图"
+  },
+  "inspectRevert": {
+    "message": "撤销修改"
+  },
+  "inspectRemove": {
+    "message": "移除 $LABEL$",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectPreviewShow": {
+    "message": "查看将发送的内容"
+  },
+  "inspectPreviewHide": {
+    "message": "收起将发送的内容"
+  },
+  "styleGroupLayout": {
+    "message": "布局"
+  },
+  "styleGroupSpacing": {
+    "message": "间距"
+  },
+  "styleGroupType": {
+    "message": "文字"
+  },
+  "styleGroupAppearance": {
+    "message": "外观"
+  },
+  "stylePickColor": {
+    "message": "为 $PROPERTY$ 选择颜色",
+    "placeholders": {
+      "property": {
+        "content": "$1"
+      }
+    }
+  },
+  "styleReset": {
+    "message": "重置样式"
+  },
+  "pageToolsTitle": {
+    "message": "页面工具"
+  },
+  "devReportTitle": {
+    "message": "控制台与网络"
+  },
+  "devReportHint": {
+    "message": "开始记录后复现问题，再附上你的操作步骤以及控制台与请求信息。会记录点击、按键和页面跳转，但不会记录你输入的内容。页面重新加载会停止记录；页面加载以来失败的请求始终会包含在内。"
+  },
+  "devRecordStart": {
+    "message": "开始记录"
+  },
+  "devRecordRestart": {
+    "message": "重新开始记录"
+  },
+  "devRecordingSince": {
+    "message": "自 $TIME$ 起记录中",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "devReportAttach": {
+    "message": "附加控制台与网络信息"
+  },
+  "devReportRefresh": {
+    "message": "重新读取"
+  },
+  "devReportErrors": {
+    "message": "$COUNT$ 个错误",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "devReportWarnings": {
+    "message": "$COUNT$ 个警告",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "devReportFailed": {
+    "message": "无法读取此页面的控制台与网络信息。"
+  },
+  "devReportEdit": {
+    "message": "随页面一起发送——请删掉任何隐私内容"
+  },
+  "devRecordFailed": {
+    "message": "无法在此页面上开始记录。请在该页面上点击扩展图标后重试。"
+  },
+  "devRecordingLost": {
+    "message": "页面已重新加载，记录随之停止。报告只包含失败的请求；如需控制台信息请重新开始记录。"
+  },
+  "devDefaultInstruction": {
+    "message": "请找出并修复此页面报告的错误和失败请求的原因。"
+  },
+  "overlayTitle": {
+    "message": "设计稿叠加"
+  },
+  "overlayHint": {
+    "message": "将设计稿导出图叠加在页面上进行对比。显示时截取可见区域即可发送对比结果。"
+  },
+  "overlayChoose": {
+    "message": "选择设计稿图片"
+  },
+  "overlayReplace": {
+    "message": "更换图片"
+  },
+  "overlayOpacity": {
+    "message": "不透明度 $PERCENT$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "overlayOffsetX": {
+    "message": "左偏移 (px)"
+  },
+  "overlayOffsetY": {
+    "message": "上偏移 (px)"
+  },
+  "overlayScale": {
+    "message": "导出倍率"
+  },
+  "overlayVisible": {
+    "message": "显示"
+  },
+  "overlayDifference": {
+    "message": "差值对比"
+  },
+  "overlayFailed": {
+    "message": "无法在此页面上显示设计稿叠加。"
+  },
+  "viewportTitle": {
+    "message": "屏幕尺寸"
+  },
+  "viewportHint": {
+    "message": "在该视口尺寸的窗口中打开页面。"
+  },
+  "viewportMobile": {
+    "message": "手机"
+  },
+  "viewportTablet": {
+    "message": "平板"
+  },
+  "viewportLaptop": {
+    "message": "笔记本"
+  },
+  "viewportDesktop": {
+    "message": "桌面"
+  },
+  "viewportFailed": {
+    "message": "无法以该尺寸打开页面。"
+  },
+  "pageAuditTitle": {
+    "message": "页面审查"
+  },
+  "insightInclude": {
+    "message": "随页面发送"
+  },
+  "insightRunAgain": {
+    "message": "重新运行"
+  },
+  "insightFailed": {
+    "message": "无法在此页面上运行该检查。请在该页面上点击扩展图标后重试。"
+  },
+  "accessTitle": {
+    "message": "无障碍"
+  },
+  "accessHint": {
+    "message": "按 WCAG 2.2 AA 标准做初步检查：名称、标签、对比度、标题层级、点击区域。并非合规审计。"
+  },
+  "accessRun": {
+    "message": "检查无障碍"
+  },
+  "accessClean": {
+    "message": "在 $COUNT$ 个元素中未发现问题。",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accessPick": {
+    "message": "加入选取"
+  },
+  "accessPicked": {
+    "message": "已选取"
+  },
+  "accessShowAll": {
+    "message": "显示全部 $COUNT$ 项",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accessShowFewer": {
+    "message": "收起"
+  },
+  "accessImpactCritical": {
+    "message": "严重"
+  },
+  "accessImpactSerious": {
+    "message": "较重"
+  },
+  "accessImpactModerate": {
+    "message": "中等"
+  },
+  "accessImpactMinor": {
+    "message": "轻微"
+  },
+  "accessRuleImageAlt": {
+    "message": "图片缺少替代文本"
+  },
+  "accessRuleButtonName": {
+    "message": "按钮缺少可访问名称"
+  },
+  "accessRuleLinkName": {
+    "message": "链接缺少可访问名称"
+  },
+  "accessRuleLabel": {
+    "message": "表单字段缺少标签"
+  },
+  "accessRuleContrast": {
+    "message": "文字对比度过低"
+  },
+  "accessRuleLang": {
+    "message": "页面未声明语言"
+  },
+  "accessRuleTitle": {
+    "message": "页面缺少标题"
+  },
+  "accessRuleHeadingOrder": {
+    "message": "标题层级跳级"
+  },
+  "accessRuleEmptyHeading": {
+    "message": "标题为空"
+  },
+  "accessRuleDuplicateId": {
+    "message": "id 重复使用"
+  },
+  "accessRuleTargetSize": {
+    "message": "点击区域小于 24×24"
+  },
+  "accessRuleHiddenFocus": {
+    "message": "可聚焦元素对辅助技术隐藏"
+  },
+  "accessRuleFrameTitle": {
+    "message": "框架缺少标题"
+  },
+  "accessRuleTabindex": {
+    "message": "正数 tabindex 打乱焦点顺序"
+  },
+  "tokensTitle": {
+    "message": "设计 Token"
+  },
+  "tokensHint": {
+    "message": "页面实际使用的颜色、字体、间距、圆角和变量，按使用频率排序。点击色块即可复制。"
+  },
+  "tokensRun": {
+    "message": "读取设计 Token"
+  },
+  "eyedropperRun": {
+    "message": "从屏幕取色"
+  },
+  "tokensColors": {
+    "message": "颜色"
+  },
+  "tokensType": {
+    "message": "字体（字体族 · 字号 / 字重 / 行高）"
+  },
+  "tokensSpacing": {
+    "message": "间距"
+  },
+  "tokensRadii": {
+    "message": "圆角"
+  },
+  "tokensBreakpoints": {
+    "message": "断点："
+  },
+  "tokensVariables": {
+    "message": ":root 上的 $COUNT$ 个 CSS 变量",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "stackTitle": {
+    "message": "技术栈"
+  },
+  "stackHint": {
+    "message": "识别页面使用的技术——框架、CMS、样式、构建工具、工具库、统计与托管，附版本与识别依据——让智能体从正确的技术栈出发。"
+  },
+  "stackRun": {
+    "message": "识别技术栈"
+  },
+  "stackNone": {
+    "message": "未识别到：可能是纯 HTML，或构建隐藏了所用工具。"
+  },
+  "stackDevelopment": {
+    "message": "开发构建：可获取组件名和源码位置。"
+  },
+  "stackProduction": {
+    "message": "生产构建：组件名和源码位置可能缺失。"
+  },
+  "styleEyedrop": {
+    "message": "从屏幕拾取 $PROPERTY$",
+    "placeholders": {
+      "property": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectProps": {
+    "message": "$NAME$ 的 props",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "copyContext": {
+    "message": "复制为提示词"
+  },
+  "copyContextDone": {
+    "message": "已复制"
+  },
+  "measureStart": {
+    "message": "测量"
+  },
+  "measureCancel": {
+    "message": "停止测量"
+  },
+  "measureWaiting": {
+    "message": "先点击第一个元素，再点击要测量到的元素；按住 Shift 点击可继续从第一个元素测量。按 Esc 取消。"
+  },
+  "measureHint": {
+    "message": "Cognia：点击作为起点的元素 · Esc 取消"
+  },
+  "measureAnchorHint": {
+    "message": "Cognia：点击要测量到的元素 · Shift 点击继续 · Esc 取消"
+  },
+  "measureFailed": {
+    "message": "无法测量此页面。请在该页面点击扩展图标后重试。"
+  },
+  "measureFull": {
+    "message": "单次请求的测量数量已达上限。移除一项后再测量。"
+  },
+  "measureDefaultInstruction": {
+    "message": "按照我的备注修正我测量的间距和对齐。用选择器定位这些元素。"
+  },
+  "measureTitle": {
+    "message": "测量（$COUNT$）",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "measureSame": {
+    "message": "同一个框"
+  },
+  "measureOverlap": {
+    "message": "相互重叠"
+  },
+  "measureInside": {
+    "message": "第二个在第一个内："
+  },
+  "measureContains": {
+    "message": "第一个在第二个内："
+  },
+  "measureApart": {
+    "message": "间距："
+  },
+  "measureNearlyAligned": {
+    "message": "边缘差几像素"
+  },
+  "measureNotePlaceholder": {
+    "message": "例如：应为 16px，左边缘对齐"
+  },
+  "measureNoteLabel": {
+    "message": "测量 $NUMBER$ 应该是多少",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "measureShow": {
+    "message": "显示并重新测量"
+  },
+  "attachMarkup": {
+    "message": "标注屏幕"
+  },
+  "annotateEdit": {
+    "message": "标注"
+  },
+  "annotateEditLabel": {
+    "message": "标注 $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "annotateMarked": {
+    "message": "已标注"
+  },
+  "annotateHint": {
+    "message": "在截图上绘制。每个编号标记可写一条备注，与图片一起以文字发送。"
+  },
+  "annotateToolBox": {
+    "message": "方框"
+  },
+  "annotateToolArrow": {
+    "message": "箭头"
+  },
+  "annotateToolPen": {
+    "message": "画笔"
+  },
+  "annotateToolMarker": {
+    "message": "编号标记"
+  },
+  "annotateColor": {
+    "message": "颜色 $COLOR$",
+    "placeholders": {
+      "color": {
+        "content": "$1"
+      }
+    }
+  },
+  "annotateUndo": {
+    "message": "撤销上一笔"
+  },
+  "annotateClear": {
+    "message": "全部清除"
+  },
+  "annotateAlt": {
+    "message": "待标注的截图"
+  },
+  "annotateFull": {
+    "message": "单张截图的标注数量已达上限。"
+  },
+  "annotateNotePlaceholder": {
+    "message": "这个标记指向什么"
+  },
+  "annotateNoteLabel": {
+    "message": "标记 $NUMBER$ 的备注",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "annotateRemoveMarker": {
+    "message": "移除标记 $NUMBER$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "annotateConfirm": {
+    "message": "保存标注"
+  },
+  "annotateSaving": {
+    "message": "正在保存…"
+  },
+  "annotateFailed": {
+    "message": "无法将标注绘制到截图上。"
+  },
+  "devReportSteps": {
+    "message": "$COUNT$ 个步骤",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectCopyCode": {
+    "message": "复制代码"
+  },
+  "inspectCopyCodeHint": {
+    "message": "复制该元素清理后的 HTML 及其 CSS（包含预览中的修改）"
+  },
+  "perfTitle": {
+    "message": "性能"
+  },
+  "perfHint": {
+    "message": "基于浏览器自身的性能时间线，查看本次访问的加载与响应：Web Vitals、慢脚本、大体积资源、过大的图片。"
+  },
+  "perfRun": {
+    "message": "测量性能"
+  },
+  "perfVitalLcp": {
+    "message": "最大内容绘制（LCP）"
+  },
+  "perfVitalCls": {
+    "message": "布局偏移（CLS）"
+  },
+  "perfVitalInp": {
+    "message": "最慢交互"
+  },
+  "perfVitalFcp": {
+    "message": "首次内容绘制（FCP）"
+  },
+  "perfVitalTtfb": {
+    "message": "首字节时间（TTFB）"
+  },
+  "perfVitalTbt": {
+    "message": "阻塞时间（TBT）"
+  },
+  "perfGood": {
+    "message": "良好"
+  },
+  "perfNeedsWork": {
+    "message": "待改进"
+  },
+  "perfPoor": {
+    "message": "较差"
+  },
+  "perfNoVitals": {
+    "message": "浏览器没有记录本次访问的 Web Vitals。请刷新页面后重新测量。"
+  },
+  "perfSummary": {
+    "message": "$COUNT$ 个资源 · $BYTES$ · $ELEMENTS$ 个元素",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "bytes": {
+        "content": "$2"
+      },
+      "elements": {
+        "content": "$3"
+      }
+    }
+  },
+  "perfOversized": {
+    "message": "$COUNT$ 张图片的实际尺寸远大于显示尺寸",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "perfUnsized": {
+    "message": "$COUNT$ 张图片未设置宽高",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "perfBlocking": {
+    "message": "$COUNT$ 个阻塞渲染的资源",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "perfSlowScript": {
+    "message": "最慢的脚本：$SOURCE$（长帧中耗时 $MS$ ms）",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "ms": {
+        "content": "$2"
+      }
+    }
+  },
+  "perfDetailsShow": {
+    "message": "显示完整报告"
+  },
+  "perfDetailsHide": {
+    "message": "隐藏完整报告"
+  },
+  "devReportFailedRequests": {
+    "message": "$COUNT$ 个失败请求",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "seoTitle": {
+    "message": "SEO 与链接预览"
+  },
+  "seoHint": {
+    "message": "检查标题、描述、canonical、robots、Open Graph 与 Twitter 标签、结构化数据和标题大纲，并预览分享链接时显示的卡片。"
+  },
+  "seoRun": {
+    "message": "检查 SEO"
+  },
+  "seoClean": {
+    "message": "未发现常见的 SEO 问题。"
+  },
+  "seoSeverityError": {
+    "message": "错误"
+  },
+  "seoSeverityWarning": {
+    "message": "警告"
+  },
+  "seoSeverityInfo": {
+    "message": "提示"
+  },
+  "seoRuleTitleMissing": {
+    "message": "页面没有标题"
+  },
+  "seoRuleTitleLength": {
+    "message": "标题可能被截断或过短"
+  },
+  "seoRuleDescriptionMissing": {
+    "message": "缺少 meta description"
+  },
+  "seoRuleDescriptionLength": {
+    "message": "描述可能被截断或过短"
+  },
+  "seoRuleCanonicalMissing": {
+    "message": "缺少 canonical 链接"
+  },
+  "seoRuleCanonicalMultiple": {
+    "message": "存在多个 canonical 链接"
+  },
+  "seoRuleNoindex": {
+    "message": "页面禁止搜索引擎索引"
+  },
+  "seoRuleViewport": {
+    "message": "缺少 viewport 标签：手机上会缩小显示"
+  },
+  "seoRuleHeadingOne": {
+    "message": "页面应有且仅有一个 h1"
+  },
+  "seoRuleOpenGraph": {
+    "message": "缺少用于链接预览的 Open Graph 标签"
+  },
+  "seoRuleOpenGraphImage": {
+    "message": "og:image 不是绝对地址"
+  },
+  "seoRuleTwitter": {
+    "message": "缺少 Twitter card"
+  },
+  "seoRuleStructuredMissing": {
+    "message": "没有结构化数据"
+  },
+  "seoRuleStructuredInvalid": {
+    "message": "结构化数据无法解析"
+  },
+  "seoRuleImageAlt": {
+    "message": "图片缺少 alt 文本"
+  },
+  "seoRuleLinkText": {
+    "message": "链接没有文字说明"
+  },
+  "seoPreviewTitle": {
+    "message": "分享链接预览"
+  },
+  "seoPreviewNoImage": {
+    "message": "没有预览图"
+  },
+  "seoPreviewNoTitle": {
+    "message": "无标题"
+  },
+  "seoSummary": {
+    "message": "字数：$WORDS$ · 链接：$LINKS$ · 结构化数据：$TYPES$",
+    "placeholders": {
+      "words": {
+        "content": "$1"
+      },
+      "links": {
+        "content": "$2"
+      },
+      "types": {
+        "content": "$3"
+      }
+    }
+  },
+  "seoOutline": {
+    "message": "标题大纲（$COUNT$）",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "seoEmptyHeading": {
+    "message": "（空）"
+  },
+  "textEditStart": {
+    "message": "编辑文字"
+  },
+  "textEditHint": {
+    "message": "Cognia：点击页面上的任意文字即可修改 · 在侧边栏中完成"
+  },
+  "textEditing": {
+    "message": "正在编辑页面文字：点击任意文字即可修改。"
+  },
+  "textEditDone": {
+    "message": "完成编辑"
+  },
+  "textEditUndo": {
+    "message": "撤销全部修改"
+  },
+  "textEditFailed": {
+    "message": "无法编辑此页面的文字。请在该页面点击扩展图标后重试。"
+  },
+  "textEditDefaultInstruction": {
+    "message": "按照我的文字修改更新源码中的文案。用选择器定位每一处。"
+  },
+  "textChangesTitle": {
+    "message": "文字修改（$COUNT$）",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "textChangeDeleted": {
+    "message": "已删除"
+  },
+  "textChangeRemoved": {
+    "message": "（已移除）"
+  },
+  "textChangeRemove": {
+    "message": "不发送修改 $NUMBER$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "exportContext": {
+    "message": "导出 .md"
+  },
+  "inspectContrastFix": {
+    "message": "改用 $COLOR$",
+    "placeholders": {
+      "color": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectContrastFixHint": {
+    "message": "预览在该背景上满足 WCAG AA 的最接近颜色"
+  },
+  "layoutTitle": {
+    "message": "布局"
+  },
+  "layoutHint": {
+    "message": "在当前窗口尺寸下，检查导致页面横向滚动的元素、被裁切的文字、变形的图片和过小的文字。"
+  },
+  "layoutRun": {
+    "message": "检查布局"
+  },
+  "layoutRuleOverflow": {
+    "message": "超出窗口宽度：页面会横向滚动"
+  },
+  "layoutRuleClipped": {
+    "message": "文字被容器裁切"
+  },
+  "layoutRuleDistorted": {
+    "message": "图片被拉伸变形"
+  },
+  "layoutRuleSmallText": {
+    "message": "文字小于 12px"
+  },
+  "layoutScrolls": {
+    "message": "页面宽 $PAGE$px，窗口宽 $VIEWPORT$px，因此会横向滚动。",
+    "placeholders": {
+      "page": {
+        "content": "$1"
+      },
+      "viewport": {
+        "content": "$2"
+      }
+    }
+  },
+  "layoutFits": {
+    "message": "页面在 $VIEWPORT$px 宽的窗口内显示正常。",
+    "placeholders": {
+      "viewport": {
+        "content": "$1"
+      }
+    }
+  },
+  "layoutClean": {
+    "message": "在 $COUNT$ 个元素中未发现布局问题。",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectState": {
+    "message": "$NAME$ 的 state",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "adjustButton": {
+    "message": "在页面上调整"
+  },
+  "adjustButtonHint": {
+    "message": "直接在页面上拖动边缘调整尺寸，并用方向键微调间距"
+  },
+  "adjustWorking": {
+    "message": "调整中…"
+  },
+  "adjustHint": {
+    "message": "拖动右边缘或下边缘调整尺寸。方向键增加外边距，Alt+方向键减少，按住 Shift 每次 10px，按 P 切换为内边距。Enter 保留，Esc 撤销。"
+  },
+  "adjustMargin": {
+    "message": "外边距"
+  },
+  "adjustPadding": {
+    "message": "内边距"
+  },
+  "adjustDone": {
+    "message": "保留调整"
+  },
+  "adjustCancel": {
+    "message": "撤销调整"
+  },
+  "adjustFailed": {
+    "message": "无法在此页面上调整该元素。"
+  },
+  "mockTitle": {
+    "message": "模拟请求"
+  },
+  "mockHint": {
+    "message": "让页面自身的请求失败、返回指定内容、修改真实响应、延迟或改发到别处，观察页面如何应对。规则在页面刷新前有效（可选择保留），发送内容会注明哪些请求是模拟的。"
+  },
+  "mockMatch": {
+    "message": "URL 匹配"
+  },
+  "mockMethod": {
+    "message": "方法"
+  },
+  "mockMethodAny": {
+    "message": "任意"
+  },
+  "mockAction": {
+    "message": "处理方式"
+  },
+  "mockActionFail": {
+    "message": "失败（网络错误）"
+  },
+  "mockActionRespond": {
+    "message": "返回指定响应"
+  },
+  "mockActionDelay": {
+    "message": "延迟"
+  },
+  "mockStatus": {
+    "message": "状态码"
+  },
+  "mockBody": {
+    "message": "响应体（可选）"
+  },
+  "mockDelay": {
+    "message": "延迟（毫秒）"
+  },
+  "mockAdd": {
+    "message": "添加规则"
+  },
+  "mockFull": {
+    "message": "规则已达上限"
+  },
+  "mockLost": {
+    "message": "页面已重新加载，这些规则不再生效。"
+  },
+  "mockHits": {
+    "message": "命中 $COUNT$ 次",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRemove": {
+    "message": "删除规则"
+  },
+  "mockRefresh": {
+    "message": "刷新命中次数"
+  },
+  "mockReapply": {
+    "message": "重新应用"
+  },
+  "mockClear": {
+    "message": "清除规则"
+  },
+  "mockFailed": {
+    "message": "无法修改此页面的请求。"
+  },
+  "mockRuleFail": {
+    "message": "返回网络错误"
+  },
+  "mockRuleRespond": {
+    "message": "返回 $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleDelay": {
+    "message": "延迟 $MS$ 毫秒",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "compareRun": {
+    "message": "与页面对比"
+  },
+  "compareHint": {
+    "message": "测量页面与设计稿的差距：短暂隐藏叠加图，截取可见区域，并逐像素对比"
+  },
+  "compareSummary": {
+    "message": "$AREA$ 范围内有 $REGIONS$ 处差异区域",
+    "placeholders": {
+      "regions": {
+        "content": "$1"
+      },
+      "area": {
+        "content": "$2"
+      }
+    }
+  },
+  "compareOutOfView": {
+    "message": "设计稿不在可见区域内。请滚动到它或移动它，然后重新对比。"
+  },
+  "compareFailed": {
+    "message": "无法将页面与设计稿对比。"
+  },
+  "compareDefaultInstruction": {
+    "message": "让页面在差异处与设计稿保持一致。"
+  },
+  "focusTitle": {
+    "message": "键盘焦点"
+  },
+  "focusHint": {
+    "message": "Tab 键在页面上的移动顺序（在页面上标号），以及问题所在：正数 tabindex、不可见的停靠点、焦点跳回上方，以及键盘无法到达的可点击元素。"
+  },
+  "focusRun": {
+    "message": "检查焦点顺序"
+  },
+  "focusStops": {
+    "message": "$COUNT$ 个 Tab 停靠点",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "focusShowNumbers": {
+    "message": "在页面上标号"
+  },
+  "focusHideNumbers": {
+    "message": "隐藏标号"
+  },
+  "focusClean": {
+    "message": "未发现键盘访问问题。"
+  },
+  "focusRulePositive": {
+    "message": "正数 tabindex 打乱了阅读顺序"
+  },
+  "focusRuleHidden": {
+    "message": "Tab 会停在不可见的元素上"
+  },
+  "focusRuleJump": {
+    "message": "焦点跳回页面上方"
+  },
+  "focusRuleUnreachable": {
+    "message": "看起来可点击，但键盘无法到达"
+  },
+  "toolbarTitle": {
+    "message": "Cognia 工具"
+  },
+  "toolbarPick": {
+    "message": "选取元素"
+  },
+  "toolbarMeasure": {
+    "message": "测量元素间距"
+  },
+  "toolbarAdjust": {
+    "message": "调整最近的选取"
+  },
+  "toolbarText": {
+    "message": "编辑页面文字"
+  },
+  "toolbarShot": {
+    "message": "截图并标注"
+  },
+  "toolbarClose": {
+    "message": "关闭工具栏"
+  },
+  "toolbarCollapse": {
+    "message": "收起"
+  },
+  "toolbarExpand": {
+    "message": "展开工具"
+  },
+  "toolbarDrag": {
+    "message": "拖动以移动"
+  },
+  "toolbarShow": {
+    "message": "浮动工具栏"
+  },
+  "toolbarHide": {
+    "message": "隐藏工具栏"
+  },
+  "toolbarToggleHint": {
+    "message": "在页面上悬浮显示选取、测量、调整、文字编辑和截图工具"
+  },
+  "toolbarFailed": {
+    "message": "无法在此页面上显示工具栏。"
+  },
+  "toolbarMinimap": {
+    "message": "小地图"
+  },
+  "toolbarMinimapHide": {
+    "message": "隐藏小地图"
+  },
+  "panelBrand": {
+    "message": "Cognia 浏览器助手"
+  },
+  "panelTagline": {
+    "message": "采集、检查网页并交给 Cognia 处理"
+  },
+  "panelPaired": {
+    "message": "已配对"
+  },
+  "captureSubtitle": {
+    "message": "从当前页面开始"
+  },
+  "inspectSectionTitle": {
+    "message": "检查与编辑"
+  },
+  "inspectSectionSubtitle": {
+    "message": "直接在页面上选取、测量和修改"
+  },
+  "inspectTilePickHint": {
+    "message": "在页面上选取元素，把它描述给 Cognia"
+  },
+  "inspectTileMeasureHint": {
+    "message": "测量两个元素之间的距离"
+  },
+  "inspectTileTextHint": {
+    "message": "直接修改页面上的文字"
+  },
+  "pageToolsSubtitle": {
+    "message": "控制台、设计稿叠加、屏幕尺寸、请求模拟"
+  },
+  "pageAuditSubtitle": {
+    "message": "无障碍、布局、性能、SEO"
+  },
+  "recentSubtitle": {
+    "message": "从此浏览器发起的任务"
+  },
+  "settingsSubtitle": {
+    "message": "此浏览器的连接与偏好"
+  },
+  "toolbarSnapLabel": {
+    "message": "自动吸附到窗口边缘"
+  },
+  "toolbarSnapHint": {
+    "message": "松开后悬浮栏会移到较近的一侧；停靠在顶部或底部时，会吸附到左右两端或居中"
+  },
+  "captureTextSize": {
+    "message": "$CHARS$ 字符 · $LINES$ 行",
+    "placeholders": {
+      "chars": {
+        "content": "$1"
+      },
+      "lines": {
+        "content": "$2"
+      }
+    }
+  },
+  "captureTextExpand": {
+    "message": "展开更多"
+  },
+  "captureTextCollapse": {
+    "message": "收起"
+  },
+  "inspectPickSelected": {
+    "message": "Cognia：已选 $COUNT$ 个 · Shift 点击增减 · 回车或“完成”添加 · Esc 取消",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectPickDone": {
+    "message": "完成"
+  },
+  "compareTitle": {
+    "message": "比较这 $COUNT$ 个选取",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "compareDifferences": {
+    "message": "$COUNT$ 处不同",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "compareSame": {
+    "message": "完全一致"
+  },
+  "compareProperty": {
+    "message": "属性"
+  },
+  "compareAllSame": {
+    "message": "所有报告的样式都一致（共 $COUNT$ 项）。",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "compareInclude": {
+    "message": "随任务一起发送此比较"
+  },
+  "compareCopy": {
+    "message": "复制表格"
+  },
+  "inspectExpandAll": {
+    "message": "全部展开"
+  },
+  "inspectCollapseAll": {
+    "message": "全部折叠"
+  },
+  "inspectNoted": {
+    "message": "有备注"
+  },
+  "mockActionModify": {
+    "message": "修改真实响应"
+  },
+  "mockActionRedirect": {
+    "message": "重定向到"
+  },
+  "mockRuleFailAfter": {
+    "message": "$MS$ 毫秒后网络错误",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleModify": {
+    "message": "真实响应（已修改）"
+  },
+  "mockRuleModifyStatus": {
+    "message": "真实响应（已修改），状态改为 $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleRedirect": {
+    "message": "改发到 $TARGET$",
+    "placeholders": {
+      "target": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleTimes": {
+    "message": "仅前 $TIMES$ 次",
+    "placeholders": {
+      "times": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockRuleChance": {
+    "message": "$CHANCE$% 概率",
+    "placeholders": {
+      "chance": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockStatusKeep": {
+    "message": "状态码（可选）"
+  },
+  "mockStatusSame": {
+    "message": "保持原状态"
+  },
+  "mockBodyMerge": {
+    "message": "合并到响应体（JSON 字段，或追加的文本）"
+  },
+  "mockTarget": {
+    "message": "改发到"
+  },
+  "mockTargetHint": {
+    "message": "完整 URL，或替换匹配部分的内容。匹配为 /正则/ 时可用 $$1、$$2 引用分组。"
+  },
+  "mockHeaders": {
+    "message": "响应头（每行一个 名称: 值）"
+  },
+  "mockTimes": {
+    "message": "仅前几次（0 = 一直）"
+  },
+  "mockChance": {
+    "message": "触发概率（%）"
+  },
+  "mockLimitsHint": {
+    "message": "可限制规则只命中前几次，或按概率随机触发，以发现对偶发错误的处理问题。"
+  },
+  "mockMore": {
+    "message": "更多选项"
+  },
+  "mockMatchHint": {
+    "message": "URL 的一部分；* 匹配任意内容，/…/ 为正则表达式。"
+  },
+  "mockBadMatch": {
+    "message": "该正则表达式无效。"
+  },
+  "mockPause": {
+    "message": "暂停规则"
+  },
+  "mockResume": {
+    "message": "恢复规则"
+  },
+  "mockKeep": {
+    "message": "刷新后保留"
+  },
+  "mockKeepHint": {
+    "message": "在本标签页中，规则会在页面脚本运行前恢复，直到清除。需要授权访问此站点。"
+  },
+  "mockKeepDenied": {
+    "message": "未获得此站点的访问权限，规则将在页面刷新后失效。"
+  },
+  "mockLog": {
+    "message": "已拦截的请求（$COUNT$）",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockLogEmpty": {
+    "message": "尚未拦截到请求——操作页面后会显示在这里。"
+  },
+  "mockPresetOffline": {
+    "message": "离线"
+  },
+  "mockPresetSlow": {
+    "message": "慢 3 秒"
+  },
+  "mockPresetError": {
+    "message": "服务器错误 500"
+  },
+  "mockPresetEmpty": {
+    "message": "空列表"
+  },
+  "mockPresetUnauthorized": {
+    "message": "未登录 401"
+  },
+  "mockPresetFlaky": {
+    "message": "不稳定 50%"
+  },
+  "stackCategoryMetaFramework": {
+    "message": "应用框架"
+  },
+  "stackCategoryFramework": {
+    "message": "框架"
+  },
+  "stackCategoryCms": {
+    "message": "CMS / 建站"
+  },
+  "stackCategoryUi": {
+    "message": "组件库"
+  },
+  "stackCategoryStyling": {
+    "message": "样式"
+  },
+  "stackCategoryState": {
+    "message": "状态与数据"
+  },
+  "stackCategoryBuild": {
+    "message": "构建"
+  },
+  "stackCategoryLibrary": {
+    "message": "工具库"
+  },
+  "stackCategoryAnalytics": {
+    "message": "统计分析"
+  },
+  "stackCategoryMonitoring": {
+    "message": "监控"
+  },
+  "stackCategoryPayments": {
+    "message": "支付"
+  },
+  "stackCategoryAuth": {
+    "message": "认证与安全"
+  },
+  "stackCategoryService": {
+    "message": "第三方服务"
+  },
+  "stackCategoryHosting": {
+    "message": "托管 / CDN"
+  },
+  "stackCount": {
+    "message": "识别到 $COUNT$ 项技术",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "stackEvidence": {
+    "message": "识别依据"
+  },
+  "stackFactScripts": {
+    "message": "脚本（内联）"
+  },
+  "stackFactScriptsValue": {
+    "message": "$SCRIPTS$（$INLINE$）",
+    "placeholders": {
+      "scripts": {
+        "content": "$1"
+      },
+      "inline": {
+        "content": "$2"
+      }
+    }
+  },
+  "stackFactJs": {
+    "message": "JS 体积"
+  },
+  "stackFactCss": {
+    "message": "CSS 体积"
+  },
+  "stackFactServiceWorker": {
+    "message": "Service Worker"
+  },
+  "stackFactManifest": {
+    "message": "Web 应用清单"
+  },
+  "stackFactImportMap": {
+    "message": "Import Map"
+  },
+  "stackFactElements": {
+    "message": "自定义元素："
+  },
+  "stackFactThirdParty": {
+    "message": "第三方来源（请求数）"
   }
 }
