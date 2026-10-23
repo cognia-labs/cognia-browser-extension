@@ -24,6 +24,12 @@ The parent migration adds `integrations/browser-companion.json` with an immutabl
 
 Changes to authorization retire old Host connections; rapid revoke/regrant cannot revive queued work. Stop/Take over cancels immediately and persists pause until Resume. No already-dispatched Chrome call can be recalled. These semantics stay covered by the product Rust tests and the standalone runtime/Chromium tests.
 
+### Host baseline refresh: 2026-10-23
+
+The extraction merge reviews product revision `bef52bd74080ae4fa7d94b4f2598700f8b8d0862`. Its 220-input inventory is unchanged; 26 hashes change for dependency updates, generated command/schema catalogs, OIDC person bindings and workspace/browser gateway work. The portable client, injected overlay, browser agent envelope/profile and browser-companion WebSocket implementation retain their accepted bytes. OIDC registration changes preserve the extension's owner-invitation pairing path; workspace-runtime recording and page updates use the separate browser gateway.
+
+The previous snapshot rejects this Host at `Cargo.lock`; the reviewed snapshot passes all 232 product/consumer inputs. This refresh changes Host provenance and this receipt only. Consumer CI still runs the complete standalone checks, Chromium flows and archive verification. Product Rust validation and any unrelated baseline failures are recorded in the parent extraction ledger; the real-Host/native-prompt and Edge/store acceptance limits below remain applicable.
+
 ## Tooling adaptations
 
 The source tree and all public resources were retained. Path-only test/config adaptations remove the parent tsconfig, root Jest/Playwright fixture paths and `../lib/browser` overlay import. Test diagnostics remain redacted. Node Web APIs are installed in a local Jest environment, with docblocks pointing to it; no product runtime is bootstrapped for unit tests. A saved-prompt test now waits for the edit dialog to close before deleting the prompt; its behavioral assertions are preserved.
