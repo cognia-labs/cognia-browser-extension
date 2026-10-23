@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
+import { createRequire } from "node:module"
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { join, win32 } from "node:path"
+import { join, relative, win32 } from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { auditStandalone, within } from "./check-standalone.mjs"
@@ -95,4 +97,36 @@ test("unlisted vendor files are rejected", async () => {
 test("Windows containment rejects lexical and realpath traversal", () => {
   assert.equal(within("C:/checkout", "C:/outside/product", win32), false)
   assert.equal(within("C:/checkout", "C:/checkout/vendor/client", win32), true)
+})
+
+test("Jest discovers the complete suite when a consumer checkout is inside an ancestor cache or build directory", async () => {
+  await fixture(async ({ checkout, temporary }) => {
+    // Match the product CI checkout shape while retaining the installed runner.
+    const nested = join(temporary, "build", "consumer")
+    await mkdir(join(temporary, "build"))
+    await cp(checkout, nested, { recursive: true })
+    for (const name of ["jest.config.mjs", "src", "testing"])
+      await cp(join(root, name), join(nested, name), { recursive: true })
+    await symlink(join(root, "node_modules"), join(nested, "node_modules"), "junction")
+    const runner = createRequire(import.meta.url).resolve("jest/bin/jest")
+    const discover = (cwd) =>
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [runner, "--listTests", "--json", "--runInBand", "--no-cache", "--watchman=false"],
+          { cwd, encoding: "utf8", env: { ...process.env, CI: "true" } }
+        )
+      )
+        .map((name) => relative(cwd, name).replaceAll("\\", "/"))
+        .sort()
+    const expected = execFileSync("git", ["ls-files", "-z", "--", "src", "vendor", "testing"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+      .split("\0")
+      .filter((name) => /\.test\.tsx?$/.test(name))
+      .sort()
+    assert.ok(expected.length > 0)
+    assert.deepEqual(discover(nested), expected)
+  })
 })

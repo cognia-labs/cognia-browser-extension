@@ -21,7 +21,8 @@ const common = {
     "^@cognia/plugin-ui/(.*)$": "<rootDir>/vendor/plugin-ui/src/$1",
   },
   setupFilesAfterEnv: ["<rootDir>/testing/setup-common.ts"],
-  testPathIgnorePatterns: ["/node_modules/", "/build/", "/.cache/"],
+  // Product CI checks out this repository under .cache; ignore only our own outputs.
+  testPathIgnorePatterns: ["/node_modules/", "<rootDir>/build/", "<rootDir>/\\.cache/"],
 }
 
 export default {
