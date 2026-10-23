@@ -1,0 +1,28 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": false,
+    "types": ["chrome", "node", "jest", "@testing-library/jest-dom"],
+    "paths": {
+      "@ext/*": ["./*"],
+      "@cognia/plugin-ui": ["./vendor/plugin-ui/src/index.ts"],
+      "@cognia/plugin-ui/*": ["./vendor/plugin-ui/src/*"],
+      "@cognia/companion-client": ["./vendor/companion-client/src/index.ts"],
+      "@cognia/companion-client/*": ["./vendor/companion-client/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "wxt.config.ts"],
+  "exclude": ["node_modules", ".wxt", "build", ".cache"]
+}

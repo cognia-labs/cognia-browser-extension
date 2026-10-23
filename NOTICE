@@ -1,0 +1,13 @@
+Cognia Browser Companion
+Copyright Cognia contributors
+SPDX-License-Identifier: AGPL-3.0-only
+
+Extracted on 2026-10-23 from https://github.com/MaxQian888/cognia-next.
+The extension, portable companion client, plugin UI, browser overlay, test
+diagnostics and their tests retain their original license and attribution.
+The source revision, working-tree state and exact imported hashes are recorded
+in provenance/source.json. That snapshot includes uncommitted revocation and
+protocol hardening from the explicitly authorized extraction session.
+
+The product Host and documentation remain in cognia-next. The official website
+is maintained separately at https://github.com/cognia-labs/cognia-website.

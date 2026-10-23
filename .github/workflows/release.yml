@@ -1,0 +1,35 @@
+name: Release extension archive
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Match the tag to the extension version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node --input-type=module -e 'import p from "./package.json" with { type:"json" }; if (`v${p.version}` !== process.env.RELEASE_TAG) process.exit(1)'
+      - run: pnpm format:check
+      - run: pnpm check
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - run: pnpm zip
+      - run: pnpm archive:check
+      - name: Publish tested archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" build/*.zip --verify-tag --generate-notes

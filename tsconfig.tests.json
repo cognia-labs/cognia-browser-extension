@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vendor/**/*.ts",
+    "vendor/**/*.tsx",
+    "tests/**/*.ts",
+    "testing/**/*.ts",
+    "playwright.config.ts"
+  ]
+}

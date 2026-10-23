@@ -1,0 +1,8 @@
+packages: []
+allowBuilds:
+  "@parcel/watcher": true
+  "@swc/core": true
+  esbuild: true
+  wxt: true
+  unrs-resolver: true
+  spawn-sync: false
