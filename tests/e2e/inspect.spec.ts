@@ -44,14 +44,17 @@ async function capturedFixture({
   serviceWorker,
   context,
   html = INSPECT_FIXTURE_HTML,
+  local = false,
 }: {
   html?: string
+  local?: boolean
   panel: Page
   mockHost: MockHost
   serviceWorker: import("@playwright/test").Worker
   context: import("@playwright/test").BrowserContext
 }): Promise<Page> {
-  await pairThroughPanel(panel, mockHost.issueEnrollment())
+  if (local) await panel.getByRole("button", { name: "Use local mode", exact: true }).click()
+  else await pairThroughPanel(panel, mockHost.issueEnrollment())
   await expect(panel.getByTestId("capture-empty")).toBeVisible()
   const pageUrl = mockHost.servePage("settings", html)
   const content = await context.newPage()
@@ -720,6 +723,7 @@ test.describe("simulating requests", () => {
       html: REQUESTS_FIXTURE_HTML,
     })
     await panel.getByTestId("page-tools-toggle").click()
+    await panel.getByRole("button", { name: "Simulate requests", exact: true }).click()
     await panel.getByTestId("mock-match").fill("/api/orders*")
     await panel.getByTestId("mock-action").click()
     await panel.getByRole("option", { name: "Respond with" }).click()
@@ -813,6 +817,7 @@ test.describe("simulating requests across reloads", () => {
     })
     await expect(content.locator("#result")).toHaveText(/^load \d+$/)
     await panel.getByTestId("page-tools-toggle").click()
+    await panel.getByRole("button", { name: "Simulate requests", exact: true }).click()
     await panel.getByTestId("mock-match").fill("/api/orders*")
     await panel.getByTestId("mock-preset-offline").click()
     await panel.getByTestId("mock-add").click()
@@ -972,7 +977,7 @@ test.describe("the floating toolbar", () => {
     // Close from the page.
     await content.mouse.click(33, buttons.top + 4 + 18 + 2 + 5 * 36 + 7 + 2 + 2 * 36 + 17)
     await expect(content.locator("#__cognia-toolbar")).toHaveCount(0)
-    await expect(panel.getByTestId("toolbar-toggle")).toHaveText("Floating toolbar")
+    await expect(panel.getByTestId("toolbar-toggle")).toHaveText("Toolbar")
 
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("pick-0")).toHaveCount(0)
@@ -981,6 +986,75 @@ test.describe("the floating toolbar", () => {
     expect(sent).toContain("  margin: 0px 0px 10px;")
     expect(sent).not.toContain("cognia-toolbar")
   })
+
+  test("exits text editing by pressing the toolbar's Text button again", async ({
+    panel,
+    mockHost,
+    serviceWorker,
+    context,
+  }) => {
+    const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await panel.getByTestId("toolbar-toggle").click()
+    await expect(content.locator("#__cognia-toolbar")).toHaveCount(1)
+    await expect(panel.getByTestId("toolbar-toggle")).toHaveText("Hide toolbar")
+    await content.bringToFront()
+    const { text } = await toolbarButtons(content)
+    await content.mouse.click(text.x, text.y)
+    await expect(panel.getByTestId("text-editing")).toBeVisible()
+    await expect.poll(() => content.evaluate(() => document.designMode)).toBe("on")
+    await content.locator("h1").click()
+    await content.keyboard.press("End")
+    await content.keyboard.type(" draft")
+    await content.bringToFront()
+
+    await content.mouse.click(text.x, text.y)
+    await expect(panel.getByTestId("text-editing")).toHaveCount(0)
+    await expect.poll(() => content.evaluate(() => document.designMode)).toBe("off")
+    await expect(panel.getByTestId("text-change-0")).toContainText("Settings draft")
+  })
+
+  for (const next of ["pick", "measure", "close"] as const) {
+    test(`leaves text editing when the toolbar switches to ${next}`, async ({
+      panel,
+      mockHost,
+      serviceWorker,
+      context,
+    }) => {
+      const content = await capturedFixture({
+        panel,
+        mockHost,
+        serviceWorker,
+        context,
+        local: true,
+      })
+      await panel.getByTestId("toolbar-toggle").click()
+      await expect(content.locator("#__cognia-toolbar")).toHaveCount(1)
+      await panel.getByTestId("text-edit-start").click()
+      await expect(panel.getByTestId("text-editing")).toBeVisible()
+      await expect.poll(() => content.evaluate(() => document.designMode)).toBe("on")
+      await content.locator("h1").click()
+      await content.keyboard.press("End")
+      await content.keyboard.type(" draft")
+      await content.bringToFront()
+      const buttons = await toolbarButtons(content)
+      const button =
+        next === "close"
+          ? { x: 33, y: buttons.top + 4 + 18 + 2 + 5 * 36 + 7 + 2 + 2 * 36 + 17 }
+          : buttons[next]
+      await content.mouse.click(button.x, button.y)
+      await expect(panel.getByTestId("text-editing")).toHaveCount(0)
+      await expect.poll(() => content.evaluate(() => document.designMode)).toBe("off")
+      await expect(panel.getByTestId("text-change-0")).toContainText("Settings draft")
+      if (next === "close") {
+        await expect(content.locator("#__cognia-toolbar")).toHaveCount(0)
+      } else {
+        await expect(panel.getByTestId("pick-waiting")).toBeVisible()
+        await content.locator("h1").click()
+        if (next === "measure") await content.locator("#save").click()
+        await expect(panel.getByTestId(next === "pick" ? "pick-0" : "measurements")).toBeVisible()
+      }
+    })
+  }
 
   test("snaps to the window's edge it is let go near, when asked to", async ({
     panel,

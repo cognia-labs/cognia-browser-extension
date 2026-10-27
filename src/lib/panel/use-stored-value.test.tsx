@@ -75,6 +75,7 @@ describe("usePreferences", () => {
     expect(local.get(STORAGE_KEYS.preferences)).toEqual({
       notifications: true,
       agentMode: true,
+      allSitesAccess: false,
       blockedHosts: ["a.test"],
       toolbarSnap: false,
     })

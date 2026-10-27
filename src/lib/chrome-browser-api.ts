@@ -209,6 +209,14 @@ export function createChromeBrowserApi(): BrowserApi {
     hasPermissions: (request) => chrome.permissions.contains(permissions(request)),
     requestPermissions: (request) => chrome.permissions.request(permissions(request)),
     removePermissions: (request) => chrome.permissions.remove(permissions(request)),
+    onPermissionsChange(listener) {
+      chrome.permissions.onAdded.addListener(listener)
+      chrome.permissions.onRemoved.addListener(listener)
+      return () => {
+        chrome.permissions.onAdded.removeListener(listener)
+        chrome.permissions.onRemoved.removeListener(listener)
+      }
+    },
 
     async listTabs() {
       const tabs = await chrome.tabs.query({ currentWindow: true })

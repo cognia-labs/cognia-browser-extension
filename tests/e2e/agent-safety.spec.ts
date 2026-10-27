@@ -146,7 +146,7 @@ test("negotiates the safety profile and executes the shipped overlay in Chrome",
   await expect(target.getByRole("button", { name: "Resumed", exact: true })).toBeVisible()
 })
 
-for (const event of ["revoke", "disconnect", "disable"] as const) {
+for (const event of ["revoke", "disconnect", "disable", "local mode"] as const) {
   test(`cancels a pending site decision on ${event}`, async ({
     panel,
     mockHost,
@@ -190,6 +190,8 @@ for (const event of ["revoke", "disconnect", "disable"] as const) {
     ).toBeVisible()
     if (event === "revoke") mockHost.sendAgentFrame({ t: "drive", allowed: false })
     else if (event === "disconnect") mockHost.disconnectAgent()
+    else if (event === "local mode")
+      await panel.getByRole("button", { name: "Use local mode", exact: true }).click()
     else
       await serviceWorker.evaluate(() =>
         chrome.storage.local.set({
@@ -199,7 +201,7 @@ for (const event of ["revoke", "disconnect", "disable"] as const) {
     await expect(
       panel.getByRole("button", { name: "Allow for this task", exact: true })
     ).toHaveCount(0)
-    if (event !== "disconnect")
+    if (event !== "disconnect" && event !== "local mode")
       await expect
         .poll(() => mockHost.agentFrames().find((frame) => frame.id === "pending"))
         .toMatchObject({ ok: false })
@@ -207,6 +209,21 @@ for (const event of ["revoke", "disconnect", "disable"] as const) {
     expect(
       mockHost.agentFrames().some((frame) => frame.id === "pending" && frame.ok === true)
     ).toBe(false)
+    if (event === "local mode") {
+      await panel.reload()
+      await expect(panel.getByText("Local mode", { exact: true })).toBeVisible()
+      await panel.getByRole("button", { name: "Connect to Cognia", exact: true }).click()
+      await expect(panel.getByTestId("panel-paired")).toBeVisible()
+      await expect(
+        panel.getByRole("button", { name: "Allow for this task", exact: true })
+      ).toHaveCount(0)
+      expect(
+        await serviceWorker.evaluate(
+          async () =>
+            (await chrome.storage.local.get("cognia.preferences.v1"))["cognia.preferences.v1"]
+        )
+      ).toMatchObject({ agentMode: false })
+    }
   })
 }
 

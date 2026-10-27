@@ -113,6 +113,23 @@ describe("AgentSettings", () => {
     })
   })
 
+  it("keeps website access explicitly enabled for local tools when agent mode turns off", async () => {
+    const fake = fakeApi({ preferences: { agentMode: true, allSitesAccess: true } })
+    fake.granted.add("<all_urls>")
+    const remove = jest.spyOn(fake.api, "removePermissions")
+    render(<AgentSettings api={fake.api} driveAllowed />)
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: /agentModeLabel/ })).toBeChecked()
+    )
+    fireEvent.click(screen.getByRole("switch", { name: /agentModeLabel/ }))
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: /agentModeLabel/ })).not.toBeChecked()
+    )
+    expect(remove).not.toHaveBeenCalled()
+    expect(fake.granted.has("<all_urls>")).toBe(true)
+    expect(fake.local.get(STORAGE_KEYS.preferences)).toMatchObject({ agentMode: false })
+  })
+
   it("grants downloads and cookies separately", async () => {
     const fake = fakeApi({ preferences: { agentMode: true } })
     render(<AgentSettings api={fake.api} driveAllowed />)

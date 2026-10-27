@@ -1,9 +1,24 @@
 {
+  "useLocalMode": {
+    "message": "使用独立模式"
+  },
+  "localModeTitle": {
+    "message": "独立模式"
+  },
+  "localModeHint": {
+    "message": "本地工具免配对，连接后可发送任务。"
+  },
+  "connectHost": {
+    "message": "连接 Cognia"
+  },
+  "appearanceSystem": {
+    "message": "跟随系统"
+  },
   "extensionName": {
     "message": "Cognia 浏览器伴侣"
   },
   "extensionDescription": {
-    "message": "把你正在读的页面交给 Cognia。不捕获就什么都不读。"
+    "message": "在本地采集、检查、编辑和导出网页；连接 Cognia 后可发送任务。不采集就不读取页面。"
   },
   "actionTitle": {
     "message": "打开 Cognia"
@@ -12,10 +27,10 @@
     "message": "把此页面捕获给 Cognia"
   },
   "contextMenuSelection": {
-    "message": "把选中内容发给 Cognia"
+    "message": "采集选中内容"
   },
   "contextMenuPage": {
-    "message": "把此页面发给 Cognia"
+    "message": "采集此页面"
   },
   "pairTitle": {
     "message": "连接到 Cognia"
@@ -68,10 +83,10 @@
     "message": "配对码不完整或已损坏，请从 Cognia 重新复制。"
   },
   "captureTitle": {
-    "message": "发送到 Cognia"
+    "message": "采集网页"
   },
   "captureEmpty": {
-    "message": "还没有捕获任何内容。请使用工具栏按钮、快捷键，或在页面上右键。"
+    "message": "选择要采集的页面。"
   },
   "captureRestricted": {
     "message": "这个页面无法捕获。只有普通的 http 和 https 页面可以发送。"
@@ -100,13 +115,13 @@
     }
   },
   "captureFullUrl": {
-    "message": "包含完整地址"
+    "message": "完整网址"
   },
   "captureFullUrlHint": {
-    "message": "默认关闭：查询串里常常带着会话令牌和搜索词。"
+    "message": "完整网址可能含令牌等敏感信息。"
   },
   "instructionPlaceholder": {
-    "message": "希望 Cognia 用它做什么？"
+    "message": "希望如何处理这些内容？"
   },
   "workspaceLabel": {
     "message": "工作区"
@@ -305,16 +320,54 @@
     "message": "正在连接 Cognia…"
   },
   "captureNow": {
-    "message": "捕获此页面"
+    "message": "采集页面"
   },
   "captureWholePage": {
-    "message": "捕获整页正文"
+    "message": "整页"
   },
   "captureRecapture": {
     "message": "重新捕获"
   },
   "captureNoGrant": {
-    "message": "Cognia 没有这个标签页的访问权限。请在想发送的页面上点击工具栏图标，或使用右键菜单。"
+    "message": "扩展尚无此标签页的访问权限。请在目标网页点击扩展工具栏图标、使用右键菜单，或按提示授权当前站点。"
+  },
+  "captureAllowSite": {
+    "message": "允许访问此站点"
+  },
+  "siteAccessTitle": { "message": "网页访问权限" },
+  "siteAccessAllowAll": { "message": "允许所有网站" },
+  "siteAccessAllAllowed": { "message": "已允许所有网站" },
+  "siteAccessHint": { "message": "一次授权，跨站采集与编辑无需逐站确认。" },
+  "siteAccessGrantedHint": { "message": "采集与编辑无需逐站授权。" },
+  "siteAccessWorking": { "message": "正在授权…" },
+  "siteAccessManage": { "message": "管理权限" },
+  "siteAccessDenied": { "message": "尚未授权，仍可单独允许访问所需站点。" },
+  "siteAccessFailed": { "message": "无法更新网页访问权限，请重试。" },
+  "captureIdentifyHint": {
+    "message": "浏览器尚未提供当前标签页地址。请先允许读取标签页的标题和网址以识别站点，再单独授权下方显示的站点。"
+  },
+  "captureIdentifyDenied": {
+    "message": "尚未获得识别站点的权限。你也可以在目标网页点击扩展工具栏图标，获得临时访问权限。"
+  },
+  "captureSiteIdentified": {
+    "message": "已识别当前站点，请在下方允许访问以重试采集。"
+  },
+  "captureAccessHint": {
+    "message": "允许读取 $SITE$ 的页面，即可从侧边栏采集。此权限可在浏览器的扩展站点访问设置中撤销。",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "captureAccessDenied": {
+    "message": "尚未获得站点访问权限。请重试，或在扩展设置中允许访问此站点。"
+  },
+  "captureAccessChanged": {
+    "message": "标签页已关闭或已跳转到其他站点，请重新采集当前页面。"
+  },
+  "captureReadFailed": {
+    "message": "无法读取此页面，请刷新页面后重试。浏览器内部页面和扩展商店页面不支持采集。"
   },
   "openPanelCommand": {
     "message": "打开 Cognia 侧边栏"
@@ -326,13 +379,13 @@
     "message": "将本文正文发送到 Cognia"
   },
   "contextMenuArticle": {
-    "message": "将文章正文发送到 Cognia"
+    "message": "采集文章正文"
   },
   "contextMenuLink": {
-    "message": "将链接发送到 Cognia"
+    "message": "采集链接"
   },
   "contextMenuImage": {
-    "message": "将图片发送到 Cognia"
+    "message": "采集图片"
   },
   "contextMenuQuick": {
     "message": "让 Cognia…"
@@ -534,7 +587,7 @@
     }
   },
   "captureArticle": {
-    "message": "发送正文"
+    "message": "正文"
   },
   "captureBlocked": {
     "message": "你已将此网站设为从不捕获。"
@@ -543,7 +596,7 @@
     "message": "标题"
   },
   "captureEditText": {
-    "message": "将要发送的内容（可修改删减）"
+    "message": "采集内容（可编辑）"
   },
   "captureLinkLabel": {
     "message": "链接："
@@ -754,10 +807,10 @@
     "message": "选取元素"
   },
   "inspectPickCancel": {
-    "message": "停止选取"
+    "message": "取消"
   },
   "inspectPicking": {
-    "message": "在页面上点击一个元素。Shift 点击或拖出选框可以多选，Alt 点击会选中所有相似元素，然后按回车或点“完成”。↑ 和 ↓ 切换到父元素或子元素，Esc 取消。"
+    "message": "点击要选取的元素"
   },
   "inspectPickHint": {
     "message": "Cognia：点击元素 · Shift 点击或拖框可多选 · Alt 点击选中所有相似元素 · Esc 取消"
@@ -870,16 +923,16 @@
     "message": "页面工具"
   },
   "devReportTitle": {
-    "message": "控制台与网络"
+    "message": "调试报告"
   },
   "devReportHint": {
-    "message": "开始记录后复现问题，再附上你的操作步骤以及控制台与请求信息。会记录点击、按键和页面跳转，但不会记录你输入的内容。页面重新加载会停止记录；页面加载以来失败的请求始终会包含在内。"
+    "message": "记录控制台、请求和操作步骤。"
   },
   "devRecordStart": {
     "message": "开始记录"
   },
   "devRecordRestart": {
-    "message": "重新开始记录"
+    "message": "重新记录"
   },
   "devRecordingSince": {
     "message": "自 $TIME$ 起记录中",
@@ -890,10 +943,10 @@
     }
   },
   "devReportAttach": {
-    "message": "附加控制台与网络信息"
+    "message": "收集报告"
   },
   "devReportRefresh": {
-    "message": "重新读取"
+    "message": "刷新报告"
   },
   "devReportErrors": {
     "message": "$COUNT$ 个错误",
@@ -930,13 +983,13 @@
     "message": "设计稿叠加"
   },
   "overlayHint": {
-    "message": "将设计稿导出图叠加在页面上进行对比。显示时截取可见区域即可发送对比结果。"
+    "message": "叠加设计图，对比页面效果。"
   },
   "overlayChoose": {
-    "message": "选择设计稿图片"
+    "message": "选择图片"
   },
   "overlayReplace": {
-    "message": "更换图片"
+    "message": "替换图片"
   },
   "overlayOpacity": {
     "message": "不透明度 $PERCENT$%",
@@ -968,7 +1021,7 @@
     "message": "屏幕尺寸"
   },
   "viewportHint": {
-    "message": "在该视口尺寸的窗口中打开页面。"
+    "message": "以其他窗口尺寸打开页面。"
   },
   "viewportMobile": {
     "message": "手机"
@@ -989,7 +1042,7 @@
     "message": "页面审查"
   },
   "insightInclude": {
-    "message": "随页面发送"
+    "message": "加入上下文"
   },
   "insightRunAgain": {
     "message": "重新运行"
@@ -1001,7 +1054,7 @@
     "message": "无障碍"
   },
   "accessHint": {
-    "message": "按 WCAG 2.2 AA 标准做初步检查：名称、标签、对比度、标题层级、点击区域。并非合规审计。"
+    "message": "初步检查 WCAG 2.2 AA 问题，非合规认证。"
   },
   "accessRun": {
     "message": "检查无障碍"
@@ -1089,7 +1142,7 @@
     "message": "设计 Token"
   },
   "tokensHint": {
-    "message": "页面实际使用的颜色、字体、间距、圆角和变量，按使用频率排序。点击色块即可复制。"
+    "message": "读取颜色、字体、间距和变量。"
   },
   "tokensRun": {
     "message": "读取设计 Token"
@@ -1124,7 +1177,7 @@
     "message": "技术栈"
   },
   "stackHint": {
-    "message": "识别页面使用的技术——框架、CMS、样式、构建工具、工具库、统计与托管，附版本与识别依据——让智能体从正确的技术栈出发。"
+    "message": "识别页面的框架与依赖库。"
   },
   "stackRun": {
     "message": "识别技术栈"
@@ -1164,10 +1217,10 @@
     "message": "测量"
   },
   "measureCancel": {
-    "message": "停止测量"
+    "message": "取消"
   },
   "measureWaiting": {
-    "message": "先点击第一个元素，再点击要测量到的元素；按住 Shift 点击可继续从第一个元素测量。按 Esc 取消。"
+    "message": "依次选取两个元素"
   },
   "measureHint": {
     "message": "Cognia：点击作为起点的元素 · Esc 取消"
@@ -1322,7 +1375,7 @@
     "message": "性能"
   },
   "perfHint": {
-    "message": "基于浏览器自身的性能时间线，查看本次访问的加载与响应：Web Vitals、慢脚本、大体积资源、过大的图片。"
+    "message": "检查加载耗时、Web Vitals 和资源。"
   },
   "perfRun": {
     "message": "测量性能"
@@ -1424,7 +1477,7 @@
     "message": "SEO 与链接预览"
   },
   "seoHint": {
-    "message": "检查标题、描述、canonical、robots、Open Graph 与 Twitter 标签、结构化数据和标题大纲，并预览分享链接时显示的卡片。"
+    "message": "检查元数据、标题与分享预览。"
   },
   "seoRun": {
     "message": "检查 SEO"
@@ -1527,16 +1580,16 @@
     "message": "编辑文字"
   },
   "textEditHint": {
-    "message": "Cognia：点击页面上的任意文字即可修改 · 在侧边栏中完成"
+    "message": "Cognia：点击文字即可编辑 · 再点 T 或“完成”退出"
   },
   "textEditing": {
-    "message": "正在编辑页面文字：点击任意文字即可修改。"
+    "message": "点击文字即可编辑"
   },
   "textEditDone": {
-    "message": "完成编辑"
+    "message": "完成"
   },
   "textEditUndo": {
-    "message": "撤销全部修改"
+    "message": "撤销全部"
   },
   "textEditFailed": {
     "message": "无法编辑此页面的文字。请在该页面点击扩展图标后重试。"
@@ -1584,7 +1637,7 @@
     "message": "布局"
   },
   "layoutHint": {
-    "message": "在当前窗口尺寸下，检查导致页面横向滚动的元素、被裁切的文字、变形的图片和过小的文字。"
+    "message": "找出横向溢出、裁切与过小文字。"
   },
   "layoutRun": {
     "message": "检查布局"
@@ -1655,10 +1708,10 @@
     "message": "内边距"
   },
   "adjustDone": {
-    "message": "保留调整"
+    "message": "完成"
   },
   "adjustCancel": {
-    "message": "撤销调整"
+    "message": "取消"
   },
   "adjustFailed": {
     "message": "无法在此页面上调整该元素。"
@@ -1667,7 +1720,7 @@
     "message": "模拟请求"
   },
   "mockHint": {
-    "message": "让页面自身的请求失败、返回指定内容、修改真实响应、延迟或改发到别处，观察页面如何应对。规则在页面刷新前有效（可选择保留），发送内容会注明哪些请求是模拟的。"
+    "message": "模拟或延迟页面请求。"
   },
   "mockMatch": {
     "message": "URL 匹配"
@@ -1751,7 +1804,7 @@
     }
   },
   "compareRun": {
-    "message": "与页面对比"
+    "message": "对比"
   },
   "compareHint": {
     "message": "测量页面与设计稿的差距：短暂隐藏叠加图，截取可见区域，并逐像素对比"
@@ -1780,7 +1833,7 @@
     "message": "键盘焦点"
   },
   "focusHint": {
-    "message": "Tab 键在页面上的移动顺序（在页面上标号），以及问题所在：正数 tabindex、不可见的停靠点、焦点跳回上方，以及键盘无法到达的可点击元素。"
+    "message": "检查 Tab 顺序与键盘可达性。"
   },
   "focusRun": {
     "message": "检查焦点顺序"
@@ -1845,10 +1898,10 @@
     "message": "拖动以移动"
   },
   "toolbarShow": {
-    "message": "浮动工具栏"
+    "message": "悬浮栏"
   },
   "toolbarHide": {
-    "message": "隐藏工具栏"
+    "message": "隐藏悬浮栏"
   },
   "toolbarToggleHint": {
     "message": "在页面上悬浮显示选取、测量、调整、文字编辑和截图工具"
@@ -1866,22 +1919,22 @@
     "message": "Cognia 浏览器助手"
   },
   "panelTagline": {
-    "message": "采集、检查网页并交给 Cognia 处理"
+    "message": "采集、检查、编辑和导出网页"
   },
   "panelPaired": {
     "message": "已配对"
   },
   "captureSubtitle": {
-    "message": "从当前页面开始"
+    "message": "采集页面、选区或正文"
   },
   "inspectSectionTitle": {
     "message": "检查与编辑"
   },
   "inspectSectionSubtitle": {
-    "message": "直接在页面上选取、测量和修改"
+    "message": "选取、测量和编辑元素"
   },
   "inspectTilePickHint": {
-    "message": "在页面上选取元素，把它描述给 Cognia"
+    "message": "在页面上选取元素，检查并编辑它"
   },
   "inspectTileMeasureHint": {
     "message": "测量两个元素之间的距离"
@@ -1890,10 +1943,10 @@
     "message": "直接修改页面上的文字"
   },
   "pageToolsSubtitle": {
-    "message": "控制台、设计稿叠加、屏幕尺寸、请求模拟"
+    "message": "调试、对比与模拟请求"
   },
   "pageAuditSubtitle": {
-    "message": "无障碍、布局、性能、SEO"
+    "message": "无障碍、布局与页面数据"
   },
   "recentSubtitle": {
     "message": "从此浏览器发起的任务"
@@ -2196,5 +2249,8 @@
   },
   "stackFactThirdParty": {
     "message": "第三方来源（请求数）"
+  },
+  "adjustActive": {
+    "message": "正在调整元素"
   }
 }

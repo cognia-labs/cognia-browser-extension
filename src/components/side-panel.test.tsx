@@ -490,6 +490,7 @@ function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: neve
         [...(request.permissions ?? []), ...(request.origins ?? [])].every((entry) =>
           state.granted.has(entry)
         ),
+      onPermissionsChange: () => () => undefined,
       requestPermissions: async (request) => {
         const entries = [...(request.permissions ?? []), ...(request.origins ?? [])]
         state.permissionRequests.push(entries)
@@ -843,6 +844,121 @@ describe("SidePanel", () => {
     await screen.findByText("pairTitle")
   })
 
+  it("captures locally without pairing or contacting a Host, and remembers the mode", async () => {
+    const state = harness()
+    const first = renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "useLocalMode" }))
+    await screen.findByText("localModeTitle")
+    fireEvent.click(screen.getByRole("button", { name: "captureNow" }))
+    await screen.findByLabelText("captureEditText")
+    expect(screen.getByLabelText("captureEditText")).toHaveValue("the selected sentence")
+    expect(screen.queryByRole("button", { name: "submit" })).not.toBeInTheDocument()
+    expect(screen.queryByTestId("workspace-select")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("agent-settings")).not.toBeInTheDocument()
+    expect(state.capabilityCalls).toEqual([])
+    expect(state.listCalls).toEqual([])
+    expect(state.permissionRequests).toEqual([])
+
+    first.unmount()
+    renderPanel(state)
+    await screen.findByRole("button", { name: "connectHost" })
+    expect(screen.queryByText("pairTitle")).not.toBeInTheDocument()
+    expect(state.capabilityCalls).toEqual([])
+  })
+
+  it("copies the locally edited capture together with inspected elements", async () => {
+    const writeText = jest.fn(async (_text: string) => undefined)
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+    const state = harness()
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "useLocalMode" }))
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    await screen.findByLabelText("captureEditText")
+    fireEvent.click(screen.getByRole("button", { name: /inspectPick/ }))
+    await screen.findByRole("button", { name: /1\. button\.primary/ })
+    fireEvent.change(screen.getByLabelText("captureEditText"), {
+      target: { value: "Reviewed local text" },
+    })
+    fireEvent.change(screen.getByLabelText("captureEditTitle"), {
+      target: { value: "Reviewed title" },
+    })
+    fireEvent.change(screen.getByRole("textbox", { name: "instructionPlaceholder" }), {
+      target: { value: "Fix this layout" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "copyContext" }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+    const copied = writeText.mock.calls[0]![0]
+    expect(copied).toContain("# Reviewed title")
+    expect(copied).toContain("Reviewed local text")
+    expect(copied).not.toContain("the selected sentence")
+    expect(copied).toContain("Fix this layout")
+    expect(copied).toContain("## Picked elements (1)")
+    expect(state.submitted).toEqual([])
+  })
+
+  it("keeps local edits when returning from the optional pairing form", async () => {
+    const state = harness()
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "useLocalMode" }))
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    fireEvent.change(await screen.findByLabelText("captureEditText"), {
+      target: { value: "Keep my local edits" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "connectHost" }))
+    await screen.findByLabelText("pairPlaceholder")
+    fireEvent.click(screen.getByRole("button", { name: "useLocalMode" }))
+    expect(await screen.findByLabelText("captureEditText")).toHaveValue("Keep my local edits")
+    expect(state.capabilityCalls).toEqual([])
+    expect(state.permissionRequests).toEqual([])
+  })
+
+  it("suspends a paired Host in local mode and reconnects without losing the capture", async () => {
+    const state = harness({
+      store: new Map<string, unknown>([
+        [STORAGE_KEYS.pairing, PAIRING],
+        [STORAGE_KEYS.preferences, { agentMode: true }],
+      ]),
+    })
+    const first = renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    fireEvent.change(await screen.findByLabelText("captureEditText"), {
+      target: { value: "Keep this while switching modes" },
+    })
+    const calls = state.capabilityCalls.length
+    fireEvent.click(screen.getByRole("button", { name: "useLocalMode" }))
+    await screen.findByRole("button", { name: "connectHost" })
+    expect(state.store.get(STORAGE_KEYS.pairing)).toEqual(PAIRING)
+    expect(state.store.get(STORAGE_KEYS.preferences)).toMatchObject({ agentMode: false })
+    expect(state.portOpen).toBe(false)
+    expect(document.documentElement.style.getPropertyValue("--background")).toBe("")
+    await waitFor(() => expect(state.sessionStore.get("cognia.draft.v1")).toBeDefined())
+    first.unmount()
+    renderPanel(state)
+    expect(await screen.findByLabelText("captureEditText")).toHaveValue(
+      "Keep this while switching modes"
+    )
+    expect(state.capabilityCalls).toHaveLength(calls)
+    fireEvent.click(screen.getByRole("button", { name: "connectHost" }))
+    expect(await screen.findByLabelText("captureEditText")).toHaveValue(
+      "Keep this while switching modes"
+    )
+    expect(screen.getByRole("button", { name: "submit" })).toBeInTheDocument()
+    expect(state.capabilityCalls.length).toBeGreaterThan(calls)
+  })
+
+  it("offers local tools when the paired Host is offline", async () => {
+    const state = harness({
+      store: new Map([[STORAGE_KEYS.pairing, PAIRING]]) as never,
+      capabilityError: new Error("fetch failed"),
+    })
+    renderPanel(state)
+    await screen.findByTestId("panel-offline")
+    fireEvent.click(screen.getByRole("button", { name: "useLocalMode" }))
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    expect(await screen.findByLabelText("captureEditText")).toHaveValue("the selected sentence")
+    expect(state.store.get(STORAGE_KEYS.pairing)).toEqual(PAIRING)
+  })
+
   it("shows the capture screen once paired", async () => {
     const state = harness({
       store: new Map([[STORAGE_KEYS.pairing, PAIRING]]) as never,
@@ -964,6 +1080,199 @@ describe("SidePanel capture and settings", () => {
     await waitFor(() =>
       expect(screen.getByTestId("submit-error")).toHaveTextContent("captureNoGrant")
     )
+  })
+
+  it("offers site authorization when Chrome hides the active tab URL", async () => {
+    const state = harness({
+      store: new Map([[STORAGE_KEYS.localMode, true]]) as never,
+      api: { activeTab: async () => null } as never,
+    })
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    await waitFor(() =>
+      expect(screen.getByTestId("submit-error")).toHaveTextContent("captureNoGrant")
+    )
+    expect(screen.getByRole("button", { name: "captureAllowSite" })).toBeInTheDocument()
+    expect(state.permissionRequests).toEqual([])
+  })
+
+  it("allows all websites once in local mode without enabling agents", async () => {
+    const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
+    const capture = jest.spyOn(state.api, "capturePage")
+    renderPanel(state)
+    const allow = await screen.findByRole("button", { name: "siteAccessAllowAll" })
+    await waitFor(() => expect(allow).toBeEnabled())
+    expect(state.permissionRequests).toEqual([])
+    fireEvent.click(allow)
+    expect(state.permissionRequests).toEqual([["<all_urls>"]])
+    await screen.findByText("siteAccessAllAllowed")
+    expect(state.store.get(STORAGE_KEYS.preferences)).toMatchObject({
+      allSitesAccess: true,
+      agentMode: false,
+    })
+    for (const [id, url] of [
+      [1, "https://one.test/a"],
+      [2, "https://two.test/b"],
+    ] as const) {
+      state.api.activeTab = async () =>
+        state.granted.has("<all_urls>") ? { id, url, title: "A page", windowId: 1 } : null
+      fireEvent.click(screen.getByTestId("capture-now"))
+      await waitFor(() =>
+        expect(capture).toHaveBeenCalledWith(id, {
+          wholePage: false,
+          article: false,
+        })
+      )
+    }
+    expect(state.permissionRequests).toEqual([["<all_urls>"]])
+    expect(state.capabilityCalls).toEqual([])
+  })
+
+  it("keeps per-site access available when all-websites access is denied", async () => {
+    const state = harness({
+      store: new Map([[STORAGE_KEYS.localMode, true]]) as never,
+      grantRequests: false,
+      api: { activeTab: async () => null } as never,
+    })
+    renderPanel(state)
+    const allow = await screen.findByRole("button", { name: "siteAccessAllowAll" })
+    await waitFor(() => expect(allow).toBeEnabled())
+    fireEvent.click(allow)
+    await screen.findByText("siteAccessDenied")
+    expect(allow).toBeEnabled()
+    fireEvent.click(screen.getByTestId("capture-now"))
+    await screen.findByRole("button", { name: "captureAllowSite" })
+    expect(state.store.get(STORAGE_KEYS.preferences) ?? {}).not.toMatchObject({
+      allSitesAccess: true,
+    })
+  })
+
+  it("restores website access from Chrome and refreshes it after external revocation", async () => {
+    const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
+    state.granted.add("<all_urls>")
+    renderPanel(state)
+    await screen.findByText("siteAccessAllAllowed")
+    expect(state.permissionRequests).toEqual([])
+    fireEvent.click(screen.getByRole("button", { name: "siteAccessManage" }))
+    expect(state.openedUrls).toEqual(["chrome://extensions/?id=abcdefghijklmnopabcdefghijklmnop"])
+    state.granted.delete("<all_urls>")
+    fireEvent.focus(window)
+    await screen.findByRole("button", { name: "siteAccessAllowAll" })
+  })
+
+  it("keeps website access retryable if the browser request rejects", async () => {
+    const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
+    jest.spyOn(state.api, "requestPermissions").mockRejectedValueOnce(new Error("Unavailable"))
+    renderPanel(state)
+    const allow = await screen.findByRole("button", { name: "siteAccessAllowAll" })
+    fireEvent.click(allow)
+    await screen.findByText("siteAccessFailed")
+    expect(allow).toBeEnabled()
+    fireEvent.click(allow)
+    await screen.findByText("siteAccessAllAllowed")
+    expect(screen.queryByText("siteAccessFailed")).not.toBeInTheDocument()
+  })
+
+  it("identifies the hidden site before separately authorizing it and retrying capture", async () => {
+    const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
+    const tab = { id: 1, url: "https://example.com/a", title: "A page", windowId: 1 }
+    state.api.activeTab = async () => (state.granted.has("tabs") ? tab : null)
+    const capture = jest.spyOn(state.api, "capturePage")
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "captureWholePage" }))
+    fireEvent.click(await screen.findByRole("button", { name: "captureAllowSite" }))
+    expect(state.permissionRequests).toEqual([["tabs"]])
+    await screen.findByText("captureSiteIdentified")
+    expect(capture).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "captureAllowSite" }))
+    expect(state.permissionRequests).toEqual([["tabs"], ["https://example.com/*"]])
+    expect(await screen.findByLabelText("captureEditText")).toHaveValue("the selected sentence")
+    expect(capture).toHaveBeenCalledWith(1, { wholePage: true, article: false })
+    expect(screen.queryByRole("button", { name: "captureAllowSite" })).not.toBeInTheDocument()
+    expect(state.capabilityCalls).toEqual([])
+  })
+
+  it("keeps the authorization action available after site identification is denied", async () => {
+    const state = harness({
+      store: new Map([[STORAGE_KEYS.localMode, true]]) as never,
+      grantRequests: false,
+      api: { activeTab: async () => null } as never,
+    })
+    const capture = jest.spyOn(state.api, "capturePage")
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    fireEvent.click(await screen.findByRole("button", { name: "captureAllowSite" }))
+    await screen.findByText("captureIdentifyDenied")
+    expect(screen.getByRole("button", { name: "captureAllowSite" })).toBeEnabled()
+    expect(state.permissionRequests).toEqual([["tabs"]])
+    expect(capture).not.toHaveBeenCalled()
+  })
+
+  it("does not capture when the displayed site's permission is denied", async () => {
+    const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
+    const tab = { id: 1, url: "https://example.com/a", title: "A page", windowId: 1 }
+    state.api.activeTab = async () => (state.granted.has("tabs") ? tab : null)
+    const capture = jest.spyOn(state.api, "capturePage")
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    fireEvent.click(await screen.findByRole("button", { name: "captureAllowSite" }))
+    await screen.findByText("captureSiteIdentified")
+    state.grantRequests = false
+    fireEvent.click(screen.getByRole("button", { name: "captureAllowSite" }))
+    await screen.findByText("captureAccessDenied")
+    expect(screen.getByRole("button", { name: "captureAllowSite" })).toBeEnabled()
+    expect(state.permissionRequests).toEqual([["tabs"], ["https://example.com/*"]])
+    expect(capture).not.toHaveBeenCalled()
+  })
+
+  it("does not offer site access for a restricted page after identifying the tab", async () => {
+    const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
+    state.api.activeTab = async () =>
+      state.granted.has("tabs")
+        ? { id: 1, url: "chrome://settings", title: "Settings", windowId: 1 }
+        : null
+    const capture = jest.spyOn(state.api, "capturePage")
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    fireEvent.click(await screen.findByRole("button", { name: "captureAllowSite" }))
+    await screen.findByText("captureRestricted")
+    expect(screen.queryByRole("button", { name: "captureAllowSite" })).not.toBeInTheDocument()
+    expect(state.permissionRequests).toEqual([["tabs"]])
+    expect(capture).not.toHaveBeenCalled()
+  })
+
+  it("asks only for the known site and retries a capture denied by Chrome", async () => {
+    const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
+    const capture = jest
+      .spyOn(state.api, "capturePage")
+      .mockRejectedValueOnce(new Error("Cannot access contents of the page"))
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    fireEvent.click(await screen.findByRole("button", { name: "captureAllowSite" }))
+    expect(await screen.findByLabelText("captureEditText")).toHaveValue("the selected sentence")
+    expect(state.permissionRequests).toEqual([["https://example.com/*"]])
+    expect(capture).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not retry capture on another site after permission approval", async () => {
+    const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
+    const capture = jest
+      .spyOn(state.api, "capturePage")
+      .mockRejectedValueOnce(new Error("Cannot access contents of the page"))
+    renderPanel(state)
+    fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
+    await screen.findByRole("button", { name: "captureAllowSite" })
+    state.api.tabById = async () => ({
+      id: 1,
+      url: "https://other.test/",
+      title: "Other",
+      windowId: 1,
+    })
+    fireEvent.click(screen.getByRole("button", { name: "captureAllowSite" }))
+    await screen.findByText("captureAccessChanged")
+    expect(state.permissionRequests).toEqual([["https://example.com/*"]])
+    expect(capture).toHaveBeenCalledTimes(1)
+    expect(screen.queryByLabelText("captureEditText")).not.toBeInTheDocument()
   })
 
   it("refuses to capture a page that is not http(s)", async () => {
@@ -2429,6 +2738,55 @@ describe("SidePanel — ADR-0228", () => {
       await screen.findByTestId("text-editing")
       unmount()
       expect(state.inspectCalls.at(-1)).toBe("stop-text:1:true")
+    })
+
+    it("keeps text editing available to retry when leaving it fails", async () => {
+      const state = paired()
+      const stop = jest
+        .spyOn(state.api, "stopEditingPageText")
+        .mockRejectedValueOnce(new Error("The page could not be reached"))
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("text-edit-start"))
+      await screen.findByTestId("text-editing")
+      fireEvent.click(screen.getByTestId("text-edit-done"))
+      await screen.findByText("textEditFailed")
+      expect(screen.getByTestId("text-editing")).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId("text-edit-done"))
+      await waitFor(() => expect(screen.queryByTestId("text-editing")).toBeNull())
+      expect(stop).toHaveBeenCalledTimes(2)
+      expect(screen.queryByText("textEditFailed")).toBeNull()
+      expect(await screen.findByTestId("text-change-0")).toBeInTheDocument()
+    })
+
+    it("finishes text editing before starting a toolbar pick and ignores competing presses", async () => {
+      const state = paired()
+      let finish!: (changes: Harness["textEdits"]) => void
+      const stopped = new Promise<Harness["textEdits"]>((resolve) => {
+        finish = resolve
+      })
+      const stop = jest.spyOn(state.api, "stopEditingPageText").mockReturnValue(stopped)
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("toolbar-toggle"))
+      await waitFor(() => expect(state.toolbarStates.at(-1)).toMatchObject({ active: null }))
+      fireEvent.click(screen.getByTestId("text-edit-start"))
+      await screen.findByTestId("text-editing")
+      act(() => {
+        state.pressToolbar?.("pick", 1)
+      })
+      await waitFor(() => expect(stop).toHaveBeenCalledWith(1, true))
+      act(() => {
+        state.pressToolbar?.("measure", 1)
+      })
+      expect(screen.getByTestId("text-editing")).toBeInTheDocument()
+      expect(state.inspectCalls).not.toContain("pick:1")
+      expect(state.inspectCalls).not.toContain("measure:1:")
+      await act(async () => {
+        finish(state.textEdits)
+      })
+      await waitFor(() => expect(state.inspectCalls).toContain("pick:1"))
+      expect(stop).toHaveBeenCalledTimes(1)
+      expect(state.inspectCalls).not.toContain("measure:1:")
+      expect(await screen.findByTestId("text-change-0")).toBeInTheDocument()
     })
 
     it("checks SEO and sends the findings while included", async () => {

@@ -4,8 +4,14 @@ import { Badge, Button, Label, Switch } from "@cognia/plugin-ui"
 import { AGENT_SESSIONS_KEY, type AgentSessions } from "@ext/src/lib/agent/sessions"
 import { SITE_DECISIONS_KEY, type StandingDecision } from "@ext/src/lib/agent/site-permissions"
 import type { SocketState } from "@ext/src/lib/agent/socket-client"
-import { SESSION_KEYS, type BrowserApi, type PermissionRequest } from "@ext/src/lib/browser-api"
+import {
+  SESSION_KEYS,
+  STORAGE_KEYS,
+  type BrowserApi,
+  type PermissionRequest,
+} from "@ext/src/lib/browser-api"
 import { usePreferences, useStoredValue } from "@ext/src/lib/panel/use-stored-value"
+import { parsePreferences } from "@ext/src/lib/preferences"
 
 export interface AgentSettingsProps {
   api: BrowserApi
@@ -64,7 +70,8 @@ export function socketStateMessage(state: SocketState, message: (key: string) =>
  *
  * Turning it on asks for `<all_urls>` inside the click — the one install-time
  * warning this extension never shows, asked for only by the person who wants
- * it — and keeps the device socket open. Whether the Host will actually send
+ * it — and keeps the device socket open. Disabling it retains website access
+ * explicitly enabled for local tools. Whether the Host will actually send
  * operations is the Owner's separate grant in the desktop app; the panel
  * shows both, because either alone does nothing.
  */
@@ -105,8 +112,11 @@ export function AgentSettings({ api, driveAllowed, conversationTitles = {} }: Ag
       await updatePreferences({ agentMode: true })
     } else {
       await updatePreferences({ agentMode: false })
-      const removed = await api.removePermissions(ALL_SITES).catch(() => false)
-      if (removed) setGranted((current) => ({ ...current, sites: false }))
+      const current = parsePreferences(await api.read(STORAGE_KEYS.preferences))
+      if (!current.allSitesAccess) {
+        const removed = await api.removePermissions(ALL_SITES).catch(() => false)
+        if (removed) setGranted((current) => ({ ...current, sites: false }))
+      }
     }
   }
 

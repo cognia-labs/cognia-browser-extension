@@ -39,7 +39,6 @@ import {
   FileTextIcon,
   HistoryIcon,
   MousePointer2Icon,
-  MousePointerClickIcon,
   PanelLeftIcon,
   PencilLineIcon,
   RefreshCwIcon,
@@ -154,6 +153,7 @@ import {
 } from "@ext/src/lib/client"
 import {
   APPEARANCE_OVERRIDES,
+  LOCAL_CAPTURE_CAPABILITY,
   STALE_CATALOGUE_CODES,
   STATUSES_WITH_A_REASON,
   appearanceOverrideMessage,
@@ -181,6 +181,7 @@ import { AttachmentsBar, type AttachAction } from "./attachments-bar"
 import { CaptureEditor } from "./capture-editor"
 import { CapturePreview } from "./capture-preview"
 import { ExtensionSettings } from "./extension-settings"
+import { SiteAccess } from "./site-access"
 import { ExtraPages } from "./extra-pages"
 import { ImageAnnotator } from "./image-annotator"
 import { Measurements } from "./measurements"
@@ -203,6 +204,12 @@ export interface SidePanelProps {
   makeClient?: typeof createHostClient
   now?: () => number
 }
+
+type CaptureAccessRequest = {
+  scope: CaptureScope
+  link?: BrowserLinkContextV1
+  image?: BrowserImageContextV1
+} & ({ kind: "identify"; tabId?: number } | { kind: "site"; tabId: number; origin: string })
 
 /**
  * The default clock, defined once.
@@ -243,6 +250,7 @@ type PendingConfirmation = "disconnect" | "clear-local" | null
  */
 export function SidePanel({ api, makeClient = createHostClient, now = systemNow }: SidePanelProps) {
   const [state, setState] = useState<PanelState>({ kind: "loading" })
+  const captureCapability = state.kind === "ready" ? state.capability : LOCAL_CAPTURE_CAPABILITY
   const [instruction, setInstruction] = useState("")
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [preferredTargetId, setPreferredTargetId] = useState<string | null>(null)
@@ -276,6 +284,19 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const [includeFullUrl, setIncludeFullUrl] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [captureAccess, setCaptureAccess] = useState<CaptureAccessRequest | null>(null)
+  const [grantingCaptureAccess, setGrantingCaptureAccess] = useState(false)
+  const captureAccessRef = useRef<CaptureAccessRequest | null>(null)
+  const offerCaptureAccess = useCallback((request: CaptureAccessRequest | null) => {
+    captureAccessRef.current = request
+    setCaptureAccess(request)
+  }, [])
+  useEffect(
+    () => () => {
+      captureAccessRef.current = null
+    },
+    []
+  )
   // Assumed absent until proven otherwise. Over-explaining a prompt that does
   // not appear is a smaller failure than a system dialog nobody was warned
   // about.
@@ -311,6 +332,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     null
   )
   const textEditingTabRef = useRef<number | null>(null)
+  const stoppingTextRef = useRef<Promise<boolean> | null>(null)
   const [pickBusy, setPickBusy] = useState<{ elementId: string; action: PickAction } | null>(null)
   // The console and network report, the recorder behind it, the design mock.
   const [devReport, setDevReport] = useState<DevReport | null>(null)
@@ -354,6 +376,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const readingMocksRef = useRef(false)
   const startPickRef = useRef<((tabId?: number) => Promise<void>) | null>(null)
   const clientRef = useRef<HostClient | null>(null)
+  const retainedCaptureRef = useRef<CapturedPage | null>(null)
   const portRef = useRef<PanelPort | null>(null)
   const queryRef = useRef("")
   const instructionRef = useRef<HTMLTextAreaElement | null>(null)
@@ -514,18 +537,6 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     [api]
   )
 
-  // Paint before anything else. The stored appearance is the Host's last
-  // answer, so a panel reopened offline still looks like the app rather than
-  // flashing the fallback palette and then correcting itself.
-  useEffect(() => {
-    void api
-      .read<unknown>(STORAGE_KEYS.appearance)
-      .then((stored) => {
-        if (isAppliedAppearance(stored)) applyAppearance(document.documentElement, stored)
-      })
-      .catch(() => undefined)
-  }, [api])
-
   useEffect(() => {
     void api.hasLoopbackPermission().then(setHasPermission)
   }, [api])
@@ -575,6 +586,14 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       signer: NonNullable<Awaited<ReturnType<typeof restoreSigner>>>
     }
     try {
+      if ((await api.read<unknown>(STORAGE_KEYS.localMode)) === true) {
+        clientRef.current = null
+        return { state: { kind: "local", captured: null }, override }
+      }
+      // Resolve the cached Host palette before exposing mode controls, so a
+      // delayed storage read cannot repaint a newly entered local mode.
+      const appearance = await api.read<unknown>(STORAGE_KEYS.appearance).catch(() => null)
+      if (isAppliedAppearance(appearance)) applyAppearance(document.documentElement, appearance)
       const pairing = await api.read<PairingRecord>(STORAGE_KEYS.pairing)
       if (!pairing) return { state: { kind: "unpaired" }, override }
       const signer = await restoreSigner(pairing)
@@ -647,11 +666,41 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
 
   const connect = useCallback(async () => {
     const next = await resolveConnection()
-    setState(next.state)
+    setState(
+      next.state.kind === "ready"
+        ? { ...next.state, captured: retainedCaptureRef.current }
+        : next.state
+    )
     if (next.workspaceId !== undefined) setWorkspaceId(next.workspaceId)
     if (next.override) setOverride(next.override)
     setNextPageToken(next.nextPageToken)
   }, [resolveConnection])
+
+  const enterLocalMode = useCallback(async () => {
+    offerCaptureAccess(null)
+    clientRef.current?.invalidate()
+    clientRef.current = null
+    try {
+      await api.write(STORAGE_KEYS.localMode, true)
+      await updatePreferences({ agentMode: false })
+      setStalled(null)
+      setSubmitError(null)
+      setState({ kind: "local", captured: retainedCaptureRef.current })
+    } catch {
+      setState({ kind: "storage-error" })
+    }
+  }, [api, updatePreferences, offerCaptureAccess])
+
+  const connectHost = useCallback(async () => {
+    offerCaptureAccess(null)
+    try {
+      await api.remove([STORAGE_KEYS.localMode])
+      setState({ kind: "loading" })
+      await connect()
+    } catch {
+      setState({ kind: "storage-error" })
+    }
+  }, [api, connect, offerCaptureAccess])
 
   useEffect(() => {
     let cancelled = false
@@ -670,14 +719,14 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // Follow the Host's ceilings once they are known. Written from an effect so
   // the capture callbacks can read the current value without being rebuilt
   // every time the capability object is replaced by a poll.
-  const hostLimits = state.kind === "ready" ? state.capability.limits : undefined
+  const hostLimits = captureCapability.limits
   useEffect(() => {
     limitsRef.current = hostLimits ?? BROWSER_CONTEXT_LIMITS
   }, [hostLimits])
 
   // The Host's feature list, read by the capture callbacks through a ref for
   // the same reason the limits are.
-  const hostFeatures = state.kind === "ready" ? state.capability.features : undefined
+  const hostFeatures = captureCapability.features
   const featuresRef = useRef(hostFeatures ?? [])
   useEffect(() => {
     featuresRef.current = hostFeatures ?? []
@@ -711,12 +760,25 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           wholePage: requested !== "auto",
           article: requested === "article" && features.includes("article"),
         })
-      } catch {
+      } catch (error) {
         // `activeTab` is granted to the gesture that invoked the extension, on
         // the tab it was invoked from — and it lapses on navigation. Switching
         // tabs with the panel open is the ordinary way to arrive here, so this
         // is an instruction rather than an error.
-        return { ok: false, message: api.message("captureNoGrant") }
+        const detail = error instanceof Error ? error.message : String(error)
+        if (/extensions gallery cannot be scripted/i.test(detail))
+          return { ok: false, message: api.message("captureRestricted") }
+        if (/cannot access contents|host permission|permission denied/i.test(detail)) {
+          offerCaptureAccess({
+            kind: "site",
+            tabId: tab.id,
+            origin: new URL(decision.url).origin,
+            scope: requested,
+            ...extras,
+          })
+          return { ok: false, message: api.message("captureNoGrant") }
+        }
+        return { ok: false, message: api.message("captureReadFailed") }
       }
       const transcript =
         features.includes("transcript") && isYouTubeWatchUrl(tab.url)
@@ -742,7 +804,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       )
       return { ok: true, page: withoutUnsupported(page, features) }
     },
-    [api, includeFullUrl, now, preferences.blockedHosts]
+    [api, includeFullUrl, now, preferences.blockedHosts, offerCaptureAccess]
   )
 
   /**
@@ -765,13 +827,16 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         image?: BrowserImageContextV1
       } = {}
     ): Promise<CapturedPage | null> => {
+      offerCaptureAccess(null)
       const wanted: CaptureScope =
         requested === true ? "page" : requested === false ? "auto" : requested
       const tab = tabId === undefined ? await api.activeTab() : await api.tabById(tabId)
       if (!tab) {
-        // A recorded request whose tab has since closed. Saying so beats
-        // silently doing nothing, which reads as the extension being broken.
-        if (tabId !== undefined) setSubmitError(api.message("captureNoGrant"))
+        // Without activeTab or a host grant Chrome may omit the tab's URL.
+        // Keep the capture intent so its permission action can identify the
+        // site with the optional tabs permission, then ask for that site only.
+        offerCaptureAccess({ kind: "identify", tabId, scope: wanted, ...extras })
+        setSubmitError(api.message("captureNoGrant"))
         return null
       }
       const outcome = await readPage(tab, wanted, extras)
@@ -806,12 +871,77 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       )
       setInsights((current) => insightsForTab(current, outcome.page.tabId))
       setState((current) =>
-        current.kind === "ready" ? { ...current, captured: outcome.page } : current
+        current.kind === "ready" || current.kind === "local"
+          ? { ...current, captured: outcome.page }
+          : current
       )
       return outcome.page
     },
-    [api, readPage, releasePicks, releaseMeasurements]
+    [api, readPage, releasePicks, releaseMeasurements, offerCaptureAccess]
   )
+
+  const grantCaptureAccess = useCallback(async () => {
+    const request = captureAccessRef.current
+    if (!request || grantingCaptureAccess) return
+    setGrantingCaptureAccess(true)
+    try {
+      // Called directly from the button's gesture, before any asynchronous read.
+      const granted = await api.requestPermissions(
+        request.kind === "identify"
+          ? { permissions: ["tabs"] }
+          : { origins: [`${request.origin}/*`] }
+      )
+      if (captureAccessRef.current !== request) return
+      if (!granted) {
+        setSubmitError(
+          request.kind === "identify"
+            ? api.message("captureIdentifyDenied")
+            : api.message("captureAccessDenied")
+        )
+        return
+      }
+      const tab =
+        request.tabId === undefined ? await api.activeTab() : await api.tabById(request.tabId)
+      if (captureAccessRef.current !== request) return
+      if (!tab) {
+        offerCaptureAccess(null)
+        setSubmitError(api.message("captureAccessChanged"))
+        return
+      }
+      const decision = normalizeCaptureUrl(tab.url)
+      if (!decision.ok || isBlockedUrl(tab.url, preferences.blockedHosts)) {
+        offerCaptureAccess(null)
+        setSubmitError(api.message(decision.ok ? "captureBlocked" : "captureRestricted"))
+        return
+      }
+      const origin = new URL(decision.url).origin
+      if (request.kind === "identify") {
+        // A second explicit click authorizes the now-visible site. Never ask
+        // for all sites or chain a second permission prompt after an await.
+        offerCaptureAccess({ ...request, kind: "site", tabId: tab.id, origin })
+        setSubmitError(api.message("captureSiteIdentified"))
+        return
+      }
+      if (origin !== request.origin) {
+        offerCaptureAccess(null)
+        setSubmitError(api.message("captureAccessChanged"))
+        return
+      }
+      await runCapture(request.scope, request.tabId, {
+        ...(request.link ? { link: request.link } : {}),
+        ...(request.image ? { image: request.image } : {}),
+      })
+    } catch {
+      if (captureAccessRef.current === request)
+        setSubmitError(
+          request.kind === "identify"
+            ? api.message("captureIdentifyDenied")
+            : api.message("captureAccessDenied")
+        )
+    } finally {
+      setGrantingCaptureAccess(false)
+    }
+  }, [api, grantingCaptureAccess, offerCaptureAccess, runCapture, preferences.blockedHosts])
 
   /**
    * Fetch a right-clicked image's bytes as an attachment, when the Host takes
@@ -910,7 +1040,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // them up while it stays open. Reading only on mount meant a context-menu
   // click made while the panel was already showing did nothing until the
   // panel was closed and opened again.
-  const ready = state.kind === "ready"
+  const ready = state.kind === "ready" || state.kind === "local"
   useEffect(() => {
     if (!ready) return
     let cancelled = false
@@ -1237,6 +1367,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         return
       }
       await api.write(STORAGE_KEYS.pairing, outcome.pairing)
+      await api.remove([STORAGE_KEYS.localMode])
       await connect()
     },
     [api, connect]
@@ -1542,9 +1673,22 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   ])
 
   // Restore the unsent draft once, when the panel first connects (ADR-0228 §8).
-  const captured0 = state.kind === "ready" ? state.captured : null
+  const captured0 = ready ? state.captured : null
   useEffect(() => {
-    if (!isReady || draftRestoredRef.current) return
+    if (ready) retainedCaptureRef.current = captured0
+  }, [ready, captured0])
+
+  useEffect(() => {
+    if (state.kind !== "local") return
+    const root = document.documentElement
+    // Drop the Host's inline palette so the bundled local theme can take over.
+    for (const name of Array.from(root.style)) root.style.removeProperty(name)
+    root.classList.toggle("light", override === "light")
+    root.classList.toggle("dark", override === "dark")
+    delete root.dataset.density
+  }, [state.kind, override])
+  useEffect(() => {
+    if (!ready || draftRestoredRef.current) return
     draftRestoredRef.current = true
     let cancelled = false
     void api
@@ -1553,7 +1697,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         const draft = parseDraft(stored, now())
         if (cancelled || !draft || isEmptyDraft(draft)) return
         setState((current) =>
-          current.kind === "ready" && !current.captured
+          (current.kind === "ready" || current.kind === "local") && !current.captured
             ? { ...current, captured: draft.captured }
             : current
         )
@@ -1575,11 +1719,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     return () => {
       cancelled = true
     }
-  }, [api, isReady, now])
+  }, [api, ready, now])
 
   // Keep the draft as it changes, a moment after the last keystroke.
   useEffect(() => {
-    if (!isReady || !draftRestoredRef.current) return
+    if (!ready || !draftRestoredRef.current) return
     const timer = setTimeout(() => {
       const draft: PanelDraft = {
         v: 1,
@@ -1612,7 +1756,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     includeFullUrl,
     insights,
     instruction,
-    isReady,
+    ready,
     measurements,
     now,
     picks,
@@ -2107,6 +2251,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     try {
       await api.activateTab(tab.id).catch(() => undefined)
       await api.editPageText(tab.id, api.message("textEditHint"))
+      textEditingTabRef.current = tab.id
       setTextEditingTab(tab.id)
     } catch {
       setSubmitError(api.message("textEditFailed"))
@@ -2115,22 +2260,34 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
 
   /** Leave editing: keep the edits and read them back, or unwind them all. */
   const stopTextEditing = useCallback(
-    async (keep: boolean) => {
-      const tabId = textEditingTab
-      if (tabId === null) return
-      setTextEditingTab(null)
-      try {
-        const changes = await api.stopEditingPageText(tabId, keep)
-        if (!keep || changes.length === 0) return
-        setTextChanges({ tabId, changes })
-        setInstruction((current) =>
-          current.trim() ? current : api.message("textEditDefaultInstruction")
-        )
-      } catch {
-        setSubmitError(api.message("textEditFailed"))
-      }
+    (keep: boolean): Promise<boolean> => {
+      if (stoppingTextRef.current) return stoppingTextRef.current
+      const tabId = textEditingTabRef.current
+      if (tabId === null) return Promise.resolve(true)
+      setSubmitError(null)
+      stoppingTextRef.current = (async () => {
+        try {
+          const changes = await api.stopEditingPageText(tabId, keep)
+          textEditingTabRef.current = null
+          setTextEditingTab(null)
+          if (keep && changes.length > 0) {
+            setTextChanges({ tabId, changes })
+            setInstruction((current) =>
+              current.trim() ? current : api.message("textEditDefaultInstruction")
+            )
+          }
+          return true
+        } catch {
+          // Keep the exit controls available until the page actually leaves editing.
+          setSubmitError(api.message("textEditFailed"))
+          return false
+        }
+      })().finally(() => {
+        stoppingTextRef.current = null
+      })
+      return stoppingTextRef.current
     },
-    [api, textEditingTab]
+    [api]
   )
 
   /**
@@ -2291,6 +2448,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const toggleToolbar = useCallback(async () => {
     setSubmitError(null)
     if (toolbarTab !== null) {
+      if (!(await stopTextEditing(true))) return
+      if (pickingTab !== null) {
+        if (pointing === "adjust") finishAdjust()
+        else cancelPick()
+      }
       void api.setPageToolbar(toolbarTab, null).catch(() => undefined)
       setToolbarTab(null)
       return
@@ -2305,7 +2467,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     } catch {
       setSubmitError(api.message("toolbarFailed"))
     }
-  }, [api, toolTab, toolbarTab])
+  }, [api, cancelPick, finishAdjust, pickingTab, pointing, stopTextEditing, toolTab, toolbarTab])
 
   /** Start listening to the tab's console and requests, for a bug report (Jam). */
   const onRecord = useCallback(async () => {
@@ -2844,11 +3006,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
    * an orphaned key that nothing can ever use or delete.
    */
   const disconnect = useCallback(async () => {
+    offerCaptureAccess(null)
     setConfirming(null)
     await clearDeviceKey()
     await api.remove(Object.values(STORAGE_KEYS))
     await api.removeSession(Object.values(SESSION_KEYS)).catch(() => undefined)
     clientRef.current = null
+    retainedCaptureRef.current = null
     pendingSubmissionRef.current = null
     setStalled(null)
     releasePicks(picksRef.current)
@@ -2865,7 +3029,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     // unreachable Host must not be able to stop a user forgetting it locally.
     setDisconnected(true)
     setState({ kind: "unpaired" })
-  }, [api, releasePicks, releaseMeasurements])
+  }, [api, releasePicks, releaseMeasurements, offerCaptureAccess])
 
   /**
    * Forget the local conveniences but stay paired.
@@ -2900,7 +3064,12 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           preferredModeFor(next, followsSystem, prefersDark())
         )
         // A second choice made while this one was in flight wins.
-        if (!isCompatible(refreshed) || overrideRef.current !== next) return
+        if (
+          !isCompatible(refreshed) ||
+          overrideRef.current !== next ||
+          clientRef.current !== client
+        )
+          return
         applyAppearance(document.documentElement, refreshed.appearance)
         void api.write(STORAGE_KEYS.appearance, refreshed.appearance)
         setState((current) =>
@@ -2918,10 +3087,9 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // what there is to act on, and how many picks and measurements it has.
   const toolbarPicks = picks.filter((pick) => pick.tabId === toolbarTab)
   const canShot =
-    state.kind === "ready" &&
-    state.captured !== null &&
-    hasFeature(state.capability, "attachments") &&
-    attachments.length < resolveBrowserContextLimits(state.capability.limits).maxAttachments
+    captured0 !== null &&
+    hasFeature(captureCapability, "attachments") &&
+    attachments.length < resolveBrowserContextLimits(captureCapability.limits).maxAttachments
   const toolbarState: ToolbarState = {
     labels: {
       title: api.message("toolbarTitle"),
@@ -2961,13 +3129,22 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       .setPageToolbar(toolbarTab, JSON.parse(toolbarKey) as ToolbarState)
       .catch(() => setToolbarTab(null))
   }, [api, toolbarKey, toolbarTab])
-  // A button on the page runs the tool as the panel's own button would. A
-  // tool already running ends instead (an adjustment kept), so two passes
-  // never compete for the page; a second press starts the next one.
+  // A button on the page runs the tool as the panel's own button would.
+  // Text editing must finish before another tool takes over. A pointing
+  // pass ends on a second press, keeping an adjustment's changes.
   useEffect(() => {
-    toolbarActionRef.current = (action, tabId) => {
+    toolbarActionRef.current = async (action, tabId) => {
       if (tabId !== toolbarTabRef.current) return
+      if (stoppingTextRef.current) return
+      if (textEditingTabRef.current !== null) {
+        if (!(await stopTextEditing(true))) return
+        if (tabId !== toolbarTabRef.current || action === "text") return
+      }
       if (action === "close") {
+        if (pickingTab !== null) {
+          if (pointing === "adjust") finishAdjust()
+          else cancelPick()
+        }
         void api.setPageToolbar(tabId, null).catch(() => undefined)
         setToolbarTab(null)
         return
@@ -2990,7 +3167,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           return
         }
         case "text":
-          void (textEditingTab !== null ? stopTextEditing(true) : startTextEditing())
+          void startTextEditing()
           return
         case "shot":
           void onAttach("markup")
@@ -3022,6 +3199,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         failure={state.kind === "unpaired" ? state.failure : undefined}
         disconnected={disconnected}
         onSubmit={(code) => void onPair(code)}
+        onLocalMode={() => void enterLocalMode()}
       />
     )
   }
@@ -3033,12 +3211,21 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         title={api.message("revoked")}
         action={api.message("reconnect")}
         onAction={() => setState({ kind: "unpaired" })}
+        onLocalMode={() => void enterLocalMode()}
+        localModeLabel={api.message("useLocalMode")}
       />
     )
   }
 
   if (state.kind === "incompatible") {
-    return <Notice testId="panel-incompatible" title={api.message("incompatible")} />
+    return (
+      <Notice
+        testId="panel-incompatible"
+        title={api.message("incompatible")}
+        onLocalMode={() => void enterLocalMode()}
+        localModeLabel={api.message("useLocalMode")}
+      />
+    )
   }
 
   if (state.kind === "host-offline") {
@@ -3049,6 +3236,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         detail={api.message("hostOfflineHint")}
         action={api.message("retry")}
         onAction={() => void connect()}
+        onLocalMode={() => void enterLocalMode()}
+        localModeLabel={api.message("useLocalMode")}
       />
     )
   }
@@ -3058,14 +3247,15 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // re-deriving it beats re-extracting the page, which could silently hand
   // back different text than the one they reviewed.
   const captured = state.captured ? withDisplayUrl(state.captured, includeFullUrl) : null
-  const features = state.capability.features ?? []
-  const limits = resolveBrowserContextLimits(state.capability.limits)
+  const hostCapability = state.kind === "ready" ? state.capability : undefined
+  const features = captureCapability.features ?? []
+  const limits = resolveBrowserContextLimits(captureCapability.limits)
   // What is sent is the capture with the picks and the report after its
   // selection; the editor edits the person's own text, the preview counts all.
   const inspection = captured
     ? inspectionFor(picks, devReport, insights, captured.tabId, {
         measurements,
-        attachments: hasFeature(state.capability, "attachments") ? attachments : [],
+        attachments: hasFeature(captureCapability, "attachments") ? attachments : [],
         textChanges,
         mocks,
         designDiff,
@@ -3098,7 +3288,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // Derived at render rather than held in state, so changing the workspace can
   // never leave a target selected that the new workspace does not offer — the
   // Host would refuse that submission, correctly and inexplicably.
-  const offeredTargets = targetsForWorkspace(state.capability.deliveryTargets, workspaceId)
+  const offeredTargets = targetsForWorkspace(hostCapability?.deliveryTargets, workspaceId)
   const targetId = selectedTargetId(offeredTargets, preferredTargetId)
   const selectedTarget = offeredTargets.find((target) => target.id === targetId)
   const paramsReady = targetParamsSatisfied(selectedTarget, targetParams)
@@ -3106,6 +3296,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // for one — showing both would invite two instructions in one turn.
   const needsInstruction = selectedTarget?.kind !== "template"
   const canSubmit =
+    state.kind === "ready" &&
     !submitting &&
     attachBusy === null &&
     regionSource === null &&
@@ -3114,6 +3305,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     (!needsInstruction || Boolean(instruction.trim()))
   const canEyedrop = typeof (window as { EyeDropper?: unknown }).EyeDropper === "function"
   const clearCapture = () => {
+    offerCaptureAccess(null)
     setStalled(null)
     setExtraPages([])
     setAttachments([])
@@ -3131,7 +3323,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     setInsights(NO_INSIGHTS)
     setDesignDiff(null)
     void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
-    setState((current) => (current.kind === "ready" ? { ...current, captured: null } : current))
+    setState((current) =>
+      current.kind === "ready" || current.kind === "local"
+        ? { ...current, captured: null }
+        : current
+    )
   }
 
   return (
@@ -3148,14 +3344,22 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         </span>
         <span
           className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground"
-          title={state.pairing.baseUrl}
-          data-testid="panel-paired"
+          title={state.kind === "ready" ? state.pairing.baseUrl : api.message("localModeHint")}
+          data-testid={state.kind === "ready" ? "panel-paired" : "panel-local"}
         >
           <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
-          {api.message("panelPaired")}
+          {state.kind === "ready" ? api.message("panelPaired") : api.message("localModeTitle")}
         </span>
       </header>
-      <SiteQuestions api={api} />
+      {state.kind === "ready" ? <SiteQuestions api={api} /> : null}
+      {state.kind === "local" ? (
+        <div className="space-y-2 rounded-panel border border-border bg-card p-3">
+          <p className="text-xs text-muted-foreground">{api.message("localModeHint")}</p>
+          <Button variant="outline" size="sm" onClick={() => void connectHost()}>
+            {api.message("connectHost")}
+          </Button>
+        </div>
+      ) : null}
       <PanelSection
         icon={ScanTextIcon}
         tone="info"
@@ -3169,7 +3373,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 <CaptureActions
                   api={api}
                   compact
-                  article={hasFeature(state.capability, "article")}
+                  article={hasFeature(captureCapability, "article")}
                   onCapture={(scope) => void runCapture(scope)}
                 />
               ),
@@ -3182,7 +3386,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
               api={api}
               page={sendable ?? captured}
               mode={mode}
-              limits={state.capability.limits}
+              limits={captureCapability.limits}
               includeFullUrl={includeFullUrl}
               onToggleFullUrl={setIncludeFullUrl}
             />
@@ -3215,7 +3419,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
               mode={editorMode}
               onChange={(next) =>
                 setState((current) =>
-                  current.kind === "ready" && current.captured
+                  (current.kind === "ready" || current.kind === "local") && current.captured
                     ? {
                         ...current,
                         captured: { ...next, url: current.captured.url },
@@ -3230,7 +3434,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
               detached={detachedPicks}
               busy={pickBusy}
               canShoot={
-                hasFeature(state.capability, "attachments") &&
+                hasFeature(captureCapability, "attachments") &&
                 attachments.length < limits.maxAttachments
               }
               preview={inspection}
@@ -3271,7 +3475,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 )
               }
             />
-            {hasFeature(state.capability, "multi-page") && limits.maxPages > 1 ? (
+            {hasFeature(captureCapability, "multi-page") && limits.maxPages > 1 ? (
               <ExtraPages
                 api={api}
                 pages={extraPages}
@@ -3285,7 +3489,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 }
               />
             ) : null}
-            {hasFeature(state.capability, "attachments") ? (
+            {hasFeature(captureCapability, "attachments") ? (
               regionSource ? (
                 <RegionCropper
                   api={api}
@@ -3320,30 +3524,32 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 />
               )
             ) : null}
-            <div className="space-y-1.5">
-              <Label htmlFor="cognia-workspace" className="text-xs text-muted-foreground">
-                {api.message("workspaceLabel")}
-              </Label>
-              <Select value={workspaceId ?? undefined} onValueChange={setWorkspaceId}>
-                <SelectTrigger
-                  id="cognia-workspace"
-                  className="w-full"
-                  data-testid="workspace-select"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {state.capability.workspaces.map((workspace) => (
-                    // The label is the item's only child on purpose: a nested
-                    // element leaves the option with no accessible name, and a
-                    // listbox of unnamed options is unusable by keyboard.
-                    <SelectItem key={workspace.id} value={workspace.id}>
-                      {workspace.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {hostCapability ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="cognia-workspace" className="text-xs text-muted-foreground">
+                  {api.message("workspaceLabel")}
+                </Label>
+                <Select value={workspaceId ?? undefined} onValueChange={setWorkspaceId}>
+                  <SelectTrigger
+                    id="cognia-workspace"
+                    className="w-full"
+                    data-testid="workspace-select"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hostCapability.workspaces.map((workspace) => (
+                      // The label is the item's only child on purpose: a nested
+                      // element leaves the option with no accessible name, and a
+                      // listbox of unnamed options is unusable by keyboard.
+                      <SelectItem key={workspace.id} value={workspace.id}>
+                        {workspace.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             {/* Only when there is a choice. A Host that offers one target — an
                 older one, or a browser that has started nothing yet — would
                 otherwise get a dropdown whose every state is the same. */}
@@ -3464,21 +3670,25 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                   aria-label={api.message("instructionPlaceholder")}
                   data-testid="instruction"
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  {api.message("submitShortcutHint")}
-                </p>
+                {hostCapability ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    {api.message("submitShortcutHint")}
+                  </p>
+                ) : null}
               </>
             ) : null}
             <div className="space-y-1.5">
-              <Button
-                className="w-full"
-                onClick={() => void onSubmit()}
-                disabled={!canSubmit}
-                data-testid="submit"
-              >
-                <SendIcon className="size-4" aria-hidden="true" />
-                {submitting ? api.message("submitting") : api.message("submit")}
-              </Button>
+              {hostCapability ? (
+                <Button
+                  className="w-full"
+                  onClick={() => void onSubmit()}
+                  disabled={!canSubmit}
+                  data-testid="submit"
+                >
+                  <SendIcon className="size-4" aria-hidden="true" />
+                  {submitting ? api.message("submitting") : api.message("submit")}
+                </Button>
+              ) : null}
               {/* The other ways out, side by side under the main one. */}
               <div className="grid grid-cols-3 gap-1.5">
                 {/* For a coding agent in the editor, or an issue: the same
@@ -3488,7 +3698,15 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                   size="sm"
                   className="h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal"
                   onClick={() =>
-                    void copyText(promptForClipboard(sendable ?? captured, instruction, inspection))
+                    void copyText(
+                      promptForClipboard(
+                        captured,
+                        instruction,
+                        inspection,
+                        editorMode,
+                        extraPages.map((page) => withDisplayUrl(page, includeFullUrl))
+                      )
+                    )
                   }
                   data-testid="copy-context"
                 >
@@ -3509,11 +3727,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                     downloadText(
                       exportFileName(captured.title, now()),
                       exportMarkdown(
-                        sendable ?? captured,
+                        captured,
                         instruction,
                         inspection,
                         attachments.map((attachment) => attachment.name),
-                        now()
+                        now(),
+                        editorMode,
+                        extraPages.map((page) => withDisplayUrl(page, includeFullUrl))
                       )
                     )
                   }
@@ -3558,11 +3778,12 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             ) : null}
           </>
         ) : (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted/40 px-4 py-5 text-center">
-            <span className="flex size-10 items-center justify-center rounded-full bg-info/12 text-info">
-              <MousePointerClickIcon className="size-5" aria-hidden="true" />
-            </span>
-            <p className="text-xs text-muted-foreground" data-testid="capture-empty">
+          <div className="rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2.5">
+            <p
+              className="truncate text-xs text-muted-foreground"
+              title={api.message("captureEmpty")}
+              data-testid="capture-empty"
+            >
               {api.message("captureEmpty")}
             </p>
           </div>
@@ -3575,10 +3796,42 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           <CaptureActions
             api={api}
             compact={false}
-            article={hasFeature(state.capability, "article")}
+            article={hasFeature(captureCapability, "article")}
             onCapture={(scope) => void runCapture(scope)}
           />
         )}
+        <SiteAccess
+          api={api}
+          onGranted={() => {
+            if (captureAccessRef.current) {
+              offerCaptureAccess(null)
+              setSubmitError(null)
+            }
+          }}
+        />
+        {submitError && captureAccess ? (
+          <Alert variant="destructive" data-testid="submit-error">
+            <AlertDescription className="space-y-2">
+              <p>{submitError}</p>
+              <p className="break-words [overflow-wrap:anywhere]">
+                {captureAccess.kind === "site"
+                  ? api.message("captureAccessHint", [captureAccess.origin])
+                  : api.message("captureIdentifyHint")}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-auto min-h-8 max-w-full whitespace-normal py-2"
+                disabled={grantingCaptureAccess}
+                onClick={() => void grantCaptureAccess()}
+              >
+                {grantingCaptureAccess
+                  ? api.message("attachWorking")
+                  : api.message("captureAllowSite")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </PanelSection>
 
       <PanelSection
@@ -3586,6 +3839,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         tone="success"
         title={api.message("inspectSectionTitle")}
         subtitle={api.message("inspectSectionSubtitle")}
+        collapsible
       >
         <div className="grid grid-cols-2 gap-2">
           <ToolTile
@@ -3644,7 +3898,24 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           </div>
         ) : null}
         {pickingTab !== null ? (
-          <ActivityStrip>
+          <ActivityStrip
+            actions={
+              <>
+                {pointing === "adjust" ? (
+                  <Button size="sm" onClick={finishAdjust} data-testid="adjust-done">
+                    {api.message("adjustDone")}
+                  </Button>
+                ) : null}
+                <Button variant="outline" size="sm" onClick={cancelPick} data-testid="pick-cancel">
+                  {pointing === "measure"
+                    ? api.message("measureCancel")
+                    : pointing === "adjust"
+                      ? api.message("adjustCancel")
+                      : api.message("inspectPickCancel")}
+                </Button>
+              </>
+            }
+          >
             <p
               role="status"
               className="min-w-0 flex-1 text-[11px] leading-snug"
@@ -3652,46 +3923,42 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             >
               {pointing === "measure"
                 ? api.message("measureWaiting")
-                : api.message("inspectPicking")}
-            </p>
-            {pointing === "adjust" ? (
-              <Button size="sm" onClick={finishAdjust} data-testid="adjust-done">
-                {api.message("adjustDone")}
-              </Button>
-            ) : null}
-            <Button variant="outline" size="sm" onClick={cancelPick} data-testid="pick-cancel">
-              {pointing === "measure"
-                ? api.message("measureCancel")
                 : pointing === "adjust"
-                  ? api.message("adjustCancel")
-                  : api.message("inspectPickCancel")}
-            </Button>
+                  ? api.message("adjustActive")
+                  : api.message("inspectPicking")}
+            </p>
           </ActivityStrip>
         ) : null}
         {textEditingTab !== null ? (
-          <ActivityStrip testId="text-editing">
+          <ActivityStrip
+            testId="text-editing"
+            actions={
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => void stopTextEditing(true)}
+                  data-testid="text-edit-done"
+                >
+                  {api.message("textEditDone")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void stopTextEditing(false)}
+                  data-testid="text-edit-undo"
+                >
+                  {api.message("textEditUndo")}
+                </Button>
+              </>
+            }
+          >
             <p role="status" className="min-w-0 flex-1 text-[11px] leading-snug">
               {api.message("textEditing")}
             </p>
-            <Button
-              size="sm"
-              onClick={() => void stopTextEditing(true)}
-              data-testid="text-edit-done"
-            >
-              {api.message("textEditDone")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void stopTextEditing(false)}
-              data-testid="text-edit-undo"
-            >
-              {api.message("textEditUndo")}
-            </Button>
           </ActivityStrip>
         ) : null}
       </PanelSection>
-      {submitError ? (
+      {submitError && !captureAccess ? (
         <Alert variant="destructive" data-testid="submit-error">
           <AlertDescription>{submitError}</AlertDescription>
         </Alert>
@@ -3773,49 +4040,53 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         />
       </CollapsibleCard>
 
-      <PanelSection
-        icon={HistoryIcon}
-        title={api.message("recentTitle")}
-        subtitle={api.message("recentSubtitle")}
-      >
-        <RecentList
-          api={api}
-          items={recent}
-          failureCodes={failureCodes}
-          answers={answers}
-          expanded={expanded}
-          onToggleAnswer={toggleAnswer}
-          onStop={(submissionId) => void stopTask(submissionId)}
-          stopping={stopping}
-          {...(hasFeature(state.capability, "list-paging")
-            ? {
-                query,
-                onQueryChange: setQuery,
-                hasMore: Boolean(nextPageToken),
-                onLoadMore: () => void loadMore(),
-                loadingMore,
-              }
-            : {})}
-          followUpIds={followUpIds}
-          onFollowUp={(item) => void onFollowUp(item)}
-        />
-      </PanelSection>
+      {hostCapability ? (
+        <PanelSection
+          icon={HistoryIcon}
+          title={api.message("recentTitle")}
+          subtitle={api.message("recentSubtitle")}
+        >
+          <RecentList
+            api={api}
+            items={recent}
+            failureCodes={failureCodes}
+            answers={answers}
+            expanded={expanded}
+            onToggleAnswer={toggleAnswer}
+            onStop={(submissionId) => void stopTask(submissionId)}
+            stopping={stopping}
+            {...(hasFeature(hostCapability, "list-paging")
+              ? {
+                  query,
+                  onQueryChange: setQuery,
+                  hasMore: Boolean(nextPageToken),
+                  onLoadMore: () => void loadMore(),
+                  loadingMore,
+                }
+              : {})}
+            followUpIds={followUpIds}
+            onFollowUp={(item) => void onFollowUp(item)}
+          />
+        </PanelSection>
+      ) : null}
 
       <PanelSection
         icon={Settings2Icon}
         title={api.message("settingsTitle")}
         subtitle={api.message("settingsSubtitle")}
       >
-        <p className="font-mono text-[11px] text-muted-foreground" data-testid="diagnostics">
-          {api.message("diagnostics")}: {state.pairing.baseUrl}
-        </p>
+        {state.kind === "ready" ? (
+          <p className="font-mono text-[11px] text-muted-foreground" data-testid="diagnostics">
+            {api.message("diagnostics")}: {state.pairing.baseUrl}
+          </p>
+        ) : null}
         <ExtensionSettings api={api} />
-        {hasFeature(state.capability, "browser-agent") ? (
+        {hostCapability && hasFeature(hostCapability, "browser-agent") ? (
           <div className="space-y-1 border-t border-border pt-2">
             <h3 className="text-xs font-semibold">{api.message("agentTitle")}</h3>
             <AgentSettings
               api={api}
-              driveAllowed={state.capability.driveAllowed === true}
+              driveAllowed={hostCapability.driveAllowed === true}
               conversationTitles={conversationTitles}
             />
           </div>
@@ -3828,7 +4099,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             value={override}
             onValueChange={(next) => {
               if (!isAppearanceOverride(next)) return
-              void chooseAppearance(next, state.capability.followsSystem)
+              void chooseAppearance(next, hostCapability?.followsSystem)
             }}
           >
             <SelectTrigger
@@ -3841,25 +4112,39 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             <SelectContent>
               {APPEARANCE_OVERRIDES.map((option) => (
                 <SelectItem key={option} value={option}>
-                  {appearanceOverrideMessage(option, api.message)}
+                  {state.kind === "local" && option === "follow-host"
+                    ? api.message("appearanceSystem")
+                    : appearanceOverrideMessage(option, api.message)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setLocalCleared(false)
-              setConfirming("disconnect")
-            }}
-            aria-expanded={confirming === "disconnect"}
-            data-testid="disconnect"
-          >
-            {api.message("disconnect")}
-          </Button>
+          {hostCapability ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setLocalCleared(false)
+                setConfirming("disconnect")
+              }}
+              aria-expanded={confirming === "disconnect"}
+              data-testid="disconnect"
+            >
+              {api.message("disconnect")}
+            </Button>
+          ) : null}
+          {hostCapability ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={submitting}
+              onClick={() => void enterLocalMode()}
+            >
+              {api.message("useLocalMode")}
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
@@ -3981,12 +4266,12 @@ function CaptureActions({
           key={scope}
           variant={index === 0 ? "default" : "outline"}
           size="sm"
-          className={index === 0 || actions.length === 2 ? "col-span-2" : undefined}
+          className={cn("min-w-0 px-2", (index === 0 || actions.length === 2) && "col-span-2")}
           onClick={() => onCapture(scope)}
           data-testid={testId}
         >
           <Icon className="size-3.5" aria-hidden="true" />
-          {label}
+          <span className="min-w-0 truncate">{label}</span>
         </Button>
       ))}
     </div>
@@ -4107,12 +4392,16 @@ function Notice({
   detail,
   action,
   onAction,
+  onLocalMode,
+  localModeLabel,
 }: {
   testId: string
   title: string
   detail?: string
   action?: string
   onAction?: () => void
+  onLocalMode?: () => void
+  localModeLabel?: string
 }) {
   return (
     <div className="space-y-2 p-4" data-testid={testId}>
@@ -4123,6 +4412,11 @@ function Notice({
       {action && onAction ? (
         <Button variant="outline" onClick={onAction}>
           {action}
+        </Button>
+      ) : null}
+      {onLocalMode ? (
+        <Button variant="outline" onClick={onLocalMode}>
+          {localModeLabel}
         </Button>
       ) : null}
     </div>

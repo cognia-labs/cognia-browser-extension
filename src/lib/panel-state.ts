@@ -1,7 +1,7 @@
 /**
  * What the side panel is showing, as a value rather than a tangle of booleans.
  *
- * There are nine distinguishable situations here and they demand different
+ * The distinguishable situations here demand different
  * copy and different controls. Modelled as a union because the alternative —
  * `loading`, `paired`, `error`, `offline` flags — makes states like "paired,
  * offline, and also revoked" representable, and someone eventually renders one.
@@ -10,6 +10,7 @@
  * component reduces over this; it does not decide.
  */
 import {
+  BROWSER_CONTEXT_LIMITS,
   isTerminalBrowserSubmissionStatus,
   type BrowserCompanionCapabilityV1,
   type BrowserCompanionFeature,
@@ -85,6 +86,8 @@ export type PanelState =
   | { kind: "unpaired"; failure?: PairFailure }
   /** A code is being redeemed. */
   | { kind: "pairing" }
+  /** Local tools are available without a paired or running Host. */
+  | { kind: "local"; captured: CapturedPage | null }
   /** Paired, and the Host answered. */
   | {
       kind: "ready"
@@ -107,6 +110,20 @@ export type PanelState =
   | { kind: "revoked" }
   /** The Host speaks a schema this build does not. */
   | { kind: "incompatible"; hostSchemaVersion: number }
+
+/** Local capture formats and limits; these grant no Host or agent capability. */
+export const LOCAL_CAPTURE_CAPABILITY: Pick<BrowserCompanionCapabilityV1, "features" | "limits"> = {
+  features: [
+    "article",
+    "markdown-selection",
+    "metadata",
+    "transcript",
+    "link-image",
+    "multi-page",
+    "attachments",
+  ],
+  limits: BROWSER_CONTEXT_LIMITS,
+}
 
 /** The schema version this build of the extension implements. */
 export const SUPPORTED_SCHEMA_VERSION = 1

@@ -289,6 +289,23 @@ describe("createChromeBrowserApi — ADR-0228 surface", () => {
     })
   })
 
+  it("observes external permission grants and revocations until unsubscribed", () => {
+    const { raw } = wideStub()
+    const added = { addListener: jest.fn(), removeListener: jest.fn() }
+    const removed = { addListener: jest.fn(), removeListener: jest.fn() }
+    Object.assign(raw.permissions as object, { onAdded: added, onRemoved: removed })
+    const heard = jest.fn()
+    const stop = createChromeBrowserApi().onPermissionsChange(heard)
+    const onAdded = added.addListener.mock.calls[0]![0] as () => void
+    const onRemoved = removed.addListener.mock.calls[0]![0] as () => void
+    onAdded()
+    onRemoved()
+    expect(heard).toHaveBeenCalledTimes(2)
+    stop()
+    expect(added.removeListener).toHaveBeenCalledWith(onAdded)
+    expect(removed.removeListener).toHaveBeenCalledWith(onRemoved)
+  })
+
   it("lists the window's tabs, dropping ones it cannot read, with their window", async () => {
     const { raw } = wideStub()
     ;(raw.tabs as { query: jest.Mock }).query.mockResolvedValueOnce([

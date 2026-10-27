@@ -1,9 +1,24 @@
 {
+  "useLocalMode": {
+    "message": "Use local mode"
+  },
+  "localModeTitle": {
+    "message": "Local mode"
+  },
+  "localModeHint": {
+    "message": "Local tools; connect for tasks and agents."
+  },
+  "connectHost": {
+    "message": "Connect to Cognia"
+  },
+  "appearanceSystem": {
+    "message": "Follow system"
+  },
   "extensionName": {
     "message": "Cognia Browser Companion"
   },
   "extensionDescription": {
-    "message": "Hand the page you are reading to Cognia. Nothing is read until you capture it."
+    "message": "Capture, inspect, edit and export pages locally. Connect to Cognia to send tasks. Nothing is read until you capture it."
   },
   "actionTitle": {
     "message": "Open Cognia"
@@ -12,10 +27,10 @@
     "message": "Capture this page for Cognia"
   },
   "contextMenuSelection": {
-    "message": "Send selection to Cognia"
+    "message": "Capture selection"
   },
   "contextMenuPage": {
-    "message": "Send this page to Cognia"
+    "message": "Capture this page"
   },
   "pairTitle": {
     "message": "Connect to Cognia"
@@ -68,10 +83,10 @@
     "message": "This code is incomplete or damaged. Copy it from Cognia again."
   },
   "captureTitle": {
-    "message": "Send to Cognia"
+    "message": "Capture"
   },
   "captureEmpty": {
-    "message": "Nothing captured yet. Use the toolbar button, the shortcut, or the right-click menu on a page."
+    "message": "Choose a page to capture."
   },
   "captureRestricted": {
     "message": "This page cannot be captured. Only ordinary http and https pages can be sent."
@@ -100,13 +115,13 @@
     }
   },
   "captureFullUrl": {
-    "message": "Include the full address"
+    "message": "Full address"
   },
   "captureFullUrlHint": {
-    "message": "Off by default: query strings often carry session tokens and search terms."
+    "message": "Full URLs may contain private tokens."
   },
   "instructionPlaceholder": {
-    "message": "What should Cognia do with this?"
+    "message": "What would you like to do with this?"
   },
   "workspaceLabel": {
     "message": "Workspace"
@@ -305,16 +320,56 @@
     "message": "Connecting to Cognia…"
   },
   "captureNow": {
-    "message": "Capture this page"
+    "message": "Capture page"
   },
   "captureWholePage": {
-    "message": "Capture the whole page"
+    "message": "Whole page"
   },
   "captureRecapture": {
     "message": "Capture again"
   },
   "captureNoGrant": {
-    "message": "Cognia has no access to this tab. Click the toolbar icon on the page you want to send, or use the right-click menu."
+    "message": "The extension does not have access to this tab. Click its toolbar icon on the target page, use the right-click menu, or allow site access when offered."
+  },
+  "captureAllowSite": {
+    "message": "Allow access to this site"
+  },
+  "siteAccessTitle": { "message": "Website access" },
+  "siteAccessAllowAll": { "message": "Allow all websites" },
+  "siteAccessAllAllowed": { "message": "All websites allowed" },
+  "siteAccessHint": { "message": "Allow once for capture and editing across sites." },
+  "siteAccessGrantedHint": { "message": "Capture and edit without site-by-site prompts." },
+  "siteAccessWorking": { "message": "Authorizing…" },
+  "siteAccessManage": { "message": "Manage" },
+  "siteAccessDenied": {
+    "message": "Access was not granted. You can still allow individual sites."
+  },
+  "siteAccessFailed": { "message": "Could not update website access. Try again." },
+  "captureIdentifyHint": {
+    "message": "Chrome has not revealed this tab's address. First allow reading tab titles and URLs to identify the site, then approve access to the displayed site."
+  },
+  "captureIdentifyDenied": {
+    "message": "Permission to identify the site was not granted. You can instead click the extension's toolbar icon on the target page for temporary access."
+  },
+  "captureSiteIdentified": {
+    "message": "Site identified. Allow access below to retry capture."
+  },
+  "captureAccessHint": {
+    "message": "Allow reading pages on $SITE$ to capture from the side panel. You can revoke this permission in the extension's site access settings.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "captureAccessDenied": {
+    "message": "Site access was not granted. Try again or allow this site in the extension's settings."
+  },
+  "captureAccessChanged": {
+    "message": "The tab was closed or moved to another site. Capture the current page again."
+  },
+  "captureReadFailed": {
+    "message": "Could not read this page. Reload the page and try again. Browser-internal pages and extension stores cannot be captured."
   },
   "openPanelCommand": {
     "message": "Open the Cognia side panel"
@@ -326,13 +381,13 @@
     "message": "Send this article to Cognia"
   },
   "contextMenuArticle": {
-    "message": "Send article to Cognia"
+    "message": "Capture article"
   },
   "contextMenuLink": {
-    "message": "Send link to Cognia"
+    "message": "Capture link"
   },
   "contextMenuImage": {
-    "message": "Send image to Cognia"
+    "message": "Capture image"
   },
   "contextMenuQuick": {
     "message": "Ask Cognia to…"
@@ -534,7 +589,7 @@
     }
   },
   "captureArticle": {
-    "message": "Send article"
+    "message": "Article"
   },
   "captureBlocked": {
     "message": "You have set this site never to be captured."
@@ -543,7 +598,7 @@
     "message": "Title"
   },
   "captureEditText": {
-    "message": "What will be sent (you can trim it)"
+    "message": "Captured text (editable)"
   },
   "captureLinkLabel": {
     "message": "Link:"
@@ -754,10 +809,10 @@
     "message": "Pick element"
   },
   "inspectPickCancel": {
-    "message": "Stop picking"
+    "message": "Cancel"
   },
   "inspectPicking": {
-    "message": "Click an element on the page. Shift-click or drag a box to choose several, Alt-click to take all alike, then Enter or Done. ↑ and ↓ move to the parent or child, Esc cancels."
+    "message": "Click an element to select"
   },
   "inspectPickHint": {
     "message": "Cognia: click an element · Shift-click or drag a box to choose several · Alt-click for all alike · Esc cancel"
@@ -870,16 +925,16 @@
     "message": "Page tools"
   },
   "devReportTitle": {
-    "message": "Console and network"
+    "message": "Debug report"
   },
   "devReportHint": {
-    "message": "Start recording, reproduce the problem, then attach what you did and what the console and requests said. Clicks, keys and navigation are recorded, never what you type. Recording stops if the page reloads; requests that failed since the page loaded are always included."
+    "message": "Record console, requests and steps."
   },
   "devRecordStart": {
-    "message": "Start recording"
+    "message": "Record"
   },
   "devRecordRestart": {
-    "message": "Restart recording"
+    "message": "Restart"
   },
   "devRecordingSince": {
     "message": "Recording since $TIME$",
@@ -890,10 +945,10 @@
     }
   },
   "devReportAttach": {
-    "message": "Attach console and network"
+    "message": "Collect"
   },
   "devReportRefresh": {
-    "message": "Read again"
+    "message": "Refresh"
   },
   "devReportErrors": {
     "message": "$COUNT$ errors",
@@ -930,10 +985,10 @@
     "message": "Design overlay"
   },
   "overlayHint": {
-    "message": "Lay a design export over the page to compare. Take a visible-area screenshot while it is shown to send the comparison."
+    "message": "Compare with a design image."
   },
   "overlayChoose": {
-    "message": "Choose design image"
+    "message": "Choose image"
   },
   "overlayReplace": {
     "message": "Replace image"
@@ -968,7 +1023,7 @@
     "message": "Screen sizes"
   },
   "viewportHint": {
-    "message": "Open the page in a window of that viewport size."
+    "message": "Open the page at another size."
   },
   "viewportMobile": {
     "message": "Phone"
@@ -989,7 +1044,7 @@
     "message": "Page audit"
   },
   "insightInclude": {
-    "message": "Send with the page"
+    "message": "Include in context"
   },
   "insightRunAgain": {
     "message": "Run again"
@@ -1001,7 +1056,7 @@
     "message": "Accessibility"
   },
   "accessHint": {
-    "message": "A first pass with WCAG 2.2 AA thresholds: names, labels, contrast, headings, targets. Not a conformance audit."
+    "message": "WCAG 2.2 AA checks; not certification."
   },
   "accessRun": {
     "message": "Check accessibility"
@@ -1089,7 +1144,7 @@
     "message": "Design tokens"
   },
   "tokensHint": {
-    "message": "The colours, type, spacing, radii and variables the page actually uses, most used first. Click a swatch to copy it."
+    "message": "Read colors, type, spacing and variables."
   },
   "tokensRun": {
     "message": "Read design tokens"
@@ -1124,7 +1179,7 @@
     "message": "Tech stack"
   },
   "stackHint": {
-    "message": "What the page is built with — frameworks, CMS, styling, build, libraries, analytics and hosting, with versions and how each was found — so the agent starts from the right tools."
+    "message": "Identify frameworks and libraries."
   },
   "stackRun": {
     "message": "Detect tech stack"
@@ -1164,10 +1219,10 @@
     "message": "Measure"
   },
   "measureCancel": {
-    "message": "Stop measuring"
+    "message": "Cancel"
   },
   "measureWaiting": {
-    "message": "Click the first element, then the one to measure to; Shift-click to keep measuring from the first. Esc cancels."
+    "message": "Pick two elements"
   },
   "measureHint": {
     "message": "Cognia: click the first element to measure from · Esc cancel"
@@ -1322,7 +1377,7 @@
     "message": "Performance"
   },
   "perfHint": {
-    "message": "How this visit loaded and responded, from the browser's own timeline: Web Vitals, slow scripts, heavy resources, oversized images."
+    "message": "Check load time, Web Vitals and resources."
   },
   "perfRun": {
     "message": "Measure performance"
@@ -1424,7 +1479,7 @@
     "message": "SEO and link previews"
   },
   "seoHint": {
-    "message": "The title, description, canonical, robots, Open Graph and Twitter tags, structured data and heading outline, with a preview of the card a shared link shows."
+    "message": "Check metadata, headings and link previews."
   },
   "seoRun": {
     "message": "Check SEO"
@@ -1527,16 +1582,16 @@
     "message": "Edit text"
   },
   "textEditHint": {
-    "message": "Cognia: click any words on the page to change them · finish in the side panel"
+    "message": "Cognia: click words to edit · click T again or Done to finish"
   },
   "textEditing": {
-    "message": "Editing the page's text: click any words to change them."
+    "message": "Click text to edit"
   },
   "textEditDone": {
-    "message": "Done editing"
+    "message": "Done"
   },
   "textEditUndo": {
-    "message": "Undo all edits"
+    "message": "Undo all"
   },
   "textEditFailed": {
     "message": "The page's text could not be edited. Click the extension's icon on the page and try again."
@@ -1584,7 +1639,7 @@
     "message": "Layout"
   },
   "layoutHint": {
-    "message": "What makes the page scroll sideways, text cut off by its box, stretched images and text too small to read, at this window size."
+    "message": "Find overflow, clipped text and tiny type."
   },
   "layoutRun": {
     "message": "Check layout"
@@ -1655,10 +1710,10 @@
     "message": "Padding"
   },
   "adjustDone": {
-    "message": "Keep adjustment"
+    "message": "Done"
   },
   "adjustCancel": {
-    "message": "Undo adjustment"
+    "message": "Cancel"
   },
   "adjustFailed": {
     "message": "Couldn't adjust the element on this page."
@@ -1667,7 +1722,7 @@
     "message": "Simulate requests"
   },
   "mockHint": {
-    "message": "Make the page's own requests fail, answer, change, wait or go elsewhere, to see how it copes. Rules last until the page reloads unless kept, and what you send says which requests were simulated."
+    "message": "Mock or delay page requests."
   },
   "mockMatch": {
     "message": "URL matches"
@@ -1751,7 +1806,7 @@
     }
   },
   "compareRun": {
-    "message": "Compare with page"
+    "message": "Compare"
   },
   "compareHint": {
     "message": "Measure how far the page is from the mock: the overlay is hidden for a moment, the visible page captured, and the two compared pixel by pixel"
@@ -1780,7 +1835,7 @@
     "message": "Keyboard focus"
   },
   "focusHint": {
-    "message": "The order Tab moves through the page, numbered on it, and where it goes wrong: positive tabindex, hidden stops, focus jumping back up, and clickable things the keyboard can't reach."
+    "message": "Inspect Tab order and keyboard access."
   },
   "focusRun": {
     "message": "Check focus order"
@@ -1845,7 +1900,7 @@
     "message": "Drag to move"
   },
   "toolbarShow": {
-    "message": "Floating toolbar"
+    "message": "Toolbar"
   },
   "toolbarHide": {
     "message": "Hide toolbar"
@@ -1866,22 +1921,22 @@
     "message": "Cognia Companion"
   },
   "panelTagline": {
-    "message": "Capture, inspect and hand pages to Cognia"
+    "message": "Capture, inspect, edit and export pages"
   },
   "panelPaired": {
     "message": "Paired"
   },
   "captureSubtitle": {
-    "message": "Start from the page in front of you"
+    "message": "Page, selection or article"
   },
   "inspectSectionTitle": {
     "message": "Inspect & edit"
   },
   "inspectSectionSubtitle": {
-    "message": "Point at the page to pick, measure and change it"
+    "message": "Pick, measure and edit elements"
   },
   "inspectTilePickHint": {
-    "message": "Pick an element on the page to describe it to Cognia"
+    "message": "Pick an element on the page to inspect and edit it"
   },
   "inspectTileMeasureHint": {
     "message": "Measure the distance between two elements"
@@ -1890,10 +1945,10 @@
     "message": "Change the page's words in place"
   },
   "pageToolsSubtitle": {
-    "message": "Console, design overlay, screen sizes, mocks"
+    "message": "Debug, compare and simulate"
   },
   "pageAuditSubtitle": {
-    "message": "Accessibility, layout, performance, SEO"
+    "message": "Accessibility, layout and page data"
   },
   "recentSubtitle": {
     "message": "Tasks started from this browser"
@@ -2196,5 +2251,8 @@
   },
   "stackFactThirdParty": {
     "message": "Loads from other sites (requests)"
+  },
+  "adjustActive": {
+    "message": "Adjusting element"
   }
 }

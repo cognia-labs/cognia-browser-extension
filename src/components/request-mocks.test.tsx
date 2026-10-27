@@ -32,7 +32,7 @@ function hits(overrides: Partial<MockHits> = {}): MockHits {
 function setup(
   rules: RequestMock[] = [],
   mockHits: MockHits | null = null,
-  { busy = false, canKeep = true } = {}
+  { busy = false, canKeep = true, expanded = true } = {}
 ) {
   const props = {
     api,
@@ -49,6 +49,11 @@ function setup(
     onKeep: jest.fn(),
   }
   render(<RequestMocks {...props} />)
+  if (
+    expanded &&
+    screen.getByRole("button", { name: "mockTitle" }).getAttribute("aria-expanded") === "false"
+  )
+    fireEvent.click(screen.getByRole("button", { name: "mockTitle" }))
   return props
 }
 
@@ -58,6 +63,17 @@ async function choose(trigger: string, option: string) {
 }
 
 describe("RequestMocks", () => {
+  it("keeps an unfinished rule when folded and reopened", () => {
+    setup([], null, { expanded: false })
+    const toggle = screen.getByRole("button", { name: "mockTitle" })
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(toggle)
+    fireEvent.change(screen.getByTestId("mock-match"), { target: { value: "/api/draft" } })
+    fireEvent.click(toggle)
+    expect(screen.getByTestId("mock-match")).not.toBeVisible()
+    fireEvent.click(toggle)
+    expect(screen.getByTestId("mock-match")).toHaveValue("/api/draft")
+  })
   it("adds a rule that fails matching requests, once it matches something", () => {
     const props = setup()
     expect(screen.getByTestId("mock-add")).toBeDisabled()

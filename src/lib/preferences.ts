@@ -12,6 +12,8 @@ export interface ExtensionPreferences {
   notifications: boolean
   /** Agents may act in this browser; keeps the device socket open. */
   agentMode: boolean
+  /** Keep the optional all-sites grant for local tools, independently of agents. */
+  allSitesAccess: boolean
   /** Hosts the panel refuses to capture, e.g. a bank. Lower-case. */
   blockedHosts: string[]
   /** The floating toolbar snaps to the window's edges when let go (opt-in). */
@@ -21,6 +23,7 @@ export interface ExtensionPreferences {
 export const DEFAULT_PREFERENCES: ExtensionPreferences = Object.freeze({
   notifications: false,
   agentMode: false,
+  allSitesAccess: false,
   blockedHosts: [],
   toolbarSnap: false,
 }) as ExtensionPreferences
@@ -58,6 +61,7 @@ export function parsePreferences(value: unknown): ExtensionPreferences {
   return {
     notifications: record.notifications === true,
     agentMode: record.agentMode === true,
+    allSitesAccess: record.allSitesAccess === true,
     blockedHosts,
     toolbarSnap: record.toolbarSnap === true,
   }

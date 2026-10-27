@@ -30,11 +30,14 @@ describe("preferences", () => {
     ).toEqual({
       notifications: true,
       agentMode: false,
+      allSitesAccess: false,
       blockedHosts: ["bank.example.com", "corp.test"],
       toolbarSnap: false,
     })
     expect(parsePreferences({ toolbarSnap: true }).toolbarSnap).toBe(true)
     expect(parsePreferences({ toolbarSnap: "yes" }).toolbarSnap).toBe(false)
+    expect(parsePreferences({ allSitesAccess: true }).allSitesAccess).toBe(true)
+    expect(parsePreferences({ allSitesAccess: "yes" }).allSitesAccess).toBe(false)
   })
 
   it("normalizes typed hosts", () => {

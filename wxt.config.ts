@@ -25,8 +25,9 @@ const extensionIcons = {
  *    agent's tabs live in) carry no install warning.
  *  - **Everything broader is optional, asked for inside a gesture in the
  *    panel, by the feature that needs it:** `http://127.0.0.1/*` at pairing;
- *    `tabs` and a page's own origin when the person adds another tab to a
- *    capture; `<all_urls>` when they turn on agent mode; `notifications`,
+ *    a page's own origin to recover missing capture access; `tabs` and a
+ *    page's own origin when the person adds another tab to a
+ *    capture; `<all_urls>` when they allow all websites or turn on agent mode; `notifications`,
  *    `downloads` and `cookies` from their settings toggles. Somebody who
  *    installs and never opts in has granted what the original build did.
  *  - **No static `content_scripts`.** The extractor, the overlay, the page

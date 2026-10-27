@@ -239,7 +239,7 @@ export default defineBackground(() => {
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "local") {
-      for (const key of [STORAGE_KEYS.pairing, STORAGE_KEYS.preferences]) {
+      for (const key of [STORAGE_KEYS.pairing, STORAGE_KEYS.preferences, STORAGE_KEYS.localMode]) {
         if (Object.hasOwn(changes, key)) {
           void ready.then(() => worker.onLocalChange(key, changes[key]?.newValue ?? null))
         }

@@ -92,6 +92,8 @@ export function createWorker(deps: WorkerDeps) {
   let pairing: PairingRecord | null = null
   let client: HostClient | null = null
   let preferences: ExtensionPreferences = parsePreferences(null)
+  let localMode = false
+  let pairingLoad = 0
   let panelPorts = 0
   let keepPolling = false
   let refreshing: Promise<void> | null = null
@@ -118,7 +120,7 @@ export function createWorker(deps: WorkerDeps) {
     createSocket: deps.createSocket,
     execute: (operation, args, deadlineMs, signal) =>
       runtime.execute(operation, args, deadlineMs, signal),
-    canExecute: () => preferences.agentMode,
+    canExecute: () => !localMode && preferences.agentMode,
     extensionVersion: deps.extensionVersion,
     features: EXTENSION_FEATURES,
     onStatusHint: () => {
@@ -177,6 +179,7 @@ export function createWorker(deps: WorkerDeps) {
       await refreshBadgeOnly()
       return
     }
+    const readingClient = client
     let items: BrowserContextSubmissionSummaryV1[]
     try {
       items = (await client.list({ limit: STATUS_PAGE_SIZE })).items
@@ -186,6 +189,7 @@ export function createWorker(deps: WorkerDeps) {
       keepPolling = true
       return
     }
+    if (client !== readingClient) return
     lastCounts = countStatuses(items)
     keepPolling = shouldKeepPolling(items)
     await refreshBadgeOnly()
@@ -242,7 +246,9 @@ export function createWorker(deps: WorkerDeps) {
   }
 
   async function loadPairing(): Promise<void> {
-    const next = await deps.local.get<PairingRecord>(STORAGE_KEYS.pairing)
+    const load = ++pairingLoad
+    const next = localMode ? null : await deps.local.get<PairingRecord>(STORAGE_KEYS.pairing)
+    if (load !== pairingLoad || (localMode && next)) return
     const changed =
       (next?.deviceId ?? null) !== (pairing?.deviceId ?? null) ||
       (next?.baseUrl ?? null) !== (pairing?.baseUrl ?? null)
@@ -250,7 +256,13 @@ export function createWorker(deps: WorkerDeps) {
     client?.invalidate()
     socket.stop()
     pairing = next
-    client = next ? await deps.loadClient(next).catch(() => null) : null
+    client = null
+    const loaded = next ? await deps.loadClient(next).catch(() => null) : null
+    if (load !== pairingLoad) {
+      loaded?.invalidate()
+      return
+    }
+    client = loaded
     await deps.session.set(STATUS_SNAPSHOT_KEY, EMPTY_SNAPSHOT)
   }
 
@@ -303,6 +315,7 @@ export function createWorker(deps: WorkerDeps) {
     /** Every wake-up: rebuild the cache from storage, then reconcile. */
     async start(): Promise<void> {
       preferences = parsePreferences(await deps.local.get(STORAGE_KEYS.preferences))
+      localMode = (await deps.local.get(STORAGE_KEYS.localMode)) === true
       await loadPairing()
       await refreshStatus()
     },
@@ -314,7 +327,12 @@ export function createWorker(deps: WorkerDeps) {
 
     /** A local storage key changed: pairing or preferences. */
     async onLocalChange(key: string, value: unknown): Promise<void> {
-      if (key === STORAGE_KEYS.preferences) {
+      if (key === STORAGE_KEYS.localMode) {
+        localMode = value === true
+        if (localMode) socket.stop()
+        await loadPairing()
+        await refreshStatus()
+      } else if (key === STORAGE_KEYS.preferences) {
         const before = preferences
         preferences = parsePreferences(value)
         if (!preferences.agentMode) socket.cancelOperations("browser_agent_mode_disabled")

@@ -67,7 +67,7 @@ describe("the extension manifest", () => {
 
   it("never asks for all-urls access at install", async () => {
     // It would make "read and change all your data on all websites" the
-    // install prompt. It exists only as an optional grant agent mode asks for.
+    // install prompt. All-sites access and agent mode request it optionally.
     const { raw, optionalHosts } = await manifestBlock()
     expect(optionalHosts).toEqual(["http://127.0.0.1/*", "<all_urls>"])
     expect(raw.match(/<all_urls>/g)).toHaveLength(1)

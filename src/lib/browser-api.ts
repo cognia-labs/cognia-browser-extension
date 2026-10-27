@@ -126,6 +126,8 @@ export interface BrowserApi {
   /** Must run inside a user gesture. */
   requestPermissions(request: PermissionRequest): Promise<boolean>
   removePermissions(request: PermissionRequest): Promise<boolean>
+  /** Observe browser grants and revocations until the returned cleanup runs. */
+  onPermissionsChange(listener: () => void): () => void
 
   /** The tabs of the panel's window. Needs the optional `tabs` permission. */
   listTabs(): Promise<TabRef[]>
@@ -306,6 +308,8 @@ export interface BrowserApi {
  * unsent draft, in `chrome.storage.session` ({@link SESSION_KEYS}) — never here.
  */
 export const STORAGE_KEYS = {
+  /** Explicit local mode suspends Host connections without deleting pairing. */
+  localMode: "cognia.localMode.v1",
   /** `{ baseUrl, tenantId, deviceId, extensionOrigin, pairedAt }`. */
   pairing: "cognia.pairing.v1",
   /** The Host's last-sent appearance, so the first paint is not wrong. */

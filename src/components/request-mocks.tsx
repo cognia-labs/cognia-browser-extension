@@ -19,6 +19,7 @@ import {
 import { ChevronRightIcon, PauseIcon, PlayIcon, XIcon } from "lucide-react"
 
 import type { BrowserApi } from "@ext/src/lib/browser-api"
+import { ToolSection } from "@ext/src/components/panel-section"
 import {
   cleanMock,
   matchIsValid,
@@ -223,10 +224,12 @@ export function RequestMocks({
   }, [showLog, rules.length, onPoll])
 
   return (
-    <div className="space-y-2" data-testid="request-mocks">
-      <h3 className="text-xs font-medium">{api.message("mockTitle")}</h3>
-      <p className="text-[11px] text-muted-foreground">{api.message("mockHint")}</p>
-
+    <ToolSection
+      testId="request-mocks"
+      title={api.message("mockTitle")}
+      hint={api.message("mockHint")}
+      active={rules.length > 0 || busy}
+    >
       <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-2">
         <div className="flex flex-wrap gap-1" data-testid="mock-presets">
           {PRESETS.map((preset) => (
@@ -638,6 +641,6 @@ export function RequestMocks({
           </Collapsible>
         </>
       ) : null}
-    </div>
+    </ToolSection>
   )
 }

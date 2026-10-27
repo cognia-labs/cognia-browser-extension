@@ -11,11 +11,12 @@
  */
 import {
   clipToBytes,
+  type BrowserCaptureMode,
   type BrowserCompanionFeature,
   type BrowserContextLimits,
 } from "@cognia/companion-client"
 
-import type { CapturedPage } from "../panel-state"
+import { captureModeFor, type CapturedPage } from "../panel-state"
 import type { PickedElement, SourceLocation } from "./element-context"
 import { styleChanges } from "./style-edits"
 
@@ -188,22 +189,70 @@ export function inspectionMarkdown({
   return sections.join("\n\n")
 }
 
+type ExportPage = Pick<CapturedPage, "title" | "url"> & Partial<CapturedPage>
+
+/** The reviewed capture, before inspection is added to the wire selection. */
+function capturedMarkdown(page: ExportPage, mode: BrowserCaptureMode): string {
+  const content =
+    mode === "article"
+      ? page.article
+      : mode === "readable-page"
+        ? page.readableText
+        : mode === "selection"
+          ? page.selection
+          : null
+  const text = mode === "selection" ? (page.selection?.markdown ?? content?.text) : content?.text
+  const sections: string[] = []
+  if (text) {
+    sections.push(
+      `## Page content\n\n${text}${content?.truncated ? "\n\n[Capture truncated]" : ""}`
+    )
+  }
+  if (page.metadata && Object.keys(page.metadata).length > 0) {
+    sections.push(
+      `## Page metadata\n\n${Object.entries(page.metadata)
+        .map(([key, value]) => `- ${key}: ${value}`)
+        .join("\n")}`
+    )
+  }
+  if (page.link) sections.push(`## Link\n\n${page.link.text ?? ""}\n${page.link.url}`)
+  if (page.image) sections.push(`## Image\n\n${page.image.url}`)
+  if (page.transcript?.status === "available") {
+    sections.push(
+      `## Transcript\n\n${page.transcript.text}${page.transcript.truncated ? "\n\n[Transcript truncated]" : ""}`
+    )
+  }
+  return sections.join("\n\n")
+}
+
 /**
  * Everything the panel would send, as one prompt for another tool — a coding
  * agent in the editor, an issue tracker. Local to the person's clipboard; the
  * Host is not involved.
  */
 export function promptForClipboard(
-  page: { title: string; url: string },
+  page: ExportPage,
   instruction: string,
-  inspection: string
+  inspection: string,
+  mode: BrowserCaptureMode = "selection",
+  extraPages: readonly CapturedPage[] = []
 ): string {
+  const content = capturedMarkdown(page, mode)
   return [
     `# ${page.title || page.url}`,
     "",
     page.url,
     ...(instruction.trim() ? ["", instruction.trim()] : []),
+    ...(content ? ["", content] : []),
     ...(inspection ? ["", inspection] : []),
+    ...extraPages.flatMap((extra) => [
+      "",
+      `## Additional page: ${extra.title}`,
+      "",
+      extra.url,
+      "",
+      capturedMarkdown(extra, captureModeFor(extra, "page")),
+    ]),
   ].join("\n")
 }
 
@@ -214,14 +263,16 @@ export function promptForClipboard(
  * own, not inside the text.
  */
 export function exportMarkdown(
-  page: { title: string; url: string },
+  page: ExportPage,
   instruction: string,
   inspection: string,
   attachments: readonly string[],
-  now: number
+  now: number,
+  mode: BrowserCaptureMode = "selection",
+  extraPages: readonly CapturedPage[] = []
 ): string {
   const lines = [
-    promptForClipboard(page, instruction, inspection),
+    promptForClipboard(page, instruction, inspection, mode, extraPages),
     "",
     "---",
     "",

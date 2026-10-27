@@ -41,6 +41,16 @@ function setup(overrides: Partial<Parameters<typeof PageTools>[0]> = {}) {
 }
 
 describe("PageTools", () => {
+  it("preserves a nested form when the whole tools panel is folded", () => {
+    setup({ childrenActive: true, children: <input aria-label="Draft rule" /> })
+    const draft = screen.getByRole("textbox", { name: "Draft rule" })
+    fireEvent.change(draft, { target: { value: "/api/draft" } })
+    fireEvent.click(screen.getByTestId("page-tools-toggle"))
+    expect(draft).not.toBeVisible()
+    fireEvent.click(screen.getByTestId("page-tools-toggle"))
+    expect(screen.getByRole("textbox", { name: "Draft rule" })).toHaveValue("/api/draft")
+  })
+
   it("compares the page with the mock, and shows how far apart they are", () => {
     const onCompare = jest.fn()
     const onRemoveDiff = jest.fn()
@@ -78,7 +88,7 @@ describe("PageTools", () => {
 
   it("stays folded until opened, and opens by itself while something is under way", () => {
     setup()
-    expect(screen.queryByTestId("dev-record")).toBeNull()
+    expect(screen.getByTestId("dev-record")).not.toBeVisible()
     fireEvent.click(screen.getByTestId("page-tools-toggle"))
     expect(screen.getByTestId("dev-record")).toBeVisible()
   })

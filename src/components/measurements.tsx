@@ -91,8 +91,8 @@ export function Measurements({
           const gone = detached.includes(measurement.id)
           return (
             <li key={measurement.id} className="animate-enter motion-reduce:animate-none">
-              <Card data-testid={`measure-${index}`}>
-                <CardContent className="space-y-1.5 p-2">
+              <Card className="gap-0 p-0" data-testid={`measure-${index}`}>
+                <CardContent className="space-y-1.5 px-2 py-1.5">
                   <p className="break-all font-mono text-[11px]">
                     <span className="font-sans font-medium">{index + 1}. </span>
                     {measurement.from.label}

@@ -55,8 +55,8 @@ export function CapturePreview({
   )
 
   return (
-    <Card data-testid="capture-preview">
-      <CardContent className="space-y-2 px-3 py-3">
+    <Card className="gap-0 py-0" data-testid="capture-preview">
+      <CardContent className="space-y-2 px-2.5 py-2.5">
         <p className="line-clamp-2 text-sm font-medium">{page.title || page.url}</p>
         <p
           className="break-all font-mono text-[11px] text-muted-foreground"
@@ -91,9 +91,15 @@ export function CapturePreview({
               onCheckedChange={(next) => onToggleFullUrl(next === true)}
               data-testid="capture-full-url"
             />
-            <Label htmlFor="cognia-full-url" className="flex-col items-start gap-0.5 text-xs">
+            <Label
+              htmlFor="cognia-full-url"
+              className="min-w-0 flex-1 flex-col items-start gap-0.5 text-xs"
+            >
               <span>{api.message("captureFullUrl")}</span>
-              <span className="font-normal text-muted-foreground">
+              <span
+                className="truncate font-normal text-muted-foreground"
+                title={api.message("captureFullUrlHint")}
+              >
                 {api.message("captureFullUrlHint")}
               </span>
             </Label>

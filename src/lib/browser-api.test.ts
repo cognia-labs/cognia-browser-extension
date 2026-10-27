@@ -9,6 +9,7 @@ describe("STORAGE_KEYS", () => {
       "appearance",
       "appearanceOverride",
       "lastWorkspaceId",
+      "localMode",
       "pairing",
       "pendingSubmission",
       "preferences",
