@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import type { PanelDraft } from "@ext/src/lib/panel/drafts"
 
-import { expect, pairThroughPanel, requestCapture, tabIdOf, test } from "./fixtures"
+import { expect, openView, pairThroughPanel, requestCapture, tabIdOf, test } from "./fixtures"
 
 test("opens local mode on the shipped manifest without optional permissions", async ({
   panel,
@@ -80,6 +80,7 @@ test.describe("local tools without a Host", () => {
     await panel.getByRole("button", { name: "Use local mode", exact: true }).click()
     await requestCapture(serviceWorker, await tabIdOf(serviceWorker, url), "page")
     await expect(panel.getByLabel("Captured text (editable)")).toHaveValue(/Original local content/)
+    await openView(panel, "inspect")
     await panel.getByRole("button", { name: /^Pick element/ }).click()
     await expect(content.locator("#__cognia-element-picker")).toHaveCount(1)
     await content.locator("#save").click()
@@ -88,9 +89,10 @@ test.describe("local tools without a Host", () => {
     await panel.getByLabel("font-size", { exact: true }).fill("20px")
     await expect(content.locator("#save")).toHaveCSS("font-size", "20px")
 
-    await panel.getByRole("button", { name: /Page audit/ }).click()
+    // The audit opens with the Inspect tab.
     await panel.getByRole("button", { name: "Check SEO", exact: true }).click()
     await expect(panel.getByText("No meta description", { exact: true })).toBeVisible()
+    await openView(panel, "send")
     await panel.getByLabel("Title", { exact: true }).fill("Reviewed local page")
     await panel.getByLabel("Captured text (editable)").fill("Reviewed local content")
     await panel

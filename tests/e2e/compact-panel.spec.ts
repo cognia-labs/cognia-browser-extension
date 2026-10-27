@@ -57,6 +57,20 @@ for (const width of [320, 360]) {
       .getByTestId("capture-preview")
       .screenshot({ path: testInfo.outputPath(`preview-${width}.png`) })
 
+    // The panel itself never scrolls: the tabs stay at the top and the
+    // composer at the bottom, and only the open view scrolls between them.
+    const frame = await panel.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      innerHeight: window.innerHeight,
+    }))
+    expect(frame.scrollHeight).toBeLessThanOrEqual(frame.innerHeight)
+    const composer = (await panel.getByTestId("composer").boundingBox())!
+    expect(composer.y + composer.height).toBeLessThanOrEqual(900 + 1)
+    await expect(panel.getByTestId("copy-context")).toBeInViewport()
+    const tabs = (await panel.getByRole("tablist").boundingBox())!
+    expect(tabs.y).toBeLessThan(80)
+
+    await panel.getByRole("tab", { name: await message(panel, "tabInspect") }).click()
     await panel
       .getByRole("button", { name: await message(panel, "textEditStart"), exact: true })
       .click()
@@ -111,7 +125,7 @@ for (const width of [320, 360]) {
     expect(measurementSpacing.bottom).toBeLessThanOrEqual(7)
     await measurement.screenshot({ path: testInfo.outputPath(`measurement-${width}.png`) })
 
-    await panel.getByTestId("page-audit-toggle").click()
+    // The audit opens with its tab, every check folded.
     for (const key of [
       "accessTitle",
       "focusTitle",
@@ -148,7 +162,7 @@ for (const width of [320, 360]) {
     await access.click()
     await expect(panel.getByTestId("insight-include-audit")).not.toBeChecked()
 
-    await panel.getByTestId("page-tools-toggle").click()
+    await panel.getByRole("tab", { name: await message(panel, "tabTools") }).click()
     for (const key of ["devReportTitle", "overlayTitle", "viewportTitle"])
       await expect(
         panel.getByRole("button", { name: await message(panel, key), exact: true })

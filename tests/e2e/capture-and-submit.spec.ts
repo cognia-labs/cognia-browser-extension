@@ -16,7 +16,15 @@
  * specs prove the extractor and the pipeline; they do not prove the grant.
  */
 import { CAPTURE_FIXTURE_HTML, FORBIDDEN_MARKERS, VISIBLE_MARKERS } from "./capture-fixture"
-import { expect, pairThroughPanel, requestCapture, tabIdOf, test, type Page } from "./fixtures"
+import {
+  expect,
+  openView,
+  pairThroughPanel,
+  requestCapture,
+  tabIdOf,
+  test,
+  type Page,
+} from "./fixtures"
 import type { MockHost } from "./mock-host"
 
 test.use({ extensionProfile: "granted" })
@@ -460,6 +468,7 @@ test.describe("the Host's appearance", () => {
     await pairThroughPanel(panel, mockHost.issueEnrollment())
     await expect(panel.getByTestId("capture-empty")).toBeVisible()
 
+    await openView(panel, "settings")
     await panel.getByTestId("appearance-select").click()
     await panel.getByRole("option", { name: "Always dark" }).click()
 

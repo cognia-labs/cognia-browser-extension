@@ -339,6 +339,8 @@ export const SESSION_KEYS = {
   socketState: "cognia.socketState.v1",
   /** When the Host last said a submission moved; the panel refreshes on change. */
   statusHint: "cognia.statusHint.v1",
+  /** The side panel tab last shown (`panel-view.ts`), restored on reopen. */
+  panelView: "cognia.panelView.v1",
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

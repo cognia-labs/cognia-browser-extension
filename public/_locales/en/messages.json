@@ -2254,5 +2254,56 @@
   },
   "adjustActive": {
     "message": "Adjusting element"
+  },
+  "tabSend": {
+    "message": "Send"
+  },
+  "tabInspect": {
+    "message": "Inspect"
+  },
+  "tabTools": {
+    "message": "Tools"
+  },
+  "panelTabsLabel": {
+    "message": "Panel sections"
+  },
+  "tabActive": {
+    "message": "Something is running here"
+  },
+  "statusShow": {
+    "message": "Show"
+  },
+  "inspectionPicks": {
+    "message": "$COUNT$ picked",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectionMeasures": {
+    "message": "$COUNT$ measured",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectionEdits": {
+    "message": "$COUNT$ text edits",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "densityLabel": {
+    "message": "Density"
+  },
+  "densityCompact": {
+    "message": "Compact"
+  },
+  "densityComfortable": {
+    "message": "Comfortable"
   }
 }

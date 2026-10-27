@@ -115,7 +115,10 @@ export function PanelSection({
     />
   )
   return (
-    <Card className={cn("gap-2.5 px-3 py-2.5", className)} data-testid={testId}>
+    <Card
+      className={cn("gap-2.5 px-3 py-2.5 comfy:gap-3 comfy:py-3", className)}
+      data-testid={testId}
+    >
       <div className="flex items-center gap-2">
         {collapsible ? (
           <Title className="min-w-0 flex-1">
@@ -182,7 +185,7 @@ export function ToolTile({
       type="button"
       variant="outline"
       className={cn(
-        "h-10 min-w-0 justify-start gap-2 rounded-lg px-2 text-left text-xs font-medium shadow-none transition-[transform,box-shadow,background-color,border-color] duration-150 hover:-translate-y-px hover:shadow-sm active:translate-y-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none",
+        "h-10 min-w-0 justify-start gap-2 rounded-lg px-2 comfy:h-12 text-left text-xs font-medium shadow-none transition-[transform,box-shadow,background-color,border-color] duration-150 hover:-translate-y-px hover:shadow-sm active:translate-y-0 active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none",
         // Running reads as on, not as unavailable, though it cannot start twice.
         pressed && "border-info/50 bg-info/10 ring-1 ring-info/20 disabled:opacity-100"
       )}

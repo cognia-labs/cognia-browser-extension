@@ -62,6 +62,8 @@ export interface PageToolsProps {
   children?: ReactNode
   /** Whether those have something under way, which opens the section too. */
   childrenActive?: boolean
+  /** Open before anything runs, where the tools have a tab of their own. */
+  defaultOpen?: boolean
 }
 
 /** A `switch` with literal keys, so the locale coverage test can see them. */
@@ -116,12 +118,18 @@ export function PageTools({
   onRemoveDiff,
   children,
   childrenActive = false,
+  defaultOpen = false,
 }: PageToolsProps) {
   // Open by itself while something is under way, until the person says otherwise.
   const [open, setOpen] = useState<boolean | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const expanded =
-    open ?? (recordingSince !== null || report !== null || overlay !== null || childrenActive)
+    open ??
+    (defaultOpen ||
+      recordingSince !== null ||
+      report !== null ||
+      overlay !== null ||
+      childrenActive)
   return (
     <Collapsible open={expanded} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>

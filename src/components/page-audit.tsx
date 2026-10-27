@@ -58,6 +58,8 @@ export interface PageAuditProps {
   onShowFocusIssue?: (issue: FocusIssue) => void
   onPickFocusIssue?: (issue: FocusIssue) => void
   onEyedropper: () => void
+  /** Open before any result, where the audit has a tab of its own. */
+  defaultOpen?: boolean
 }
 
 /** A `switch` with literal keys, so the locale coverage test can see them. */
@@ -171,13 +173,14 @@ export function PageAudit({
   onShowFocusIssue = () => undefined,
   onPickFocusIssue = () => undefined,
   onEyedropper,
+  defaultOpen = false,
 }: PageAuditProps) {
   const [open, setOpen] = useState<boolean | null>(null)
   const [allIssues, setAllIssues] = useState(false)
   const [showVariables, setShowVariables] = useState(false)
   const { copy } = useCopy()
   const { audit, tokens, stack, perf, seo, layout, focus } = insights
-  const expanded = open ?? Object.values(insights).some((entry) => entry !== null)
+  const expanded = open ?? (defaultOpen || Object.values(insights).some((entry) => entry !== null))
   const issues = audit ? (allIssues ? audit.issues : audit.issues.slice(0, SHOWN_ISSUES)) : []
   const counts = audit
     ? (["critical", "serious", "moderate", "minor"] as const).map(

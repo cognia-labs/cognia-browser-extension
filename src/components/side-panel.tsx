@@ -47,7 +47,6 @@ import {
   ScanTextIcon,
   Settings2Icon,
   SendIcon,
-  SparklesIcon,
   SquareMousePointerIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -142,8 +141,9 @@ import {
   sniffMediaType,
   type PendingAttachment,
 } from "@ext/src/lib/panel/screenshots"
+import { usePanelView } from "@ext/src/lib/panel/panel-view"
 import { usePreferences } from "@ext/src/lib/panel/use-stored-value"
-import { isBlockedUrl } from "@ext/src/lib/preferences"
+import { PANEL_DENSITIES, isBlockedUrl, isPanelDensity } from "@ext/src/lib/preferences"
 import {
   createHostClient,
   pairWithHost,
@@ -181,6 +181,7 @@ import { AttachmentsBar, type AttachAction } from "./attachments-bar"
 import { CaptureEditor } from "./capture-editor"
 import { CapturePreview } from "./capture-preview"
 import { ExtensionSettings } from "./extension-settings"
+import { PanelShell } from "./panel-shell"
 import { SiteAccess } from "./site-access"
 import { ExtraPages } from "./extra-pages"
 import { ImageAnnotator } from "./image-annotator"
@@ -281,6 +282,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // A restored draft that had attachments the draft could not keep.
   const [droppedAttachments, setDroppedAttachments] = useState(0)
   const [preferences, updatePreferences] = usePreferences(api)
+  const [view, setView] = usePanelView(api)
   const [includeFullUrl, setIncludeFullUrl] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -686,10 +688,12 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setStalled(null)
       setSubmitError(null)
       setState({ kind: "local", captured: retainedCaptureRef.current })
+      // Back to Send, where local mode says how to reconnect.
+      setView("send")
     } catch {
       setState({ kind: "storage-error" })
     }
-  }, [api, updatePreferences, offerCaptureAccess])
+  }, [api, updatePreferences, offerCaptureAccess, setView])
 
   const connectHost = useCallback(async () => {
     offerCaptureAccess(null)
@@ -1026,6 +1030,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         ...(request.srcUrl ? { image: { url: request.srcUrl } } : {}),
       })
       if (!captured) return
+      // Show what the gesture asked for, whichever tab was open.
+      setView(request.mode === "inspect" ? "inspect" : "send")
       // The picker starts on the page the gesture named, under its grant.
       if (request.mode === "inspect") await startPickRef.current?.(request.tabId)
       if (request.quickAction)
@@ -1033,7 +1039,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       else if (request.instruction) setInstruction(request.instruction)
       if (request.srcUrl) await attachImageFromUrl(request.srcUrl)
     },
-    [api, now, runCapture, attachImageFromUrl]
+    [api, now, runCapture, attachImageFromUrl, setView]
   )
 
   // Pick up a recorded capture once the panel is connected — and keep picking
@@ -3330,32 +3336,146 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     )
   }
 
-  return (
-    <div className="flex min-h-screen flex-col gap-3 bg-muted/40 p-3">
-      <header className="flex items-center gap-2.5 px-0.5">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-          <SparklesIcon className="size-4" aria-hidden="true" />
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-sm leading-tight font-semibold">{api.message("panelBrand")}</span>
-          <span className="truncate text-[11px] text-muted-foreground">
-            {api.message("panelTagline")}
-          </span>
-        </span>
-        <span
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground"
-          title={state.kind === "ready" ? state.pairing.baseUrl : api.message("localModeHint")}
-          data-testid={state.kind === "ready" ? "panel-paired" : "panel-local"}
-        >
-          <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
-          {state.kind === "ready" ? api.message("panelPaired") : api.message("localModeTitle")}
-        </span>
-      </header>
+  const pageId = captured?.tabId ?? null
+  const pagePicks = pageId === null ? [] : picks.filter((pick) => pick.tabId === pageId)
+  const pageMeasurements =
+    pageId === null ? [] : measurements.filter((entry) => entry.tabId === pageId)
+  const pageTextChanges = textChanges && textChanges.tabId === pageId ? textChanges.changes : []
+  const inspectionCount = pagePicks.length + pageMeasurements.length + pageTextChanges.length
+  const inspectRunning = pickingTab !== null || textEditingTab !== null || toolbarTab !== null
+  const toolsRunning =
+    recording !== null ||
+    overlay !== null ||
+    designDiff !== null ||
+    (mocks?.rules.some((rule) => rule.enabled) ?? false)
+  const density = preferences.density
+  const outlineAction = "size-8 shrink-0"
+
+  const connection = (
+    <span
+      className="flex min-w-0 shrink items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground"
+      title={state.kind === "ready" ? state.pairing.baseUrl : api.message("localModeHint")}
+      data-testid={state.kind === "ready" ? "panel-paired" : "panel-local"}
+    >
+      <span className="size-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
+      <span className="truncate">
+        {state.kind === "ready" ? api.message("panelPaired") : api.message("localModeTitle")}
+      </span>
+    </span>
+  )
+
+  const status = (
+    <>
       {state.kind === "ready" ? <SiteQuestions api={api} /> : null}
+      {pickingTab !== null ? (
+        <ActivityStrip
+          actions={
+            <>
+              {pointing === "adjust" ? (
+                <Button size="sm" onClick={finishAdjust} data-testid="adjust-done">
+                  {api.message("adjustDone")}
+                </Button>
+              ) : null}
+              <Button variant="outline" size="sm" onClick={cancelPick} data-testid="pick-cancel">
+                {pointing === "measure"
+                  ? api.message("measureCancel")
+                  : pointing === "adjust"
+                    ? api.message("adjustCancel")
+                    : api.message("inspectPickCancel")}
+              </Button>
+            </>
+          }
+        >
+          <p
+            role="status"
+            className="min-w-0 flex-1 text-[11px] leading-snug"
+            data-testid="pick-waiting"
+          >
+            {pointing === "measure"
+              ? api.message("measureWaiting")
+              : pointing === "adjust"
+                ? api.message("adjustActive")
+                : api.message("inspectPicking")}
+          </p>
+        </ActivityStrip>
+      ) : null}
+      {textEditingTab !== null ? (
+        <ActivityStrip
+          testId="text-editing"
+          actions={
+            <>
+              <Button
+                size="sm"
+                onClick={() => void stopTextEditing(true)}
+                data-testid="text-edit-done"
+              >
+                {api.message("textEditDone")}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void stopTextEditing(false)}
+                data-testid="text-edit-undo"
+              >
+                {api.message("textEditUndo")}
+              </Button>
+            </>
+          }
+        >
+          <p role="status" className="min-w-0 flex-1 text-[11px] leading-snug">
+            {api.message("textEditing")}
+          </p>
+        </ActivityStrip>
+      ) : null}
+      {recording !== null && view !== "tools" ? (
+        <ActivityStrip
+          testId="status-recording"
+          actions={
+            <Button size="sm" variant="outline" onClick={() => setView("tools")}>
+              {api.message("statusShow")}
+            </Button>
+          }
+        >
+          <p role="status" className="min-w-0 flex-1 text-[11px] leading-snug">
+            {api.message("devRecordingSince", [
+              new Date(recording.since).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            ])}
+          </p>
+        </ActivityStrip>
+      ) : null}
+      {submitError && !captureAccess ? (
+        <Alert variant="destructive" data-testid="submit-error">
+          <AlertDescription>{submitError}</AlertDescription>
+        </Alert>
+      ) : null}
+    </>
+  )
+  const hasStatus =
+    state.kind === "ready" ||
+    pickingTab !== null ||
+    textEditingTab !== null ||
+    (recording !== null && view !== "tools") ||
+    Boolean(submitError && !captureAccess)
+
+  const sendPanel = (
+    <>
       {state.kind === "local" ? (
-        <div className="space-y-2 rounded-panel border border-border bg-card p-3">
-          <p className="text-xs text-muted-foreground">{api.message("localModeHint")}</p>
-          <Button variant="outline" size="sm" onClick={() => void connectHost()}>
+        <div className="flex min-w-0 items-center gap-2 rounded-panel border border-border bg-card px-3 py-2">
+          <p
+            className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground"
+            title={api.message("localModeHint")}
+          >
+            {api.message("localModeHint")}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 px-2 text-[11px]"
+            onClick={() => void connectHost()}
+          >
             {api.message("connectHost")}
           </Button>
         </div>
@@ -3428,53 +3548,33 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 )
               }
             />
-            <PickedElements
-              api={api}
-              elements={picks.filter((pick) => pick.tabId === captured.tabId)}
-              detached={detachedPicks}
-              busy={pickBusy}
-              canShoot={
-                hasFeature(captureCapability, "attachments") &&
-                attachments.length < limits.maxAttachments
-              }
-              preview={inspection}
-              onChange={updatePick}
-              onRemove={removePick}
-              onLocate={(elementId) => void locatePick(elementId, false)}
-              onShoot={(elementId) => void locatePick(elementId, true)}
-              onAdjust={(elementId) => void adjustPick(elementId)}
-              {...(canEyedrop ? { onEyedrop: eyedrop } : {})}
-            />
-            <PickComparisonCard
-              api={api}
-              picks={picks.filter((pick) => pick.tabId === captured.tabId)}
-              included={compareIncluded}
-              onInclude={setCompareIncluded}
-            />
-            <Measurements
-              api={api}
-              measurements={measurements.filter((entry) => entry.tabId === captured.tabId)}
-              detached={detachedMeasures}
-              busy={measureBusy}
-              onNote={(id, note) =>
-                setMeasurements((current) =>
-                  current.map((entry) => (entry.id === id ? { ...entry, note } : entry))
-                )
-              }
-              onShow={(id) => void showMeasurement(id)}
-              onRemove={removeMeasurement}
-            />
-            <TextChanges
-              api={api}
-              changes={textChanges?.tabId === captured.tabId ? textChanges.changes : []}
-              onRemove={(index) =>
-                setTextChanges((current) =>
-                  current
-                    ? { ...current, changes: current.changes.filter((_, at) => at !== index) }
-                    : current
-                )
-              }
-            />
+            {inspectionCount > 0 ? (
+              // What the Inspect tab adds to this capture, one click from it.
+              <button
+                type="button"
+                className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-muted"
+                onClick={() => setView("inspect")}
+                data-testid="inspection-summary"
+              >
+                <SquareMousePointerIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">
+                  {[
+                    pagePicks.length
+                      ? api.message("inspectionPicks", [String(pagePicks.length)])
+                      : null,
+                    pageMeasurements.length
+                      ? api.message("inspectionMeasures", [String(pageMeasurements.length)])
+                      : null,
+                    pageTextChanges.length
+                      ? api.message("inspectionEdits", [String(pageTextChanges.length)])
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                <span className="shrink-0 text-foreground">{api.message("statusShow")}</span>
+              </button>
+            ) : null}
             {hasFeature(captureCapability, "multi-page") && limits.maxPages > 1 ? (
               <ExtraPages
                 api={api}
@@ -3523,32 +3623,6 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                   onAnnotate={openAnnotator}
                 />
               )
-            ) : null}
-            {hostCapability ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="cognia-workspace" className="text-xs text-muted-foreground">
-                  {api.message("workspaceLabel")}
-                </Label>
-                <Select value={workspaceId ?? undefined} onValueChange={setWorkspaceId}>
-                  <SelectTrigger
-                    id="cognia-workspace"
-                    className="w-full"
-                    data-testid="workspace-select"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {hostCapability.workspaces.map((workspace) => (
-                      // The label is the item's only child on purpose: a nested
-                      // element leaves the option with no accessible name, and a
-                      // listbox of unnamed options is unusable by keyboard.
-                      <SelectItem key={workspace.id} value={workspace.id}>
-                        {workspace.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             ) : null}
             {/* Only when there is a choice. A Host that offers one target — an
                 older one, or a browser that has started nothing yet — would
@@ -3646,117 +3720,6 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 ))}
               </div>
             ) : null}
-            {needsInstruction ? (
-              <>
-                <PromptTools
-                  api={api}
-                  instruction={instruction}
-                  onUse={(text) => setInstruction(text)}
-                />
-                <Textarea
-                  ref={instructionRef}
-                  rows={3}
-                  className="max-h-48 overflow-y-auto"
-                  value={instruction}
-                  onChange={(event) => setInstruction(event.target.value)}
-                  onKeyDown={(event) => {
-                    // Ctrl/⌘+Enter sends, as in every chat box; Enter alone is a line.
-                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canSubmit) {
-                      event.preventDefault()
-                      void onSubmit()
-                    }
-                  }}
-                  placeholder={api.message("instructionPlaceholder")}
-                  aria-label={api.message("instructionPlaceholder")}
-                  data-testid="instruction"
-                />
-                {hostCapability ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    {api.message("submitShortcutHint")}
-                  </p>
-                ) : null}
-              </>
-            ) : null}
-            <div className="space-y-1.5">
-              {hostCapability ? (
-                <Button
-                  className="w-full"
-                  onClick={() => void onSubmit()}
-                  disabled={!canSubmit}
-                  data-testid="submit"
-                >
-                  <SendIcon className="size-4" aria-hidden="true" />
-                  {submitting ? api.message("submitting") : api.message("submit")}
-                </Button>
-              ) : null}
-              {/* The other ways out, side by side under the main one. */}
-              <div className="grid grid-cols-3 gap-1.5">
-                {/* For a coding agent in the editor, or an issue: the same
-                  reviewed context, on the person's own clipboard. */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal"
-                  onClick={() =>
-                    void copyText(
-                      promptForClipboard(
-                        captured,
-                        instruction,
-                        inspection,
-                        editorMode,
-                        extraPages.map((page) => withDisplayUrl(page, includeFullUrl))
-                      )
-                    )
-                  }
-                  data-testid="copy-context"
-                >
-                  {contextCopied ? (
-                    <CheckIcon className="size-3.5 text-success" aria-hidden="true" />
-                  ) : (
-                    <CopyIcon className="size-3.5" aria-hidden="true" />
-                  )}
-                  <span>
-                    {contextCopied ? api.message("copyContextDone") : api.message("copyContext")}
-                  </span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal"
-                  onClick={() =>
-                    downloadText(
-                      exportFileName(captured.title, now()),
-                      exportMarkdown(
-                        captured,
-                        instruction,
-                        inspection,
-                        attachments.map((attachment) => attachment.name),
-                        now(),
-                        editorMode,
-                        extraPages.map((page) => withDisplayUrl(page, includeFullUrl))
-                      )
-                    )
-                  }
-                  data-testid="export-context"
-                >
-                  <DownloadIcon className="size-3.5" aria-hidden="true" />
-                  <span>{api.message("exportContext")}</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    "h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal",
-                    "hover:border-destructive/40 hover:text-destructive"
-                  )}
-                  onClick={clearCapture}
-                  data-testid="clear-capture"
-                >
-                  <Trash2Icon className="size-3.5" aria-hidden="true" />
-                  <span>{api.message("clearCapture")}</span>
-                </Button>
-              </div>
-            </div>
             {stalled ? (
               // Not the error alert: nothing failed. The Host has the capture
               // and is waiting for its runtime, and the remedy is this button.
@@ -3834,12 +3797,211 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         ) : null}
       </PanelSection>
 
+      {hostCapability ? (
+        <PanelSection
+          icon={HistoryIcon}
+          title={api.message("recentTitle")}
+          subtitle={api.message("recentSubtitle")}
+          collapsible
+        >
+          <RecentList
+            api={api}
+            items={recent}
+            failureCodes={failureCodes}
+            answers={answers}
+            expanded={expanded}
+            onToggleAnswer={toggleAnswer}
+            onStop={(submissionId) => void stopTask(submissionId)}
+            stopping={stopping}
+            {...(hasFeature(hostCapability, "list-paging")
+              ? {
+                  query,
+                  onQueryChange: setQuery,
+                  hasMore: Boolean(nextPageToken),
+                  onLoadMore: () => void loadMore(),
+                  loadingMore,
+                }
+              : {})}
+            followUpIds={followUpIds}
+            onFollowUp={(item) => void onFollowUp(item)}
+          />
+        </PanelSection>
+      ) : null}
+    </>
+  )
+
+  const copyLabel = contextCopied ? api.message("copyContextDone") : api.message("copyContext")
+  const copyIcon = contextCopied ? (
+    <CheckIcon className="size-3.5 text-success" aria-hidden="true" />
+  ) : (
+    <CopyIcon className="size-3.5" aria-hidden="true" />
+  )
+  const copyContext = () =>
+    void copyText(
+      promptForClipboard(
+        captured ?? { title: "", url: "" },
+        instruction,
+        inspection,
+        editorMode,
+        extraPages.map((page) => withDisplayUrl(page, includeFullUrl))
+      )
+    )
+  const exportContext = () => {
+    if (!captured) return
+    downloadText(
+      exportFileName(captured.title, now()),
+      exportMarkdown(
+        captured,
+        instruction,
+        inspection,
+        attachments.map((attachment) => attachment.name),
+        now(),
+        editorMode,
+        extraPages.map((page) => withDisplayUrl(page, includeFullUrl))
+      )
+    )
+  }
+  const clearButton = (
+    <Button
+      variant="outline"
+      size="icon"
+      className={cn(outlineAction, "hover:border-destructive/40 hover:text-destructive")}
+      onClick={clearCapture}
+      aria-label={api.message("clearCapture")}
+      title={api.message("clearCapture")}
+      data-testid="clear-capture"
+    >
+      <Trash2Icon className="size-3.5" aria-hidden="true" />
+    </Button>
+  )
+
+  const composer = captured ? (
+    <div className="space-y-1.5">
+      {hostCapability ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <Label
+            htmlFor="cognia-workspace"
+            className="shrink-0 text-[11px] font-normal text-muted-foreground"
+          >
+            {api.message("workspaceLabel")}
+          </Label>
+          <Select value={workspaceId ?? undefined} onValueChange={setWorkspaceId}>
+            <SelectTrigger
+              id="cognia-workspace"
+              size="sm"
+              className="h-7 min-w-0 flex-1 text-xs"
+              data-testid="workspace-select"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {hostCapability.workspaces.map((workspace) => (
+                // The label is the item's only child on purpose: a nested
+                // element leaves the option with no accessible name, and a
+                // listbox of unnamed options is unusable by keyboard.
+                <SelectItem key={workspace.id} value={workspace.id}>
+                  {workspace.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+      {needsInstruction ? (
+        <>
+          <PromptTools api={api} instruction={instruction} onUse={(text) => setInstruction(text)} />
+          <Textarea
+            ref={instructionRef}
+            rows={density === "comfortable" ? 3 : 2}
+            className="max-h-40 min-h-0 overflow-y-auto"
+            value={instruction}
+            onChange={(event) => setInstruction(event.target.value)}
+            onKeyDown={(event) => {
+              // Ctrl/⌘+Enter sends, as in every chat box; Enter alone is a line.
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canSubmit) {
+                event.preventDefault()
+                void onSubmit()
+              }
+            }}
+            placeholder={api.message("instructionPlaceholder")}
+            aria-label={api.message("instructionPlaceholder")}
+            data-testid="instruction"
+          />
+        </>
+      ) : null}
+      {hostCapability ? (
+        // Sending is the way out; copying and exporting the same reviewed
+        // context, for an editor's agent or an issue, sit beside it.
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="icon"
+            className={outlineAction}
+            onClick={copyContext}
+            aria-label={copyLabel}
+            title={copyLabel}
+            data-testid="copy-context"
+          >
+            {copyIcon}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className={outlineAction}
+            onClick={exportContext}
+            aria-label={api.message("exportContext")}
+            title={api.message("exportContext")}
+            data-testid="export-context"
+          >
+            <DownloadIcon className="size-3.5" aria-hidden="true" />
+          </Button>
+          {clearButton}
+          <Button
+            className="h-8 min-w-0 flex-1"
+            onClick={() => void onSubmit()}
+            disabled={!canSubmit}
+            title={api.message("submitShortcutHint")}
+            data-testid="submit"
+          >
+            <SendIcon className="size-4" aria-hidden="true" />
+            <span className="truncate">
+              {submitting ? api.message("submitting") : api.message("submit")}
+            </span>
+          </Button>
+        </div>
+      ) : (
+        // Without a Host, copying and exporting are the ways out.
+        <div className="flex items-center gap-1.5">
+          <Button
+            className="h-8 min-w-0 flex-1 px-2 text-xs"
+            onClick={copyContext}
+            data-testid="copy-context"
+          >
+            {copyIcon}
+            <span className="truncate">{copyLabel}</span>
+          </Button>
+          <Button
+            variant="outline"
+            className="h-8 min-w-0 flex-1 px-2 text-xs"
+            onClick={exportContext}
+            data-testid="export-context"
+          >
+            <DownloadIcon className="size-3.5" aria-hidden="true" />
+            <span className="truncate">{api.message("exportContext")}</span>
+          </Button>
+          {clearButton}
+        </div>
+      )}
+    </div>
+  ) : null
+
+  const inspectPanel = (
+    <>
       <PanelSection
         icon={SquareMousePointerIcon}
         tone="success"
         title={api.message("inspectSectionTitle")}
         subtitle={api.message("inspectSectionSubtitle")}
-        collapsible
       >
         <div className="grid grid-cols-2 gap-2">
           <ToolTile
@@ -3897,128 +4059,63 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             />
           </div>
         ) : null}
-        {pickingTab !== null ? (
-          <ActivityStrip
-            actions={
-              <>
-                {pointing === "adjust" ? (
-                  <Button size="sm" onClick={finishAdjust} data-testid="adjust-done">
-                    {api.message("adjustDone")}
-                  </Button>
-                ) : null}
-                <Button variant="outline" size="sm" onClick={cancelPick} data-testid="pick-cancel">
-                  {pointing === "measure"
-                    ? api.message("measureCancel")
-                    : pointing === "adjust"
-                      ? api.message("adjustCancel")
-                      : api.message("inspectPickCancel")}
-                </Button>
-              </>
-            }
-          >
-            <p
-              role="status"
-              className="min-w-0 flex-1 text-[11px] leading-snug"
-              data-testid="pick-waiting"
-            >
-              {pointing === "measure"
-                ? api.message("measureWaiting")
-                : pointing === "adjust"
-                  ? api.message("adjustActive")
-                  : api.message("inspectPicking")}
-            </p>
-          </ActivityStrip>
-        ) : null}
-        {textEditingTab !== null ? (
-          <ActivityStrip
-            testId="text-editing"
-            actions={
-              <>
-                <Button
-                  size="sm"
-                  onClick={() => void stopTextEditing(true)}
-                  data-testid="text-edit-done"
-                >
-                  {api.message("textEditDone")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void stopTextEditing(false)}
-                  data-testid="text-edit-undo"
-                >
-                  {api.message("textEditUndo")}
-                </Button>
-              </>
-            }
-          >
-            <p role="status" className="min-w-0 flex-1 text-[11px] leading-snug">
-              {api.message("textEditing")}
-            </p>
-          </ActivityStrip>
+        {captured ? (
+          <>
+            <PickedElements
+              api={api}
+              elements={pagePicks}
+              detached={detachedPicks}
+              busy={pickBusy}
+              canShoot={
+                hasFeature(captureCapability, "attachments") &&
+                attachments.length < limits.maxAttachments
+              }
+              preview={inspection}
+              onChange={updatePick}
+              onRemove={removePick}
+              onLocate={(elementId) => void locatePick(elementId, false)}
+              onShoot={(elementId) => void locatePick(elementId, true)}
+              onAdjust={(elementId) => void adjustPick(elementId)}
+              {...(canEyedrop ? { onEyedrop: eyedrop } : {})}
+            />
+            <PickComparisonCard
+              api={api}
+              picks={pagePicks}
+              included={compareIncluded}
+              onInclude={setCompareIncluded}
+            />
+            <Measurements
+              api={api}
+              measurements={pageMeasurements}
+              detached={detachedMeasures}
+              busy={measureBusy}
+              onNote={(id, note) =>
+                setMeasurements((current) =>
+                  current.map((entry) => (entry.id === id ? { ...entry, note } : entry))
+                )
+              }
+              onShow={(id) => void showMeasurement(id)}
+              onRemove={removeMeasurement}
+            />
+            <TextChanges
+              api={api}
+              changes={pageTextChanges}
+              onRemove={(index) =>
+                setTextChanges((current) =>
+                  current
+                    ? { ...current, changes: current.changes.filter((_, at) => at !== index) }
+                    : current
+                )
+              }
+            />
+          </>
         ) : null}
       </PanelSection>
-      {submitError && !captureAccess ? (
-        <Alert variant="destructive" data-testid="submit-error">
-          <AlertDescription>{submitError}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      <CollapsibleCard>
-        <PageTools
-          api={api}
-          // Shown while it is about the page in the panel, or before any capture.
-          recordingSince={
-            recording && (!captured || recording.tabId === captured.tabId) ? recording.since : null
-          }
-          report={devReport && captured && devReport.tabId === captured.tabId ? devReport : null}
-          overlay={overlay}
-          busy={toolBusy}
-          onRecord={() => void onRecord()}
-          onAttachReport={() => void onAttachReport()}
-          onReportChange={(text) =>
-            setDevReport((current) => (current ? { ...current, text } : current))
-          }
-          onRemoveReport={() => setDevReport(null)}
-          onOverlayFile={(file) => void onOverlayFile(file)}
-          onOverlayChange={onOverlayChange}
-          onOverlayRemove={onOverlayRemove}
-          onViewport={(preset) => void onViewport(preset)}
-          designDiff={
-            designDiff && (!captured || designDiff.tabId === captured.tabId) ? designDiff : null
-          }
-          onCompare={() => void onCompareDesign()}
-          onRemoveDiff={removeDesignDiff}
-          childrenActive={mocks !== null || designDiff !== null}
-        >
-          <RequestMocks
-            api={api}
-            rules={mocks?.rules ?? []}
-            hits={mocks?.hits ?? null}
-            busy={toolBusy !== null}
-            onAdd={(rule) => void applyMocks([...(mocks?.rules ?? []), rule])}
-            onRemove={(id) =>
-              void applyMocks((mocks?.rules ?? []).filter((rule) => rule.id !== id))
-            }
-            onToggle={(id, enabled) =>
-              void applyMocks(
-                (mocks?.rules ?? []).map((rule) => (rule.id === id ? { ...rule, enabled } : rule))
-              )
-            }
-            onClear={() => void applyMocks([])}
-            onRefresh={() =>
-              void (mocks?.hits && !mocks.hits.installed ? applyMocks(mocks.rules) : refreshMocks())
-            }
-            onPoll={pollMocks}
-            canKeep={/^https?:/.test(mocks?.url ?? "")}
-            onKeep={(keep) => void keepMocks(keep)}
-          />
-        </PageTools>
-      </CollapsibleCard>
 
       <CollapsibleCard>
         <PageAudit
           api={api}
+          defaultOpen
           insights={captured ? insightsForTab(insights, captured.tabId) : NO_INSIGHTS}
           busy={auditBusy}
           issueBusy={issueBusy}
@@ -4039,59 +4136,86 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           onEyedropper={() => void onEyedropper()}
         />
       </CollapsibleCard>
+    </>
+  )
 
-      {hostCapability ? (
-        <PanelSection
-          icon={HistoryIcon}
-          title={api.message("recentTitle")}
-          subtitle={api.message("recentSubtitle")}
-        >
-          <RecentList
-            api={api}
-            items={recent}
-            failureCodes={failureCodes}
-            answers={answers}
-            expanded={expanded}
-            onToggleAnswer={toggleAnswer}
-            onStop={(submissionId) => void stopTask(submissionId)}
-            stopping={stopping}
-            {...(hasFeature(hostCapability, "list-paging")
-              ? {
-                  query,
-                  onQueryChange: setQuery,
-                  hasMore: Boolean(nextPageToken),
-                  onLoadMore: () => void loadMore(),
-                  loadingMore,
-                }
-              : {})}
-            followUpIds={followUpIds}
-            onFollowUp={(item) => void onFollowUp(item)}
-          />
-        </PanelSection>
-      ) : null}
-
-      <PanelSection
-        icon={Settings2Icon}
-        title={api.message("settingsTitle")}
-        subtitle={api.message("settingsSubtitle")}
+  const toolsPanel = (
+    <CollapsibleCard>
+      <PageTools
+        api={api}
+        defaultOpen
+        // Shown while it is about the page in the panel, or before any capture.
+        recordingSince={
+          recording && (!captured || recording.tabId === captured.tabId) ? recording.since : null
+        }
+        report={devReport && captured && devReport.tabId === captured.tabId ? devReport : null}
+        overlay={overlay}
+        busy={toolBusy}
+        onRecord={() => void onRecord()}
+        onAttachReport={() => void onAttachReport()}
+        onReportChange={(text) =>
+          setDevReport((current) => (current ? { ...current, text } : current))
+        }
+        onRemoveReport={() => setDevReport(null)}
+        onOverlayFile={(file) => void onOverlayFile(file)}
+        onOverlayChange={onOverlayChange}
+        onOverlayRemove={onOverlayRemove}
+        onViewport={(preset) => void onViewport(preset)}
+        designDiff={
+          designDiff && (!captured || designDiff.tabId === captured.tabId) ? designDiff : null
+        }
+        onCompare={() => void onCompareDesign()}
+        onRemoveDiff={removeDesignDiff}
+        childrenActive={mocks !== null || designDiff !== null}
       >
-        {state.kind === "ready" ? (
-          <p className="font-mono text-[11px] text-muted-foreground" data-testid="diagnostics">
-            {api.message("diagnostics")}: {state.pairing.baseUrl}
-          </p>
-        ) : null}
-        <ExtensionSettings api={api} />
-        {hostCapability && hasFeature(hostCapability, "browser-agent") ? (
-          <div className="space-y-1 border-t border-border pt-2">
-            <h3 className="text-xs font-semibold">{api.message("agentTitle")}</h3>
-            <AgentSettings
-              api={api}
-              driveAllowed={hostCapability.driveAllowed === true}
-              conversationTitles={conversationTitles}
-            />
-          </div>
-        ) : null}
-        <div className="space-y-1.5">
+        <RequestMocks
+          api={api}
+          rules={mocks?.rules ?? []}
+          hits={mocks?.hits ?? null}
+          busy={toolBusy !== null}
+          onAdd={(rule) => void applyMocks([...(mocks?.rules ?? []), rule])}
+          onRemove={(id) => void applyMocks((mocks?.rules ?? []).filter((rule) => rule.id !== id))}
+          onToggle={(id, enabled) =>
+            void applyMocks(
+              (mocks?.rules ?? []).map((rule) => (rule.id === id ? { ...rule, enabled } : rule))
+            )
+          }
+          onClear={() => void applyMocks([])}
+          onRefresh={() =>
+            void (mocks?.hits && !mocks.hits.installed ? applyMocks(mocks.rules) : refreshMocks())
+          }
+          onPoll={pollMocks}
+          canKeep={/^https?:/.test(mocks?.url ?? "")}
+          onKeep={(keep) => void keepMocks(keep)}
+        />
+      </PageTools>
+    </CollapsibleCard>
+  )
+
+  const settingsPanel = (
+    <PanelSection
+      icon={Settings2Icon}
+      title={api.message("settingsTitle")}
+      subtitle={api.message("settingsSubtitle")}
+    >
+      {state.kind === "ready" ? (
+        <p className="font-mono text-[11px] text-muted-foreground" data-testid="diagnostics">
+          {api.message("diagnostics")}: {state.pairing.baseUrl}
+        </p>
+      ) : null}
+      <ExtensionSettings api={api} />
+      {hostCapability && hasFeature(hostCapability, "browser-agent") ? (
+        <div className="space-y-1 border-t border-border pt-2">
+          <h3 className="text-xs font-semibold">{api.message("agentTitle")}</h3>
+          <AgentSettings
+            api={api}
+            driveAllowed={hostCapability.driveAllowed === true}
+            conversationTitles={conversationTitles}
+          />
+        </div>
+      ) : null}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor="cognia-appearance" className="text-xs text-muted-foreground">
             {api.message("appearanceLabel")}
           </Label>
@@ -4120,82 +4244,128 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             </SelectContent>
           </Select>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {hostCapability ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setLocalCleared(false)
-                setConfirming("disconnect")
-              }}
-              aria-expanded={confirming === "disconnect"}
-              data-testid="disconnect"
-            >
-              {api.message("disconnect")}
-            </Button>
-          ) : null}
-          {hostCapability ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={submitting}
-              onClick={() => void enterLocalMode()}
-            >
-              {api.message("useLocalMode")}
-            </Button>
-          ) : null}
+        <div className="min-w-0 space-y-1.5">
+          <Label htmlFor="cognia-density" className="text-xs text-muted-foreground">
+            {api.message("densityLabel")}
+          </Label>
+          <Select
+            value={density}
+            onValueChange={(next) => {
+              if (isPanelDensity(next)) void updatePreferences({ density: next })
+            }}
+          >
+            <SelectTrigger id="cognia-density" className="w-full" data-testid="density-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PANEL_DENSITIES.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option === "compact"
+                    ? api.message("densityCompact")
+                    : api.message("densityComfortable")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {hostCapability ? (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setLocalCleared(false)
-              setConfirming("clear-local")
+              setConfirming("disconnect")
             }}
-            aria-expanded={confirming === "clear-local"}
-            data-testid="clear-local"
+            aria-expanded={confirming === "disconnect"}
+            data-testid="disconnect"
           >
-            {api.message("clearLocal")}
+            {api.message("disconnect")}
           </Button>
-        </div>
-        {/* Inline rather than a modal: the panel is 320px wide, and a dialog
-            over it would cover the very settings the question is about. Both
-            actions are one click from irreversible — disconnecting destroys the
-            only copy of this browser's key — so each asks once, in words that
-            say what will and will not go. */}
-        {confirming === "disconnect" ? (
-          <ConfirmAction
-            testId="confirm-disconnect"
-            title={api.message("disconnectConfirmTitle")}
-            detail={api.message("disconnectConfirmDetail")}
-            confirmLabel={api.message("disconnect")}
-            cancelLabel={api.message("cancel")}
-            onConfirm={() => void disconnect()}
-            onCancel={() => setConfirming(null)}
-          />
         ) : null}
-        {confirming === "clear-local" ? (
-          <ConfirmAction
-            testId="confirm-clear-local"
-            title={api.message("clearLocalConfirmTitle")}
-            detail={api.message("clearLocalConfirmDetail")}
-            confirmLabel={api.message("clearLocal")}
-            cancelLabel={api.message("cancel")}
-            onConfirm={() => void clearLocal()}
-            onCancel={() => setConfirming(null)}
-          />
-        ) : null}
-        {localCleared ? (
-          <p
-            role="status"
-            className="text-[11px] text-muted-foreground"
-            data-testid="clear-local-done"
+        {hostCapability ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={submitting}
+            onClick={() => void enterLocalMode()}
           >
-            {api.message("clearLocalDone")}
-          </p>
+            {api.message("useLocalMode")}
+          </Button>
         ) : null}
-      </PanelSection>
-    </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setLocalCleared(false)
+            setConfirming("clear-local")
+          }}
+          aria-expanded={confirming === "clear-local"}
+          data-testid="clear-local"
+        >
+          {api.message("clearLocal")}
+        </Button>
+      </div>
+      {/* Inline rather than a modal: the panel is 320px wide, and a dialog
+          over it would cover the very settings the question is about. Both
+          actions are one click from irreversible — disconnecting destroys the
+          only copy of this browser's key — so each asks once, in words that
+          say what will and will not go. */}
+      {confirming === "disconnect" ? (
+        <ConfirmAction
+          testId="confirm-disconnect"
+          title={api.message("disconnectConfirmTitle")}
+          detail={api.message("disconnectConfirmDetail")}
+          confirmLabel={api.message("disconnect")}
+          cancelLabel={api.message("cancel")}
+          onConfirm={() => void disconnect()}
+          onCancel={() => setConfirming(null)}
+        />
+      ) : null}
+      {confirming === "clear-local" ? (
+        <ConfirmAction
+          testId="confirm-clear-local"
+          title={api.message("clearLocalConfirmTitle")}
+          detail={api.message("clearLocalConfirmDetail")}
+          confirmLabel={api.message("clearLocal")}
+          cancelLabel={api.message("cancel")}
+          onConfirm={() => void clearLocal()}
+          onCancel={() => setConfirming(null)}
+        />
+      ) : null}
+      {localCleared ? (
+        <p
+          role="status"
+          className="text-[11px] text-muted-foreground"
+          data-testid="clear-local-done"
+        >
+          {api.message("clearLocalDone")}
+        </p>
+      ) : null}
+    </PanelSection>
+  )
+
+  return (
+    <PanelShell
+      api={api}
+      view={view}
+      onView={setView}
+      density={density}
+      connection={connection}
+      status={hasStatus ? status : null}
+      activity={{
+        inspect: inspectionCount > 0 ? inspectionCount : inspectRunning,
+        tools: toolsRunning,
+      }}
+      composer={composer}
+      panels={{
+        send: sendPanel,
+        inspect: inspectPanel,
+        tools: toolsPanel,
+        settings: settingsPanel,
+      }}
+    />
   )
 }
 

@@ -27,6 +27,8 @@
  */
 
 @custom-variant dark (&:is(.dark *));
+/* The person's comfortable density; compact is what the classes say alone. */
+@custom-variant comfy (&:where([data-panel-density="comfortable"], [data-panel-density="comfortable"] *));
 
 :root {
   --radius: 0.625rem;

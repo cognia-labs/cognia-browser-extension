@@ -33,11 +33,18 @@ describe("preferences", () => {
       allSitesAccess: false,
       blockedHosts: ["bank.example.com", "corp.test"],
       toolbarSnap: false,
+      density: "compact",
     })
     expect(parsePreferences({ toolbarSnap: true }).toolbarSnap).toBe(true)
     expect(parsePreferences({ toolbarSnap: "yes" }).toolbarSnap).toBe(false)
     expect(parsePreferences({ allSitesAccess: true }).allSitesAccess).toBe(true)
     expect(parsePreferences({ allSitesAccess: "yes" }).allSitesAccess).toBe(false)
+  })
+
+  it("keeps a known density and falls back to compact", () => {
+    expect(parsePreferences({ density: "comfortable" }).density).toBe("comfortable")
+    expect(parsePreferences({ density: "spacious" }).density).toBe("compact")
+    expect(parsePreferences({}).density).toBe("compact")
   })
 
   it("normalizes typed hosts", () => {

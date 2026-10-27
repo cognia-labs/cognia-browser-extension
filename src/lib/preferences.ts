@@ -18,6 +18,15 @@ export interface ExtensionPreferences {
   blockedHosts: string[]
   /** The floating toolbar snaps to the window's edges when let go (opt-in). */
   toolbarSnap: boolean
+  /** How tightly the side panel is laid out. Compact suits a narrow panel. */
+  density: PanelDensity
+}
+
+export const PANEL_DENSITIES = ["compact", "comfortable"] as const
+export type PanelDensity = (typeof PANEL_DENSITIES)[number]
+
+export function isPanelDensity(value: unknown): value is PanelDensity {
+  return typeof value === "string" && (PANEL_DENSITIES as readonly string[]).includes(value)
 }
 
 export const DEFAULT_PREFERENCES: ExtensionPreferences = Object.freeze({
@@ -26,6 +35,7 @@ export const DEFAULT_PREFERENCES: ExtensionPreferences = Object.freeze({
   allSitesAccess: false,
   blockedHosts: [],
   toolbarSnap: false,
+  density: "compact",
 }) as ExtensionPreferences
 
 export const MAX_BLOCKED_HOSTS = 200
@@ -64,6 +74,7 @@ export function parsePreferences(value: unknown): ExtensionPreferences {
     allSitesAccess: record.allSitesAccess === true,
     blockedHosts,
     toolbarSnap: record.toolbarSnap === true,
+    density: isPanelDensity(record.density) ? record.density : DEFAULT_PREFERENCES.density,
   }
 }
 

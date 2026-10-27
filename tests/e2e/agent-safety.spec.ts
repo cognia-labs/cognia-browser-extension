@@ -6,7 +6,7 @@
  */
 import contract from "@cognia/companion-client/browser-agent-protocol.json" with { type: "json" }
 
-import { expect, pairThroughPanel, tabIdOf, test } from "./fixtures"
+import { expect, openView, pairThroughPanel, tabIdOf, test } from "./fixtures"
 
 test.use({ extensionProfile: "granted" })
 
@@ -190,9 +190,10 @@ for (const event of ["revoke", "disconnect", "disable", "local mode"] as const) 
     ).toBeVisible()
     if (event === "revoke") mockHost.sendAgentFrame({ t: "drive", allowed: false })
     else if (event === "disconnect") mockHost.disconnectAgent()
-    else if (event === "local mode")
+    else if (event === "local mode") {
+      await openView(panel, "settings")
       await panel.getByRole("button", { name: "Use local mode", exact: true }).click()
-    else
+    } else
       await serviceWorker.evaluate(() =>
         chrome.storage.local.set({
           "cognia.preferences.v1": { agentMode: false },

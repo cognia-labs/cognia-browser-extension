@@ -2252,5 +2252,56 @@
   },
   "adjustActive": {
     "message": "正在调整元素"
+  },
+  "tabSend": {
+    "message": "发送"
+  },
+  "tabInspect": {
+    "message": "检查"
+  },
+  "tabTools": {
+    "message": "工具"
+  },
+  "panelTabsLabel": {
+    "message": "面板分区"
+  },
+  "tabActive": {
+    "message": "这里有正在进行的操作"
+  },
+  "statusShow": {
+    "message": "查看"
+  },
+  "inspectionPicks": {
+    "message": "$COUNT$ 个元素",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectionMeasures": {
+    "message": "$COUNT$ 个测量",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectionEdits": {
+    "message": "$COUNT$ 处文本修改",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "densityLabel": {
+    "message": "密度"
+  },
+  "densityCompact": {
+    "message": "紧凑"
+  },
+  "densityComfortable": {
+    "message": "舒适"
   }
 }

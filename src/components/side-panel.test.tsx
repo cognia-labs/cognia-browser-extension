@@ -14,7 +14,7 @@ import type { BrowserApi } from "@ext/src/lib/browser-api"
 import type { DevSnapshot } from "@ext/src/lib/inspect/dev-report"
 import type { ElementDescription } from "@ext/src/lib/inspect/element-context"
 import { measureBoxes, type MeasureResult } from "@ext/src/lib/inspect/measure"
-import { STORAGE_KEYS } from "@ext/src/lib/browser-api"
+import { SESSION_KEYS, STORAGE_KEYS } from "@ext/src/lib/browser-api"
 import { CAPTURE_REQUEST_KEY } from "@ext/src/lib/capture/capture-request"
 import { SidePanel } from "./side-panel"
 
@@ -874,8 +874,10 @@ describe("SidePanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "useLocalMode" }))
     fireEvent.click(await screen.findByRole("button", { name: "captureNow" }))
     await screen.findByLabelText("captureEditText")
+    fireEvent.click(screen.getByRole("tab", { name: "tabInspect" }))
     fireEvent.click(screen.getByRole("button", { name: /inspectPick/ }))
     await screen.findByRole("button", { name: /1\. button\.primary/ })
+    fireEvent.click(screen.getByRole("tab", { name: /tabSend/ }))
     fireEvent.change(screen.getByLabelText("captureEditText"), {
       target: { value: "Reviewed local text" },
     })
@@ -925,6 +927,7 @@ describe("SidePanel", () => {
       target: { value: "Keep this while switching modes" },
     })
     const calls = state.capabilityCalls.length
+    fireEvent.click(screen.getByTestId("settings-toggle"))
     fireEvent.click(screen.getByRole("button", { name: "useLocalMode" }))
     await screen.findByRole("button", { name: "connectHost" })
     expect(state.store.get(STORAGE_KEYS.pairing)).toEqual(PAIRING)
@@ -1854,6 +1857,7 @@ describe("SidePanel capture and settings", () => {
       store: new Map([[STORAGE_KEYS.pairing, PAIRING]]) as never,
     })
     renderPanel(state)
+    fireEvent.click(await screen.findByTestId("settings-toggle"))
     fireEvent.click(await screen.findByTestId("disconnect"))
     const confirm = await screen.findByTestId("confirm-disconnect")
     expect(confirm).toHaveAttribute("role", "alertdialog")
@@ -1863,6 +1867,29 @@ describe("SidePanel capture and settings", () => {
     expect(screen.queryByTestId("confirm-disconnect")).toBeNull()
     expect(state.store.get(STORAGE_KEYS.pairing)).toBeDefined()
     expect(screen.getByTestId("diagnostics")).toBeInTheDocument()
+  })
+
+  it("keeps the chosen density and the last tab for the next opening", async () => {
+    const state = harness({
+      store: new Map([[STORAGE_KEYS.pairing, PAIRING]]) as never,
+    })
+    const first = renderPanel(state)
+    fireEvent.click(await screen.findByTestId("settings-toggle"))
+    fireEvent.click(screen.getByRole("combobox", { name: "densityLabel" }))
+    fireEvent.click(await screen.findByRole("option", { name: "densityComfortable" }))
+    await waitFor(() =>
+      expect(state.store.get(STORAGE_KEYS.preferences)).toMatchObject({ density: "comfortable" })
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId("panel-shell")).toHaveAttribute("data-panel-density", "comfortable")
+    )
+    fireEvent.click(screen.getByRole("tab", { name: "tabTools" }))
+    expect(state.sessionStore.get(SESSION_KEYS.panelView)).toBe("tools")
+    first.unmount()
+    renderPanel(state)
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "tabTools" })).toHaveAttribute("aria-selected", "true")
+    )
   })
 
   it("clears the local conveniences without unpairing", async () => {
@@ -3339,8 +3366,24 @@ describe("SidePanel — ADR-0228", () => {
         text.startsWith("# A page\n\nhttps://example.com/tab-1\n\ninspectDefaultInstruction")
       ).toBe(true)
       expect(text).toContain("## Picked elements (1)")
-      expect(await screen.findByText("copyContextDone")).toBeInTheDocument()
+      expect(await screen.findByRole("button", { name: "copyContextDone" })).toBeInTheDocument()
       expect(state.submitted).toHaveLength(0)
+    })
+
+    it("summarizes what Inspect adds to the capture and opens it from Send", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("pick-element"))
+      await screen.findByTestId("pick-0")
+      expect(screen.getByTestId("tab-inspect-count")).toHaveTextContent("1")
+      const summary = screen.getByTestId("inspection-summary")
+      expect(summary).toHaveTextContent("inspectionPicks")
+      fireEvent.click(summary)
+      expect(screen.getByRole("tab", { name: /tabInspect/ })).toHaveAttribute(
+        "aria-selected",
+        "true"
+      )
+      expect(screen.getByTestId("pick-0")).toBeVisible()
     })
 
     it("samples colours from the screen where the browser has an eyedropper", async () => {

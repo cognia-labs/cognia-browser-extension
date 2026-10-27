@@ -78,6 +78,7 @@ describe("usePreferences", () => {
       allSitesAccess: false,
       blockedHosts: ["a.test"],
       toolbarSnap: false,
+      density: "compact",
     })
     expect(result.current[0].agentMode).toBe(true)
   })
