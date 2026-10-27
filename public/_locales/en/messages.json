@@ -334,17 +334,33 @@
   "captureAllowSite": {
     "message": "Allow access to this site"
   },
-  "siteAccessTitle": { "message": "Website access" },
-  "siteAccessAllowAll": { "message": "Allow all websites" },
-  "siteAccessAllAllowed": { "message": "All websites allowed" },
-  "siteAccessHint": { "message": "Allow once for capture and editing across sites." },
-  "siteAccessGrantedHint": { "message": "Capture and edit without site-by-site prompts." },
-  "siteAccessWorking": { "message": "Authorizing…" },
-  "siteAccessManage": { "message": "Manage" },
+  "siteAccessTitle": {
+    "message": "Website access"
+  },
+  "siteAccessAllowAll": {
+    "message": "Allow all websites"
+  },
+  "siteAccessAllAllowed": {
+    "message": "All websites allowed"
+  },
+  "siteAccessHint": {
+    "message": "Allow once for capture and editing across sites."
+  },
+  "siteAccessGrantedHint": {
+    "message": "Capture and edit without site-by-site prompts."
+  },
+  "siteAccessWorking": {
+    "message": "Authorizing…"
+  },
+  "siteAccessManage": {
+    "message": "Manage"
+  },
   "siteAccessDenied": {
     "message": "Access was not granted. You can still allow individual sites."
   },
-  "siteAccessFailed": { "message": "Could not update website access. Try again." },
+  "siteAccessFailed": {
+    "message": "Could not update website access. Try again."
+  },
   "captureIdentifyHint": {
     "message": "Chrome has not revealed this tab's address. First allow reading tab titles and URLs to identify the site, then approve access to the displayed site."
   },
@@ -2305,5 +2321,276 @@
   },
   "densityComfortable": {
     "message": "Comfortable"
+  },
+  "rulesTitle": {
+    "message": "Request rules"
+  },
+  "rulesHint": {
+    "message": "Saved rules for a site's requests: answer, fail, slow down, redirect or change their headers. They apply on every visit until you turn them off."
+  },
+  "rulesAction": {
+    "message": "Action"
+  },
+  "rulesActionFail": {
+    "message": "Fail"
+  },
+  "rulesActionRespond": {
+    "message": "Answer"
+  },
+  "rulesActionModify": {
+    "message": "Change the answer"
+  },
+  "rulesActionDelay": {
+    "message": "Hold back"
+  },
+  "rulesActionRedirect": {
+    "message": "Send elsewhere"
+  },
+  "rulesActionRequestHeaders": {
+    "message": "Request headers"
+  },
+  "rulesActionResponseHeaders": {
+    "message": "Response headers"
+  },
+  "rulesMatch": {
+    "message": "Requests whose URL contains"
+  },
+  "rulesMethod": {
+    "message": "Method"
+  },
+  "rulesMethodAny": {
+    "message": "Any"
+  },
+  "rulesStatus": {
+    "message": "Status"
+  },
+  "rulesStatusKeep": {
+    "message": "Status (empty keeps the server's)"
+  },
+  "rulesBody": {
+    "message": "Body"
+  },
+  "rulesBodyMerge": {
+    "message": "JSON merged into the answer, or text replacing it"
+  },
+  "rulesHeaders": {
+    "message": "Response headers, one Name: value a line"
+  },
+  "rulesSetHeaders": {
+    "message": "Headers to set, one Name: value a line"
+  },
+  "rulesRemoveHeaders": {
+    "message": "Headers to remove, comma-separated"
+  },
+  "rulesRedirectTo": {
+    "message": "Send to (full URL)"
+  },
+  "rulesDelay": {
+    "message": "Delay (ms)"
+  },
+  "rulesTimes": {
+    "message": "Only the first (0 = all)"
+  },
+  "rulesCoverageAll": {
+    "message": "The browser applies this to every request of the site's pages."
+  },
+  "rulesCoveragePage": {
+    "message": "This runs in the page: it catches the page's own fetch and XHR requests."
+  },
+  "rulesAdd": {
+    "message": "Add rule"
+  },
+  "rulesFull": {
+    "message": "This group is full"
+  },
+  "rulesAfter": {
+    "message": "after $MS$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesFirstTimes": {
+    "message": "first $COUNT$ only",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesBadgeAll": {
+    "message": "All requests"
+  },
+  "rulesBadgePage": {
+    "message": "Page requests"
+  },
+  "rulesMoveUp": {
+    "message": "Move up"
+  },
+  "rulesMoveDown": {
+    "message": "Move down"
+  },
+  "rulesPause": {
+    "message": "Pause rule"
+  },
+  "rulesResume": {
+    "message": "Resume rule"
+  },
+  "rulesRemove": {
+    "message": "Remove rule"
+  },
+  "rulesDoFail": {
+    "message": "Fails with a network error"
+  },
+  "rulesDoRespond": {
+    "message": "Answers $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoModify": {
+    "message": "Changes the server's answer"
+  },
+  "rulesDoModifyStatus": {
+    "message": "Changes the server's answer to $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoDelay": {
+    "message": "Held back $MS$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoRedirect": {
+    "message": "Sent to $URL$",
+    "placeholders": {
+      "url": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoSetHeaders": {
+    "message": "sets $NAMES$",
+    "placeholders": {
+      "names": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoRemoveHeaders": {
+    "message": "removes $NAMES$",
+    "placeholders": {
+      "names": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesEverySite": {
+    "message": "every site"
+  },
+  "rulesCount": {
+    "message": "$COUNT$ rules",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesGroupEnabled": {
+    "message": "Group on"
+  },
+  "rulesRemoveGroup": {
+    "message": "Remove group"
+  },
+  "rulesEmpty": {
+    "message": "No saved rules yet. Add a group for a site, then its rules."
+  },
+  "rulesGroupName": {
+    "message": "Group name"
+  },
+  "rulesGroupSites": {
+    "message": "Sites, comma-separated"
+  },
+  "rulesAddGroup": {
+    "message": "Add group"
+  },
+  "rulesThisSite": {
+    "message": "This site"
+  },
+  "rulesExport": {
+    "message": "Export"
+  },
+  "rulesImport": {
+    "message": "Import"
+  },
+  "rulesReloadHint": {
+    "message": "A change applies to pages loaded after it. Reload a page that is already open."
+  },
+  "rulesNeedsDnr": {
+    "message": "Some rules need the browser to rewrite requests. Allow it to apply them."
+  },
+  "rulesGrantDnr": {
+    "message": "Allow rewriting requests"
+  },
+  "rulesNeedsSites": {
+    "message": "Some sites in your rules are not ones the extension may reach. Their rules wait until you allow them."
+  },
+  "rulesGrantSites": {
+    "message": "Allow these sites"
+  },
+  "rulesUnsupported": {
+    "message": "$COUNT$ rules use an expression the browser cannot run. Simplify them.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesAgentTitle": {
+    "message": "Set by the agent"
+  },
+  "rulesAgentHint": {
+    "message": "Only in the agent's own tabs, and removed when its conversation lets them go. Remove any you do not want."
+  },
+  "rulesErrorRule": {
+    "message": "That rule is incomplete: check its URL, action and that action's fields."
+  },
+  "rulesErrorSites": {
+    "message": "Name at least one site, like example.com, or * for every site."
+  },
+  "rulesErrorGone": {
+    "message": "That changed meanwhile. The list now shows what is saved."
+  },
+  "rulesErrorGroups": {
+    "message": "There are as many groups as can be kept. Remove one first."
+  },
+  "rulesErrorRules": {
+    "message": "This group is full. Remove a rule first."
+  },
+  "rulesErrorWorker": {
+    "message": "The extension did not answer. Try again."
+  },
+  "rulesImportInvalid": {
+    "message": "That file is not an export of Cognia request rules."
+  },
+  "rulesImportEmpty": {
+    "message": "That file has no rules this browser can apply."
+  },
+  "rulesImportSkipped": {
+    "message": "Imported. $COUNT$ rules were left out because this browser cannot apply them.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   }
 }

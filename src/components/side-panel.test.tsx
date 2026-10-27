@@ -550,6 +550,7 @@ function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: neve
       forgetSiteDecision: async (origin) => {
         state.forgottenDecisions.push(origin)
       },
+      networkRuleCommand: async () => ({ ok: true }),
       pickElement: async (tabId) => {
         state.inspectCalls.push(`pick:${tabId}`)
         return state.pickQueue.shift() ?? state.pickResult

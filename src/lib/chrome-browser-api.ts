@@ -26,6 +26,7 @@ import { mainFrameworkSource } from "./inspect/framework-source"
 import type { PickResult } from "./inspect/element-picker"
 import { mainPagePerformance } from "./inspect/page-performance"
 import { mainRequestMocks } from "./inspect/request-mocks"
+import type { RuleCommandResult } from "./network-rules/store"
 import { mainTechStack } from "./inspect/tech-stack"
 import { renderAnnotated } from "./panel/annotations"
 
@@ -337,6 +338,14 @@ export function createChromeBrowserApi(): BrowserApi {
       }
     },
 
+    async networkRuleCommand(command) {
+      const result = (await chrome.runtime.sendMessage({
+        kind: "cognia-network-rules",
+        command,
+      })) as RuleCommandResult | false | undefined
+      if (!result) throw new Error("browser_network_rules_failed")
+      return result
+    },
     answerSiteQuestion: (questionId, answer) =>
       mutatePermission({
         kind: "cognia-agent-permission",

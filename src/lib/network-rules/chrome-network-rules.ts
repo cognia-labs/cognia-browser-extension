@@ -6,8 +6,8 @@ import { mainRequestMocks, type RequestMock } from "../inspect/request-mocks"
 import type { NetworkRulesBrowser } from "./controller"
 import type { DnrRule } from "./dnr"
 import { RULES_SLOT } from "./page"
+import { DNR_PERMISSION } from "./rules"
 
-export const DNR_PERMISSION = "declarativeNetRequestWithHostAccess"
 export const RULE_GATE_FILE = "/network-rules-gate.js"
 export const RULE_LOADER_FILE = "/network-rules-loader.js"
 const GATE_ID = "cognia-network-rules-gate"
@@ -35,6 +35,9 @@ export function createChromeNetworkRulesBrowser(): NetworkRulesBrowser {
       return result.isSupported
     },
     hasOrigin: (pattern) => chrome.permissions.contains({ origins: [pattern] }),
+    async tabUrl(tabId) {
+      return (await chrome.tabs.get(tabId).catch(() => null))?.url ?? null
+    },
     async setPageScripts(matches) {
       const registered = await chrome.scripting.getRegisteredContentScripts({
         ids: [GATE_ID, LOADER_ID],

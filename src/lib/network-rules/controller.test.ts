@@ -43,7 +43,7 @@ describe("the person's rules", () => {
   it("apply after each change and report what they still need", async () => {
     const { rules, fake, session } = harness({
       dnr: false,
-      origins: (pattern) => pattern === "*://shop.test/*",
+      origins: (pattern) => pattern === "http://shop.test/*",
     })
     await rules.command({ op: "add-group", name: "Shop", sites: ["shop.test"] })
     await rules.command({
@@ -56,10 +56,10 @@ describe("the person's rules", () => {
       groupId: "id-1",
       rule: { match: "/api/", action: "request_headers", headers: { "X-Env": "staging" } },
     })
-    expect(fake.state.scripts).toEqual(["*://shop.test/*"])
+    expect(fake.state.scripts).toEqual(["http://shop.test/*"])
     expect(await session.get(RULE_SYNC_STATUS_KEY)).toEqual({
       needsDnr: true,
-      missingOrigins: ["*://*.shop.test/*"],
+      missingOrigins: [],
       unsupported: [],
     })
     expect(await rules.pageRulesFor(9, "https://www.shop.test/cart")).toEqual([
@@ -80,6 +80,7 @@ describe("a conversation's rules", () => {
       rule: { match: "/api/orders", action: "respond", status: 200 },
     })
     hold("s1", [5])
+    fake.state.urls.set(5, "https://shop.test/cart")
     const set = await rules.setAgentRules(
       "s1",
       [
@@ -101,7 +102,9 @@ describe("a conversation's rules", () => {
         condition: expect.objectContaining({ tabIds: [5] }),
       }),
     ])
-    expect(fake.state.scripts).toContain("*://*/*")
+    expect(fake.state.scripts).toEqual(
+      expect.arrayContaining(["http://*/*", "https://*/*", "https://shop.test/*"])
+    )
     expect(fake.state.pages.get(5)!.map((rule) => rule.status)).toEqual([503, 200])
     expect(await rules.pageRulesFor(6, "https://shop.test/")).toEqual([
       expect.objectContaining({ status: 200 }),

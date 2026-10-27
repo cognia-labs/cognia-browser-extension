@@ -947,11 +947,12 @@ export function createAgentExecutor(deps: ExecutorDeps) {
         return { deleted: true, id: String(item.id) }
       }
       case "set_network_rules": {
-        const result = await requireRules().setAgentRules(
-          sessionId,
-          args.rules,
-          await sessionTabs(current)
-        )
+        const rules = requireRules()
+        // Rigging a page's requests changes what the person's page shows: the
+        // same decision as acting on it. With no page yet, the rules wait for
+        // one, and every navigation asks on its own.
+        if (current.activeTabId !== null) await pageFor(current, operation, deadline)
+        const result = await rules.setAgentRules(sessionId, args.rules, await sessionTabs(current))
         if (!result.ok)
           throw new AgentOperationError(
             "malformed",

@@ -149,16 +149,27 @@ export function compileRule(
   return rules
 }
 
-/** Match patterns for the pages of a group's sites, for registering page scripts. */
+/**
+ * Match patterns for the pages of a group's sites, one per scheme: Chrome
+ * answers "granted" for a `*://` pattern only when both schemes are, and the
+ * gate should run wherever either one is.
+ */
 export function sitePatterns(sites: readonly string[]): string[] {
-  if (sites.includes("*")) return ["*://*/*"]
+  if (sites.includes("*")) return ["http://*/*", "https://*/*"]
   return [
     ...new Set(
-      sites.flatMap((site) =>
-        /^[\d.]+$/.test(site) || site === "localhost"
-          ? [`*://${site}/*`]
-          : [`*://${site}/*`, `*://*.${site}/*`]
-      )
+      sites.flatMap((site) => {
+        const hosts = /^[\d.]+$/.test(site) || site === "localhost" ? [site] : [site, `*.${site}`]
+        return hosts.flatMap((host) => [`http://${host}/*`, `https://${host}/*`])
+      })
     ),
   ]
+}
+
+/** What to ask for, in one prompt, to reach a site and its subdomains. */
+export function requestPatterns(site: string): string[] {
+  if (site === "*") return ["<all_urls>"]
+  return /^[\d.]+$/.test(site) || site === "localhost"
+    ? [`*://${site}/*`]
+    : [`*://${site}/*`, `*://*.${site}/*`]
 }

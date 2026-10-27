@@ -14,6 +14,7 @@ export function fakeNetworkRulesBrowser(
     scripts: [] as string[],
     pages: new Map<number, RequestMock[]>(),
     hits: new Map<number, MockHits>(),
+    urls: new Map<number, string>(),
   }
   const browser: NetworkRulesBrowser = {
     hasDnr: async () => options.dnr ?? true,
@@ -23,6 +24,7 @@ export function fakeNetworkRulesBrowser(
     },
     isRegexSupported: async () => true,
     hasOrigin: async (pattern) => options.origins?.(pattern) ?? true,
+    tabUrl: async (tabId) => state.urls.get(tabId) ?? null,
     setPageScripts: async (matches) => {
       state.scripts = matches
     },

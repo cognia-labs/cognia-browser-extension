@@ -92,6 +92,8 @@ export interface RuleLibrary {
 /** The rules one agent conversation set, in the tabs it holds. */
 export type AgentRuleSets = Record<string, NetworkRule[]>
 
+/** The optional grant that lets the browser rewrite requests, on granted sites only. */
+export const DNR_PERMISSION = "declarativeNetRequestWithHostAccess"
 export const NETWORK_RULES_KEY = "cognia.networkRules.v1"
 export const AGENT_NETWORK_RULES_KEY = "cognia.agent.networkRules.v1"
 export const EXPORT_FORMAT = "cognia-network-rules"

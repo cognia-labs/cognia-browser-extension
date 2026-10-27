@@ -39,7 +39,15 @@ test.describe("the shipped extension", () => {
     expect(manifest.host_permissions ?? []).toEqual([])
     expect(manifest.content_scripts ?? []).toEqual([])
     expect(manifest.optional_host_permissions).toEqual(["http://127.0.0.1/*", "<all_urls>"])
-    expect(manifest.optional_permissions).toEqual(["tabs", "notifications", "downloads", "cookies"])
+    // Chrome keeps the request-rewriting grant optional, rather than dropping
+    // it the way it drops plain `declarativeNetRequest` (ADR-0242).
+    expect(manifest.optional_permissions).toEqual([
+      "tabs",
+      "notifications",
+      "downloads",
+      "cookies",
+      "declarativeNetRequestWithHostAccess",
+    ])
     expect(manifest.incognito).toBe("not_allowed")
     expect(manifest.permissions).not.toContain("<all_urls>")
   })
@@ -53,6 +61,7 @@ test.describe("the shipped extension", () => {
     // And nothing wider was quietly acquired at install either.
     const all = await serviceWorker.evaluate(() => chrome.permissions.getAll())
     expect(all.origins ?? []).toEqual([])
+    expect(all.permissions ?? []).not.toContain("declarativeNetRequestWithHostAccess")
   })
 
   test("opens on the pairing screen and warns about the prompt first", async ({ panel }) => {

@@ -334,15 +334,33 @@
   "captureAllowSite": {
     "message": "允许访问此站点"
   },
-  "siteAccessTitle": { "message": "网页访问权限" },
-  "siteAccessAllowAll": { "message": "允许所有网站" },
-  "siteAccessAllAllowed": { "message": "已允许所有网站" },
-  "siteAccessHint": { "message": "一次授权，跨站采集与编辑无需逐站确认。" },
-  "siteAccessGrantedHint": { "message": "采集与编辑无需逐站授权。" },
-  "siteAccessWorking": { "message": "正在授权…" },
-  "siteAccessManage": { "message": "管理权限" },
-  "siteAccessDenied": { "message": "尚未授权，仍可单独允许访问所需站点。" },
-  "siteAccessFailed": { "message": "无法更新网页访问权限，请重试。" },
+  "siteAccessTitle": {
+    "message": "网页访问权限"
+  },
+  "siteAccessAllowAll": {
+    "message": "允许所有网站"
+  },
+  "siteAccessAllAllowed": {
+    "message": "已允许所有网站"
+  },
+  "siteAccessHint": {
+    "message": "一次授权，跨站采集与编辑无需逐站确认。"
+  },
+  "siteAccessGrantedHint": {
+    "message": "采集与编辑无需逐站授权。"
+  },
+  "siteAccessWorking": {
+    "message": "正在授权…"
+  },
+  "siteAccessManage": {
+    "message": "管理权限"
+  },
+  "siteAccessDenied": {
+    "message": "尚未授权，仍可单独允许访问所需站点。"
+  },
+  "siteAccessFailed": {
+    "message": "无法更新网页访问权限，请重试。"
+  },
   "captureIdentifyHint": {
     "message": "浏览器尚未提供当前标签页地址。请先允许读取标签页的标题和网址以识别站点，再单独授权下方显示的站点。"
   },
@@ -2303,5 +2321,276 @@
   },
   "densityComfortable": {
     "message": "舒适"
+  },
+  "rulesTitle": {
+    "message": "请求规则"
+  },
+  "rulesHint": {
+    "message": "为网站的请求保存规则：直接返回结果、让请求失败、放慢、重定向或修改请求头。在你关闭之前，每次访问都会生效。"
+  },
+  "rulesAction": {
+    "message": "动作"
+  },
+  "rulesActionFail": {
+    "message": "失败"
+  },
+  "rulesActionRespond": {
+    "message": "直接返回"
+  },
+  "rulesActionModify": {
+    "message": "修改响应"
+  },
+  "rulesActionDelay": {
+    "message": "延迟"
+  },
+  "rulesActionRedirect": {
+    "message": "重定向"
+  },
+  "rulesActionRequestHeaders": {
+    "message": "请求头"
+  },
+  "rulesActionResponseHeaders": {
+    "message": "响应头"
+  },
+  "rulesMatch": {
+    "message": "URL 包含"
+  },
+  "rulesMethod": {
+    "message": "方法"
+  },
+  "rulesMethodAny": {
+    "message": "任意"
+  },
+  "rulesStatus": {
+    "message": "状态码"
+  },
+  "rulesStatusKeep": {
+    "message": "状态码（留空则保留服务器的）"
+  },
+  "rulesBody": {
+    "message": "响应体"
+  },
+  "rulesBodyMerge": {
+    "message": "合并进响应的 JSON，或替换响应的文本"
+  },
+  "rulesHeaders": {
+    "message": "响应头，每行一个 名称: 值"
+  },
+  "rulesSetHeaders": {
+    "message": "要设置的请求头，每行一个 名称: 值"
+  },
+  "rulesRemoveHeaders": {
+    "message": "要移除的请求头，用逗号分隔"
+  },
+  "rulesRedirectTo": {
+    "message": "重定向到（完整 URL）"
+  },
+  "rulesDelay": {
+    "message": "延迟（毫秒）"
+  },
+  "rulesTimes": {
+    "message": "只作用于前几次（0 表示全部）"
+  },
+  "rulesCoverageAll": {
+    "message": "浏览器会把这条规则应用到该网站页面发出的所有请求。"
+  },
+  "rulesCoveragePage": {
+    "message": "这条规则在页面中运行：只拦截页面自己发起的 fetch 和 XHR 请求。"
+  },
+  "rulesAdd": {
+    "message": "添加规则"
+  },
+  "rulesFull": {
+    "message": "这个分组已满"
+  },
+  "rulesAfter": {
+    "message": "延迟 $MS$ 毫秒后",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesFirstTimes": {
+    "message": "只作用于前 $COUNT$ 次",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesBadgeAll": {
+    "message": "所有请求"
+  },
+  "rulesBadgePage": {
+    "message": "页面请求"
+  },
+  "rulesMoveUp": {
+    "message": "上移"
+  },
+  "rulesMoveDown": {
+    "message": "下移"
+  },
+  "rulesPause": {
+    "message": "暂停规则"
+  },
+  "rulesResume": {
+    "message": "恢复规则"
+  },
+  "rulesRemove": {
+    "message": "删除规则"
+  },
+  "rulesDoFail": {
+    "message": "以网络错误失败"
+  },
+  "rulesDoRespond": {
+    "message": "返回 $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoModify": {
+    "message": "修改服务器的响应"
+  },
+  "rulesDoModifyStatus": {
+    "message": "把服务器的响应改为 $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoDelay": {
+    "message": "延迟 $MS$ 毫秒",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoRedirect": {
+    "message": "重定向到 $URL$",
+    "placeholders": {
+      "url": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoSetHeaders": {
+    "message": "设置 $NAMES$",
+    "placeholders": {
+      "names": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoRemoveHeaders": {
+    "message": "移除 $NAMES$",
+    "placeholders": {
+      "names": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesEverySite": {
+    "message": "所有网站"
+  },
+  "rulesCount": {
+    "message": "$COUNT$ 条规则",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesGroupEnabled": {
+    "message": "启用分组"
+  },
+  "rulesRemoveGroup": {
+    "message": "删除分组"
+  },
+  "rulesEmpty": {
+    "message": "还没有保存的规则。先为一个网站添加分组，再添加规则。"
+  },
+  "rulesGroupName": {
+    "message": "分组名称"
+  },
+  "rulesGroupSites": {
+    "message": "网站，用逗号分隔"
+  },
+  "rulesAddGroup": {
+    "message": "添加分组"
+  },
+  "rulesThisSite": {
+    "message": "当前网站"
+  },
+  "rulesExport": {
+    "message": "导出"
+  },
+  "rulesImport": {
+    "message": "导入"
+  },
+  "rulesReloadHint": {
+    "message": "修改只对之后加载的页面生效。已经打开的页面需要重新加载。"
+  },
+  "rulesNeedsDnr": {
+    "message": "部分规则需要浏览器改写请求。允许后才能生效。"
+  },
+  "rulesGrantDnr": {
+    "message": "允许改写请求"
+  },
+  "rulesNeedsSites": {
+    "message": "规则中的部分网站，扩展还无权访问。允许之前，这些规则不会生效。"
+  },
+  "rulesGrantSites": {
+    "message": "允许这些网站"
+  },
+  "rulesUnsupported": {
+    "message": "有 $COUNT$ 条规则使用了浏览器无法运行的表达式，请简化。",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesAgentTitle": {
+    "message": "由 Agent 设置"
+  },
+  "rulesAgentHint": {
+    "message": "只作用于 Agent 自己的标签页，会话释放这些标签页时自动删除。不需要的可以直接删除。"
+  },
+  "rulesErrorRule": {
+    "message": "这条规则不完整：请检查 URL、动作以及该动作需要的字段。"
+  },
+  "rulesErrorSites": {
+    "message": "请至少填写一个网站，例如 example.com，或用 * 表示所有网站。"
+  },
+  "rulesErrorGone": {
+    "message": "内容已在别处更改，列表现在显示的是已保存的内容。"
+  },
+  "rulesErrorGroups": {
+    "message": "分组数量已达上限，请先删除一个。"
+  },
+  "rulesErrorRules": {
+    "message": "这个分组已满，请先删除一条规则。"
+  },
+  "rulesErrorWorker": {
+    "message": "扩展没有响应，请重试。"
+  },
+  "rulesImportInvalid": {
+    "message": "这个文件不是 Cognia 请求规则的导出文件。"
+  },
+  "rulesImportEmpty": {
+    "message": "这个文件里没有当前浏览器能应用的规则。"
+  },
+  "rulesImportSkipped": {
+    "message": "已导入。有 $COUNT$ 条规则当前浏览器无法应用，已跳过。",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   }
 }

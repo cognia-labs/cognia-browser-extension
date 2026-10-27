@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/MaxQian888/cognia-next",
-  "sourceRevision": "719549a0871982cc52b26d6a536568f543793b84",
+  "sourceRevision": "b9309e07e875af92e5e2b46e3a5e52ae89119430",
   "files": {
     "Cargo.lock": "f58fc22bff6461b2d9abe777e1457ef8ab57238b868d6430315a62f4e5fd51d6",
     "Cargo.toml": "743527a31a186f6f3c973e361d075f640c45fe2ef2177d08e00be6c95c291930",

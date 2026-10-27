@@ -2,7 +2,9 @@ import type { DnrRule } from "./dnr"
 import { cleanRule, parseLibrary, type AgentRuleSets } from "./rules"
 import { syncNetworkRules, type RuleSyncBrowser } from "./sync"
 
-function browser(options: { dnr?: boolean; origins?: string[]; existing?: number[] } = {}) {
+function browser(
+  options: { dnr?: boolean; origins?: (pattern: string) => boolean; existing?: number[] } = {}
+) {
   const calls = {
     updates: [] as { remove: number[]; add: DnrRule[] }[],
     scripts: [] as string[][],
@@ -14,8 +16,7 @@ function browser(options: { dnr?: boolean; origins?: string[]; existing?: number
       calls.updates.push({ remove, add })
     },
     isRegexSupported: async (regex) => !regex.includes("(?<"),
-    hasOrigin: async (pattern) =>
-      (options.origins ?? ["*://*/*"]).includes(pattern) || (options.origins ?? []).length === 0,
+    hasOrigin: async (pattern) => options.origins?.(pattern) ?? true,
     setPageScripts: async (matches) => {
       calls.scripts.push(matches)
     },
@@ -58,19 +59,33 @@ describe("syncNetworkRules", () => {
     expect(update!.add.map((rule) => rule.id)).toEqual([1, 2, 3])
     expect(update!.add[0]).toMatchObject({ priority: 4_000, condition: { tabIds: [5] } })
     expect(update!.add[1]!.priority).toBeLessThan(update!.add[0]!.priority)
-    expect(calls.scripts).toEqual([["*://shop.test/*", "*://*.shop.test/*"]])
+    expect(calls.scripts).toEqual([
+      [
+        "http://shop.test/*",
+        "https://shop.test/*",
+        "http://*.shop.test/*",
+        "https://*.shop.test/*",
+      ],
+    ])
   })
 
   it("says what is missing instead of failing", async () => {
-    const { api, calls } = browser({ dnr: false, origins: ["*://shop.test/*"] })
+    const { api, calls } = browser({ dnr: false, origins: () => false })
     const status = await syncNetworkRules(api, library, {}, {})
     expect(status).toEqual({
       needsDnr: true,
-      missingOrigins: ["*://*.shop.test/*"],
+      missingOrigins: ["*://shop.test/*", "*://*.shop.test/*"],
       unsupported: [],
     })
     expect(calls.updates).toEqual([])
-    expect(calls.scripts).toEqual([["*://shop.test/*"]])
+    expect(calls.scripts).toEqual([[]])
+  })
+
+  it("counts a site reachable on either scheme, and runs the gate only where granted", async () => {
+    const { api, calls } = browser({ origins: (pattern) => pattern === "http://shop.test/*" })
+    const status = await syncNetworkRules(api, library, {}, {})
+    expect(status.missingOrigins).toEqual([])
+    expect(calls.scripts).toEqual([["http://shop.test/*"]])
   })
 
   it("skips a rule whose expression the browser cannot run", async () => {

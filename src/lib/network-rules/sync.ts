@@ -7,7 +7,7 @@
  * outlive the library it was made for, so the worker runs this on every
  * wake-up and after every change, from storage, replacing what is there.
  */
-import { compileRule, sitePatterns, type DnrRule } from "./dnr"
+import { compileRule, requestPatterns, sitePatterns, type DnrRule } from "./dnr"
 import { coverageOf, type AgentRuleSets, type RuleLibrary } from "./rules"
 
 /** The browser calls one sync needs; `chrome-network-rules.ts` binds them. */
@@ -43,7 +43,9 @@ export async function syncNetworkRules(
   browser: RuleSyncBrowser,
   library: RuleLibrary,
   agentSets: AgentRuleSets,
-  tabsBySession: Readonly<Record<string, readonly number[]>>
+  tabsBySession: Readonly<Record<string, readonly number[]>>,
+  /** The hosts the conversations' tabs are on, for when not every site is granted. */
+  agentHosts: readonly string[] = []
 ): Promise<RuleSyncStatus> {
   let id = 0
   const nextId = () => ++id
@@ -71,7 +73,9 @@ export async function syncNetworkRules(
       // A conversation's tabs can open any site, and the gate is registered
       // by site: while it has page rules, every page asks the worker, and
       // only its tabs get an answer.
-      if (rule.enabled && coverageOf(rule) === "page-requests") pageSites.add("*://*/*")
+      if (rule.enabled && coverageOf(rule) === "page-requests")
+        for (const pattern of [...sitePatterns(["*"]), ...sitePatterns(agentHosts)])
+          pageSites.add(pattern)
       await add(
         compileRule(rule, { tabIds }, nextId, Math.max(1, AGENT_PRIORITY - order++)),
         rule.id
@@ -84,7 +88,7 @@ export async function syncNetworkRules(
   for (const group of library.groups) {
     if (!group.enabled) continue
     if (group.rules.some((rule) => rule.enabled))
-      for (const pattern of sitePatterns(group.sites)) accessSites.add(pattern)
+      for (const site of group.sites) accessSites.add(site)
     for (const rule of group.rules) {
       if (!rule.enabled) continue
       if (coverageOf(rule) === "page-requests") {
@@ -106,12 +110,16 @@ export async function syncNetworkRules(
       await browser.updateSessionRules(existing, compiled)
   }
 
-  const granted: string[] = []
-  for (const pattern of new Set([...accessSites, ...pageSites])) {
-    const allowed = await browser.hasOrigin(pattern)
-    if (!allowed && accessSites.has(pattern)) status.missingOrigins.push(pattern)
-    if (allowed && pageSites.has(pattern)) granted.push(pattern)
+  // A site with either scheme allowed is reachable: loopback is granted as
+  // http only, and asking it for https as well would be noise.
+  for (const site of accessSites) {
+    const patterns = sitePatterns([site])
+    let reachable = false
+    for (const pattern of patterns) if (await browser.hasOrigin(pattern)) reachable = true
+    if (!reachable) status.missingOrigins.push(...requestPatterns(site))
   }
+  const granted: string[] = []
+  for (const pattern of pageSites) if (await browser.hasOrigin(pattern)) granted.push(pattern)
   await browser.setPageScripts(granted)
   return status
 }

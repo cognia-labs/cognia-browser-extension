@@ -32,6 +32,7 @@ import type { TextChange } from "./inspect/text-edits"
 import type { AdjustResult } from "./inspect/element-picker"
 import type { MockHits, RequestMock } from "./inspect/request-mocks"
 import type { AdjustSpacing } from "./inspect/adjust"
+import type { RuleCommand, RuleCommandResult } from "./network-rules/store"
 import type { DetectedStack } from "./inspect/tech-stack"
 
 export interface TabRef {
@@ -44,7 +45,9 @@ export interface TabRef {
 
 /** Optional permissions the panel asks for inside the person's click. */
 export interface PermissionRequest {
-  permissions?: ("tabs" | "notifications" | "downloads" | "cookies")[]
+  permissions?: (
+    "tabs" | "notifications" | "downloads" | "cookies" | "declarativeNetRequestWithHostAccess"
+  )[]
   origins?: string[]
 }
 
@@ -152,6 +155,8 @@ export interface BrowserApi {
 
   /** Hold a port to the worker while the panel is open. */
   connectPanel(): PanelPort
+  /** Change the saved request rules; the worker is their only writer (ADR-0242). */
+  networkRuleCommand(command: RuleCommand): Promise<RuleCommandResult>
   /** Answer a pending site question (ADR-0228 §7), inside the person's click. */
   answerSiteQuestion(questionId: string, answer: SiteAnswer): Promise<void>
   /** Forget a standing site decision. */

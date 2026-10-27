@@ -248,6 +248,11 @@ export default defineBackground(() => {
     return false
   })
 
+  // A grant the rules were waiting for, or one taken back in chrome://extensions.
+  const resyncRules = () => void ready.then(() => worker.networkRules.sync()).catch(() => undefined)
+  chrome.permissions.onAdded.addListener(resyncRules)
+  chrome.permissions.onRemoved.addListener(resyncRules)
+
   chrome.alarms.onAlarm.addListener((alarm) => {
     void ready.then(() => worker.onAlarm(alarm.name))
   })

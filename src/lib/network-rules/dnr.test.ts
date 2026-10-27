@@ -1,4 +1,4 @@
-import { compileRule, sitePatterns, urlCondition } from "./dnr"
+import { compileRule, requestPatterns, sitePatterns, urlCondition } from "./dnr"
 import { cleanRule } from "./rules"
 
 function ids() {
@@ -109,12 +109,21 @@ describe("compileRule", () => {
 })
 
 describe("sitePatterns", () => {
-  it("covers each site and its subdomains, or every site", () => {
+  it("covers each site and its subdomains on both schemes, or every site", () => {
     expect(sitePatterns(["shop.test", "localhost"])).toEqual([
-      "*://shop.test/*",
-      "*://*.shop.test/*",
-      "*://localhost/*",
+      "http://shop.test/*",
+      "https://shop.test/*",
+      "http://*.shop.test/*",
+      "https://*.shop.test/*",
+      "http://localhost/*",
+      "https://localhost/*",
     ])
-    expect(sitePatterns(["shop.test", "*"])).toEqual(["*://*/*"])
+    expect(sitePatterns(["shop.test", "*"])).toEqual(["http://*/*", "https://*/*"])
+  })
+
+  it("asks for a site in as few patterns as one prompt needs", () => {
+    expect(requestPatterns("shop.test")).toEqual(["*://shop.test/*", "*://*.shop.test/*"])
+    expect(requestPatterns("127.0.0.1")).toEqual(["*://127.0.0.1/*"])
+    expect(requestPatterns("*")).toEqual(["<all_urls>"])
   })
 })

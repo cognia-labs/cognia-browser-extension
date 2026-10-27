@@ -715,6 +715,15 @@ describe("createAgentExecutor", () => {
     expect(h.rulesBrowser.session).toEqual([])
   })
 
+  it("sets no request rules on a page whose site the person blocked", async () => {
+    const h = harness({ decisions: { "https://blocked.test": "never" }, networkRules: true })
+    h.addTab({ id: 5, url: "https://blocked.test/" })
+    await expect(
+      h.run("set_network_rules", { startTabId: 5, rules: [{ match: "/a", action: "fail" }] })
+    ).rejects.toMatchObject({ code: "browser_site_blocked" })
+    expect(await h.networkRules.agentSets()).toEqual({})
+  })
+
   it("answers request rules as unknown in a build without them", async () => {
     const h = harness({ decisions: ALWAYS })
     await h.run("navigate", { url: "https://example.com/" })

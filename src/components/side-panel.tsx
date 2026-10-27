@@ -189,6 +189,7 @@ import { Measurements } from "./measurements"
 import { PageAudit, ruleTitle, type AuditAction } from "./page-audit"
 import { layoutRuleTitle } from "./layout-result"
 import { focusRuleTitle } from "./focus-result"
+import { NetworkRules } from "./network-rules"
 import { RequestMocks } from "./request-mocks"
 import { PageTools, type OverlaySettings, type PageToolAction } from "./page-tools"
 import { PairScreen } from "./pair-screen"
@@ -249,6 +250,16 @@ type PendingConfirmation = "disconnect" | "clear-local" | null
  * instruction live in React state and die with the panel; what persists is the
  * public pairing record, the Host's appearance, and the last workspace choice.
  */
+/** A web page's host, to offer as a request-rule site; null for anything else. */
+function hostOf(url: string | undefined): string | null {
+  try {
+    const parsed = new URL(url ?? "")
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.hostname : null
+  } catch {
+    return null
+  }
+}
+
 export function SidePanel({ api, makeClient = createHostClient, now = systemNow }: SidePanelProps) {
   const [state, setState] = useState<PanelState>({ kind: "loading" })
   const captureCapability = state.kind === "ready" ? state.capability : LOCAL_CAPTURE_CAPABILITY
@@ -4188,6 +4199,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           canKeep={/^https?:/.test(mocks?.url ?? "")}
           onKeep={(keep) => void keepMocks(keep)}
         />
+        <NetworkRules api={api} currentHost={hostOf(state.captured?.url)} />
       </PageTools>
     </CollapsibleCard>
   )

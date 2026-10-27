@@ -16,6 +16,8 @@ import { NetworkRuleStore, type RuleCommand, type RuleCommandResult } from "./st
 import { RULE_SYNC_STATUS_KEY, syncNetworkRules, type RuleSyncBrowser } from "./sync"
 
 export interface NetworkRulesBrowser extends RuleSyncBrowser {
+  /** A tab's address, or null when it is gone. */
+  tabUrl(tabId: number): Promise<string | null>
   /** Run the request engine's rule slot in a tab's page; `null` reads its hits. */
   runPageRules(tabId: number, rules: RequestMock[] | null): Promise<MockHits | null>
 }
@@ -94,11 +96,19 @@ export function createNetworkRules(deps: NetworkRulesDeps) {
       )
       const sets = await store.agentSets()
       scoped = scopeOf(sessions, sets)
+      const agentHosts = new Set<string>()
+      for (const id of Object.keys(sets)) {
+        for (const tabId of sessions[id]?.tabIds ?? []) {
+          const host = hostOf((await deps.browser.tabUrl(tabId).catch(() => null)) ?? undefined)
+          if (host) agentHosts.add(host)
+        }
+      }
       const status = await syncNetworkRules(
         deps.browser,
         await store.library(),
         sets,
-        tabsBySession
+        tabsBySession,
+        [...agentHosts]
       )
       await deps.session.set(RULE_SYNC_STATUS_KEY, status)
     })
