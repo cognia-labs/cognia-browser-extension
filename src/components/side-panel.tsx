@@ -190,6 +190,7 @@ import { PageAudit, ruleTitle, type AuditAction } from "./page-audit"
 import { layoutRuleTitle } from "./layout-result"
 import { focusRuleTitle } from "./focus-result"
 import { NetworkRules } from "./network-rules"
+import { Recordings } from "./recordings"
 import { RequestMocks } from "./request-mocks"
 import { PageTools, type OverlaySettings, type PageToolAction } from "./page-tools"
 import { PairScreen } from "./pair-screen"
@@ -4200,6 +4201,10 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           onKeep={(keep) => void keepMocks(keep)}
         />
         <NetworkRules api={api} currentHost={hostOf(state.captured?.url)} />
+        <Recordings
+          api={api}
+          currentTab={state.captured ? { id: state.captured.tabId, url: state.captured.url } : null}
+        />
       </PageTools>
     </CollapsibleCard>
   )

@@ -39,6 +39,11 @@ import type { AgentSessions } from "../agent/sessions"
 import type { StorageArea } from "../agent/storage-area"
 import { createNetworkRules, type NetworkRulesBrowser } from "../network-rules/controller"
 import type { RuleCommand, RuleCommandResult } from "../network-rules/store"
+import {
+  createRecordings,
+  type RecordingBrowser,
+  type RecordingCommand,
+} from "../recordings/controller"
 import { SESSION_KEYS, STORAGE_KEYS } from "../browser-api"
 import type { HostClient, PairingRecord } from "../client"
 import { parsePreferences, type ExtensionPreferences } from "../preferences"
@@ -69,6 +74,7 @@ export interface WorkerDeps {
   loadClient(pairing: PairingRecord): Promise<HostClient | null>
   browser: AgentBrowser
   networkRulesBrowser: NetworkRulesBrowser
+  recordingBrowser: RecordingBrowser
   createSocket(url: string): SocketLike
   setBadge(badge: Badge): Promise<void>
   /** Whether the optional `notifications` permission is granted. */
@@ -90,7 +96,12 @@ export interface WorkerDeps {
 }
 
 /** What the hello tells the Host this build implements. */
-export const EXTENSION_FEATURES = [AGENT_PROFILE, "status-hints-v1", "network-rules-v1"]
+export const EXTENSION_FEATURES = [
+  AGENT_PROFILE,
+  "status-hints-v1",
+  "network-rules-v1",
+  "recording-v1",
+]
 
 export function createWorker(deps: WorkerDeps) {
   let pairing: PairingRecord | null = null
@@ -113,6 +124,14 @@ export function createWorker(deps: WorkerDeps) {
     sessions: () => runtime.sessions.all(),
   })
 
+  const recordings = createRecordings({
+    local: deps.local,
+    session: deps.session,
+    browser: deps.recordingBrowser,
+    newId: deps.newId,
+    now: deps.now,
+  })
+
   const runtime: AgentRuntime = createAgentRuntime({
     browser: deps.browser,
     local: deps.local,
@@ -123,6 +142,7 @@ export function createWorker(deps: WorkerDeps) {
     onQuestion: (question) => void announceQuestion(question),
     cancelConversation: (sessionId) => cancelConversation(sessionId),
     networkRules,
+    recordings,
   })
 
   const socket: SocketClient = createSocketClient({
@@ -318,6 +338,14 @@ export function createWorker(deps: WorkerDeps) {
     ): Promise<RuleCommandResult | false> {
       if (senderUrl?.split(/[?#]/)[0] !== deps.panelUrl) return Promise.resolve(false)
       return networkRules.command(command)
+    },
+
+    recordings,
+
+    /** A recording change from the panel, which only the panel may send. */
+    onRecordingCommand(command: RecordingCommand, senderUrl: string | undefined) {
+      if (senderUrl?.split(/[?#]/)[0] !== deps.panelUrl) return Promise.resolve(false)
+      return recordings.command(command)
     },
 
     /** A page's loader asking for its tab's rules, at `document_start`. */

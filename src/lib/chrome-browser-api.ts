@@ -338,6 +338,14 @@ export function createChromeBrowserApi(): BrowserApi {
       }
     },
 
+    async recordingCommand(command) {
+      const result: unknown = await chrome.runtime.sendMessage({
+        kind: "cognia-recordings",
+        command,
+      })
+      if (result === false || result === undefined) throw new Error("browser_recording_failed")
+      return result
+    },
     async networkRuleCommand(command) {
       const result = (await chrome.runtime.sendMessage({
         kind: "cognia-network-rules",

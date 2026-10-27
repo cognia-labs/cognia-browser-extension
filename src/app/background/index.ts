@@ -19,6 +19,12 @@ import { BADGE_COLORS } from "@ext/src/lib/background/status-tracker"
 import { createChromeNetworkRulesBrowser } from "@ext/src/lib/network-rules/chrome-network-rules"
 import { isPageRulesMessage } from "@ext/src/lib/network-rules/page"
 import { isRuleCommandMessage } from "@ext/src/lib/network-rules/store"
+import { createChromeRecordingBrowser } from "@ext/src/lib/recordings/chrome-recordings"
+import {
+  isRecordingCommandMessage,
+  isRecordingStepMessage,
+  isRecordingStopMessage,
+} from "@ext/src/lib/recordings/controller"
 import { PANEL_PORT, createWorker } from "@ext/src/lib/background/worker"
 import {
   CAPTURE_MENU_IDS,
@@ -62,6 +68,7 @@ export default defineBackground(() => {
     },
     browser: createChromeAgentBrowser(),
     networkRulesBrowser: createChromeNetworkRulesBrowser(),
+    recordingBrowser: createChromeRecordingBrowser(),
     createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
     setBadge: async (badge) => {
       await chrome.action.setBadgeText({ text: badge.text })
@@ -231,6 +238,27 @@ export default defineBackground(() => {
         .then(sendResponse, () => sendResponse(false))
       return true
     }
+    if (isRecordingCommandMessage(message)) {
+      void ready
+        .then(() => worker.onRecordingCommand(message.command, sender.url))
+        .then(sendResponse, () => sendResponse(false))
+      return true
+    }
+    // The recorder, from inside the tab it records; the worker checks the tab is recording.
+    if (isRecordingStepMessage(message) || isRecordingStopMessage(message)) {
+      if (sender.tab?.id === undefined || sender.frameId !== 0) return false
+      const tabId = sender.tab.id
+      void ready
+        .then(async () => {
+          if (isRecordingStepMessage(message)) await worker.recordings.step(tabId, message.step)
+          else await worker.recordings.stopTab(tabId)
+        })
+        .then(
+          () => sendResponse(true),
+          () => sendResponse(false)
+        )
+      return true
+    }
     // Only this extension's loader, inside a tab, asks; the page itself cannot.
     if (isPageRulesMessage(message)) {
       if (sender.tab?.id === undefined || sender.frameId !== 0) return false
@@ -259,6 +287,13 @@ export default defineBackground(() => {
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     void ready.then(() => worker.runtime.tabRemoved(tabId))
+    void ready.then(() => worker.recordings.stopTab(tabId)).catch(() => undefined)
+  })
+
+  // A recording tab loaded a page: the recorder goes back in.
+  chrome.tabs.onUpdated.addListener((tabId, change) => {
+    if (change.status !== "complete") return
+    void ready.then(() => worker.recordings.tabLoaded(tabId)).catch(() => undefined)
   })
 
   chrome.storage.onChanged.addListener((changes, areaName) => {

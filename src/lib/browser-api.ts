@@ -33,6 +33,7 @@ import type { AdjustResult } from "./inspect/element-picker"
 import type { MockHits, RequestMock } from "./inspect/request-mocks"
 import type { AdjustSpacing } from "./inspect/adjust"
 import type { RuleCommand, RuleCommandResult } from "./network-rules/store"
+import type { RecordingCommand } from "./recordings/controller"
 import type { DetectedStack } from "./inspect/tech-stack"
 
 export interface TabRef {
@@ -155,6 +156,8 @@ export interface BrowserApi {
 
   /** Hold a port to the worker while the panel is open. */
   connectPanel(): PanelPort
+  /** Start, stop, share, rename or remove a recording; the worker is the only writer. */
+  recordingCommand(command: RecordingCommand): Promise<unknown>
   /** Change the saved request rules; the worker is their only writer (ADR-0242). */
   networkRuleCommand(command: RuleCommand): Promise<RuleCommandResult>
   /** Answer a pending site question (ADR-0228 §7), inside the person's click. */

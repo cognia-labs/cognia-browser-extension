@@ -27,6 +27,7 @@ import { SITE_DECISIONS_KEY, SitePermissions } from "./site-permissions"
 import { memoryStorageArea } from "./storage-area"
 import { createNetworkRules } from "../network-rules/controller"
 import { fakeNetworkRulesBrowser } from "../network-rules/fake-browser"
+import { createRecordings } from "../recordings/controller"
 
 type Handler = (tabId: number, args: unknown[]) => unknown
 
@@ -36,6 +37,7 @@ function harness(
     permissions?: string[]
     signal?: AbortSignal
     networkRules?: boolean
+    recordings?: boolean
   } = {}
 ) {
   let clock = 10_000
@@ -169,11 +171,30 @@ function harness(
     browser: rulesBrowser.browser,
     sessions: () => sessions.all(),
   })
+  const injectedRecorders: number[] = []
+  let nextRecording = 0
+  const recordings = createRecordings({
+    local: localArea,
+    session: memoryStorageArea(),
+    newId: () => `rec-${++nextRecording}`,
+    now: () => clock,
+    browser: {
+      tabInfo: async (tabId) => {
+        const tab = tabs.get(tabId)
+        return tab ? { url: tab.url, title: tab.title } : null
+      },
+      injectRecorder: async (tabId) => {
+        injectedRecorders.push(tabId)
+      },
+      removeRecorder: async () => undefined,
+    },
+  })
   const executor = createAgentExecutor({
     browser,
     sessions,
     permissions,
     ...(options.networkRules ? { networkRules } : {}),
+    ...(options.recordings ? { recordings } : {}),
     signal: options.signal,
     now: () => clock,
     sleep: async (ms) => {
@@ -201,6 +222,8 @@ function harness(
     sessions,
     networkRules,
     rulesBrowser: rulesBrowser.state,
+    recordings,
+    injectedRecorders,
     failInject: () => {
       failInject = true
     },
@@ -722,6 +745,44 @@ describe("createAgentExecutor", () => {
       h.run("set_network_rules", { startTabId: 5, rules: [{ match: "/a", action: "fail" }] })
     ).rejects.toMatchObject({ code: "browser_site_blocked" })
     expect(await h.networkRules.agentSets()).toEqual({})
+  })
+
+  it("records in the conversation's tab, and reads only shared recordings", async () => {
+    const h = harness({ decisions: ALWAYS, recordings: true })
+    await h.run("navigate", { url: "https://example.com/" })
+    const tabId = (await h.sessions.get("s1"))!.activeTabId!
+    await expect(h.run("start_recording")).resolves.toEqual({
+      recording: expect.objectContaining({ id: "rec-1", byAgent: true, stepCount: 0 }),
+    })
+    expect(h.injectedRecorders).toEqual([tabId])
+    await h.recordings.step(tabId, { action: "navigate", url: "https://example.com/", at: 1 })
+    await expect(h.run("stop_recording")).resolves.toEqual({
+      recording: expect.objectContaining({ id: "rec-1", stepCount: 1 }),
+    })
+    await expect(h.run("stop_recording")).rejects.toMatchObject({
+      code: "browser_recording_not_found",
+    })
+    await expect(h.run("list_recordings")).resolves.toEqual({
+      recordings: [expect.objectContaining({ id: "rec-1" })],
+    })
+    await expect(h.run("get_recording", { id: "rec-1", format: "playwright" })).resolves.toEqual({
+      recording: expect.objectContaining({
+        steps: [expect.objectContaining({ action: "navigate" })],
+      }),
+      playwright: expect.stringContaining('await page.goto("https://example.com/")'),
+    })
+    await expect(h.run("get_recording", { id: "nope" })).rejects.toMatchObject({
+      code: "browser_recording_not_found",
+    })
+  })
+
+  it("stops the conversation's recording when it releases its tabs", async () => {
+    const h = harness({ decisions: ALWAYS, recordings: true })
+    await h.run("navigate", { url: "https://example.com/" })
+    const tabId = (await h.sessions.get("s1"))!.activeTabId!
+    await h.run("start_recording")
+    await h.run("release")
+    expect(await h.recordings.isRecording(tabId)).toBe(false)
   })
 
   it("answers request rules as unknown in a build without them", async () => {

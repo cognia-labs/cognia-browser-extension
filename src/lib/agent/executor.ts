@@ -32,6 +32,7 @@ import {
 } from "./page-functions"
 import { MAX_CANVAS_SIDE } from "./image-ops"
 import type { NetworkRules } from "../network-rules/controller"
+import { RecordingError, type Recordings } from "../recordings/controller"
 import { AgentOperationError, OVERLAY_ABI, type AgentOperation } from "./protocol"
 import { withTab, withoutTab, type AgentSession, type SessionStore } from "./sessions"
 import { originOf, type SitePermissions } from "./site-permissions"
@@ -134,6 +135,8 @@ export interface ExecutorDeps {
   checkActive?: () => void
   /** Request rules (`network-rules-v1`); absent, its operations are unknown. */
   networkRules?: NetworkRules
+  /** Recordings (`recording-v1`); absent, its operations are unknown. */
+  recordings?: Recordings
 }
 
 /** The overlay bundle and the main-world hooks, as WXT emits them. */
@@ -542,6 +545,7 @@ export function createAgentExecutor(deps: ExecutorDeps) {
     const kept = current.tabIds.filter((id) => !current.ownedTabIds.includes(id))
     if (kept.length > 0) await browser.ungroup(kept).catch(() => undefined)
     await permissions.dropQuestions(current.id, checkActive)
+    await deps.recordings?.stopSession(current.id).catch(() => undefined)
     if (deps.networkRules && (await deps.networkRules.agentSets())[current.id])
       await deps.networkRules
         .clearAgent(current.id, await sessionTabs(current))
@@ -556,6 +560,25 @@ export function createAgentExecutor(deps: ExecutorDeps) {
       if (tab) tabs.push({ id: tab.id, url: tab.url })
     }
     return tabs
+  }
+
+  function requireRecordings(): Recordings {
+    if (!deps.recordings)
+      throw new AgentOperationError(
+        "browser_operation_unknown",
+        "this extension does not implement recordings"
+      )
+    return deps.recordings
+  }
+
+  /** A recording's own refusals keep their codes for the Host. */
+  async function recordingCall<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work()
+    } catch (error) {
+      if (error instanceof RecordingError) throw new AgentOperationError(error.code, error.message)
+      throw error
+    }
   }
 
   function requireRules(): NetworkRules {
@@ -959,6 +982,33 @@ export function createAgentExecutor(deps: ExecutorDeps) {
             `rules[${result.index}] is not a rule this browser can apply: check its match, action and that action's fields`
           )
         return { rules: result.rules }
+      }
+      case "start_recording": {
+        const recordings = requireRecordings()
+        // Recording reads what happens on the page: the decision acting needs.
+        const tab = await pageFor(current, operation, deadline)
+        return {
+          recording: await recordingCall(() =>
+            recordings.start(tab.id, { byAgent: true, sessionId })
+          ),
+        }
+      }
+      case "stop_recording": {
+        const [recording] = await requireRecordings().stopSession(sessionId)
+        if (!recording)
+          throw new AgentOperationError(
+            "browser_recording_not_found",
+            "this conversation is not recording"
+          )
+        return { recording }
+      }
+      case "list_recordings": {
+        return { recordings: await requireRecordings().listShared() }
+      }
+      case "get_recording": {
+        const recordings = requireRecordings()
+        const format = args.format === "playwright" ? "playwright" : "steps"
+        return recordingCall(() => recordings.getShared(stringArg(args, "id"), format))
       }
       case "clear_network_rules": {
         await requireRules().clearAgent(sessionId, await sessionTabs(current))

@@ -17,6 +17,7 @@ import { SessionStore, sessionForTab, withTab, withoutTab, type AgentSession } f
 import { SitePermissions, type SiteQuestion } from "./site-permissions"
 import type { StorageArea } from "./storage-area"
 import type { NetworkRules } from "../network-rules/controller"
+import type { Recordings } from "../recordings/controller"
 
 export interface AgentRuntimeDeps {
   browser: AgentBrowser
@@ -32,6 +33,8 @@ export interface AgentRuntimeDeps {
   cancelConversation: (sessionId: string) => Promise<void>
   /** The request rules; a conversation's own end with it (ADR-0242). */
   networkRules?: NetworkRules
+  /** The recordings; a conversation's end with it too. */
+  recordings?: Recordings
 }
 
 export type AgentControlAction = "stop" | "takeover" | "resume"
@@ -134,8 +137,9 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
     }
   }
 
-  /** Stop and Take over leave the person's pages without the agent's rules. */
+  /** Stop and Take over leave the person's pages without the agent's rules or recorder. */
   async function dropRules(current: AgentSession) {
+    await deps.recordings?.stopSession(current.id).catch(() => undefined)
     const rules = deps.networkRules
     if (!rules) return
     try {
@@ -201,6 +205,7 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
           signal: controller.signal,
           checkActive,
           ...(deps.networkRules ? { networkRules: deps.networkRules } : {}),
+          ...(deps.recordings ? { recordings: deps.recordings } : {}),
         })
         const value = await executor.execute(operation, args, budget)
         checkActive()

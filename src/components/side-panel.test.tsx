@@ -551,6 +551,7 @@ function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: neve
         state.forgottenDecisions.push(origin)
       },
       networkRuleCommand: async () => ({ ok: true }),
+      recordingCommand: async () => true,
       pickElement: async (tabId) => {
         state.inspectCalls.push(`pick:${tabId}`)
         return state.pickQueue.shift() ?? state.pickResult

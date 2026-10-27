@@ -2592,5 +2592,70 @@
         "content": "$1"
       }
     }
+  },
+  "recorderBadgeRecording": {
+    "message": "正在录制测试"
+  },
+  "recorderBadgeCheck": {
+    "message": "添加检查"
+  },
+  "recorderBadgeChecking": {
+    "message": "点击测试应该看到的内容"
+  },
+  "recorderBadgeCancel": {
+    "message": "取消"
+  },
+  "recorderBadgeStop": {
+    "message": "停止"
+  },
+  "recordingsTitle": {
+    "message": "录制测试"
+  },
+  "recordingsHint": {
+    "message": "录制你在这个标签页中的操作，然后下载为 Playwright 测试，或交给 Agent 改写成测试。"
+  },
+  "recordingsStart": {
+    "message": "开始录制此标签页"
+  },
+  "recordingsStop": {
+    "message": "停止录制"
+  },
+  "recordingsPrivacy": {
+    "message": "步骤会记录你输入的内容，密码和其他敏感字段除外。你在 Cognia 会话中的 Agent 可以读取你共享给它们的录制。"
+  },
+  "recordingsNoPage": {
+    "message": "请在此标签页打开一个网页后再录制。"
+  },
+  "recordingsNeedSite": {
+    "message": "录制需要访问这个网站的权限，才能在每次页面加载后继续录制。"
+  },
+  "recordingsFailed": {
+    "message": "扩展没有响应，请重试。"
+  },
+  "recordingsSteps": {
+    "message": "$COUNT$ 个步骤",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "recordingsLive": {
+    "message": "录制中"
+  },
+  "recordingsByAgent": {
+    "message": "Agent 录制"
+  },
+  "recordingsDownload": {
+    "message": "下载 Playwright 测试"
+  },
+  "recordingsRemove": {
+    "message": "删除录制"
+  },
+  "recordingsShared": {
+    "message": "允许 Agent 读取"
+  },
+  "recordingsEmpty": {
+    "message": "还没有录制。"
   }
 }

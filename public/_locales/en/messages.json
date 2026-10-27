@@ -2592,5 +2592,70 @@
         "content": "$1"
       }
     }
+  },
+  "recorderBadgeRecording": {
+    "message": "Recording for a test"
+  },
+  "recorderBadgeCheck": {
+    "message": "Add a check"
+  },
+  "recorderBadgeChecking": {
+    "message": "Click what the test should see"
+  },
+  "recorderBadgeCancel": {
+    "message": "Cancel"
+  },
+  "recorderBadgeStop": {
+    "message": "Stop"
+  },
+  "recordingsTitle": {
+    "message": "Record a test"
+  },
+  "recordingsHint": {
+    "message": "Record what you do in this tab, then download it as a Playwright test or let an agent turn it into one."
+  },
+  "recordingsStart": {
+    "message": "Start recording this tab"
+  },
+  "recordingsStop": {
+    "message": "Stop recording"
+  },
+  "recordingsPrivacy": {
+    "message": "Steps keep what you type, except in password and other secret fields. Agents in your Cognia conversations can read recordings you share with them."
+  },
+  "recordingsNoPage": {
+    "message": "Open a web page in this tab to record it."
+  },
+  "recordingsNeedSite": {
+    "message": "Recording needs access to this site, so it can continue after each page load."
+  },
+  "recordingsFailed": {
+    "message": "The extension did not answer. Try again."
+  },
+  "recordingsSteps": {
+    "message": "$COUNT$ steps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "recordingsLive": {
+    "message": "Recording"
+  },
+  "recordingsByAgent": {
+    "message": "By agent"
+  },
+  "recordingsDownload": {
+    "message": "Download Playwright test"
+  },
+  "recordingsRemove": {
+    "message": "Remove recording"
+  },
+  "recordingsShared": {
+    "message": "Agents can read it"
+  },
+  "recordingsEmpty": {
+    "message": "No recordings yet."
   }
 }

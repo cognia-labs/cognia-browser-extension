@@ -193,6 +193,11 @@ function harness(
         run: async () => true,
       } as unknown as AgentBrowser),
     networkRulesBrowser: fakeNetworkRulesBrowser().browser,
+    recordingBrowser: {
+      tabInfo: async () => null,
+      injectRecorder: async () => undefined,
+      removeRecorder: async () => undefined,
+    },
     createSocket: (url) => {
       sockets.push(url)
       const wire = {
