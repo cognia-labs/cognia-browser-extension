@@ -2,18 +2,25 @@
 
 [简体中文](README.zh-CN.md) · [Cognia](https://github.com/MaxQian888/cognia-next) · [Website](https://github.com/cognia-labs/cognia-website)
 
-A Chrome and Edge side panel for sending the page you are reading to Cognia, and optionally letting your Cognia agent work in your browser. This repository owns the complete extension, its tests and release archives.
+A Chrome and Edge side panel for capturing, inspecting, editing and exporting pages locally. Optionally connect to Cognia to send tasks and let your agent work in the browser. This repository owns the complete extension, its tests and release archives.
 
 ## Install
 
 Download a Chrome archive from [Releases](https://github.com/cognia-labs/cognia-browser-extension/releases), extract it, open `chrome://extensions` or `edge://extensions`, enable Developer mode, and choose **Load unpacked**. Select the extracted directory containing `manifest.json`. Chrome 116 or later is required. Store publication is separate from repository releases.
 
-In Cognia, enable Browser Access and create a Browser Companion pairing code. Open the extension panel, paste the code, and accept the optional loopback permission. Pairing, keys, origin binding and existing browser storage identifiers are preserved from the product workspace.
+Open the extension panel and choose **Use local mode** to capture pages, inspect and edit elements, run page checks, copy reviewed context as a prompt or export Markdown. No Cognia installation, pairing code or loopback permission is required. The mode is remembered; unsent text and inspection results use session-only drafts. Markdown exports include reviewed text and inspection results; screenshots and other attachments are listed by name and are not embedded in the file.
+
+To send tasks or enable agent control, choose **Connect to Cognia**. In Cognia, enable Browser Access and create a Browser Companion pairing code. Paste the code into the existing pairing form and accept the optional loopback permission. You can return to local mode from settings or when the Host is offline, revoked or incompatible. Local mode retains pairing, disconnects Host traffic and turns agent mode off; reconnecting preserves the draft and requires explicitly enabling agent mode again. Pairing, keys, origin binding and existing browser storage identifiers are preserved from the product workspace.
 
 For an unpacked upgrade, use the same directory and **Reload** to preserve its path-derived extension ID. Moving the unpacked directory changes the ID and requires pairing again. A published store extension must retain its existing signing/store identity.
 
+Choose **Allow all websites** beneath the capture controls to authorize page access once for capture, inspection and editing across sites, in local or paired mode. This does not enable agent mode. Chrome remembers the grant; **Manage** opens the browser's extension settings to change or revoke it. Turning agent mode off preserves access explicitly enabled for local tools. Browser-protected pages remain restricted.
+
+You can also authorize individual sites. When Chrome withholds the tab URL, the first click requests the optional permission to read tab titles and URLs. The site is then shown for a separate, explicit site-access approval; capture retries after approval. The extension's toolbar icon on the target page provides temporary access.
+
 ## Features
 
+- Compact controls and status rows fit narrow panels. Each audit and page tool folds independently, keeping its results, edits and unfinished forms; active results open automatically until you choose otherwise.
 - Pick several elements in one pass: Shift-, ⌘- or Ctrl-click adds or removes one, Alt-click takes every element alike (same tag and classes), and a box dragged over the page takes the controls, headings, text and images inside it, previewed as it is drawn. Chosen elements stay outlined and numbered until Enter, Done or a last plain click adds them all. With two or more picks the panel compares their computed styles — the properties that differ, odd values marked — and can send that table with the task. Each pick folds to one line with its component, note and edit status, and can be located or removed from there; a batch arrives folded, a single pick open.
 - The keyboard focus check draws the Tab order as numbered stops joined by curved arrows that draw in sequence; a jump back up the page is a red dashed arrow, and stops with findings are red.
 - Pointing at the page feels alive: the highlight glides from element to element following its rounded corners, and a pick confirms with a green pulse before the overlay goes — never in the screenshot, and none of it when the system asks for reduced motion. New picks, measurements and attachments ease into the panel; a whole page of captured text stays in a scrolling box with its size shown, opened with Show more.

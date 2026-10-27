@@ -2,6 +2,12 @@
 
 The standalone repository owns the extension, assets, tests and release archives. The product repository continues to own the Cognia Host, shared source packages and in-app browser overlay. Repository separation changes development ownership, not runtime permissions, pairing endpoints, key slots, preference/session storage keys or the negotiated protocol.
 
+## Local mode
+
+Local mode makes capture, inspection, editing, prompt copy and Markdown export available without the Host. It uses the bundled capture formats and limits, without advertising Host delivery or agent capabilities. The explicit choice is stored under `cognia.localMode.v1`; existing pairing and device keys remain intact. The worker stops its Host socket and status polling, cancels pending operations and does not load a Host client on subsequent wake-ups in local mode. Entering local mode also turns the agent preference off, so reconnecting does not resume agent operation automatically.
+
+The existing pairing form remains available through Connect to Cognia. A successful pairing or explicit reconnect leaves local mode, retaining the unsent capture. Offline, revoked and incompatible Host screens also offer local mode. Captures keep using session-only drafts; copied prompts and Markdown exports include the reviewed page content, included inspection results and additional pages. Attachment bytes remain separate from Markdown exports.
+
 ## Pinned inputs
 
 `provenance/source.json` records the product revision, dirty-working-tree status and original SHA-256 of 229 imported files. This extraction intentionally includes the revocation/protocol hardening completed in the same session. It does not claim those bytes were all present in the named committed revision.
