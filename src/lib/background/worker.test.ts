@@ -13,6 +13,7 @@ import { SESSION_KEYS, STORAGE_KEYS } from "../browser-api"
 import type { HostClient } from "../client"
 import { STATUS_SNAPSHOT_KEY } from "./status-tracker"
 import { STATUS_ALARM, createWorker } from "./worker"
+import { fakeNetworkRulesBrowser } from "../network-rules/fake-browser"
 
 const pairing = {
   baseUrl: "http://127.0.0.1:27891",
@@ -191,6 +192,7 @@ function harness(
         message: (key: string) => key,
         run: async () => true,
       } as unknown as AgentBrowser),
+    networkRulesBrowser: fakeNetworkRulesBrowser().browser,
     createSocket: (url) => {
       sockets.push(url)
       const wire = {

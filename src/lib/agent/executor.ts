@@ -31,6 +31,7 @@ import {
   pageStorage,
 } from "./page-functions"
 import { MAX_CANVAS_SIDE } from "./image-ops"
+import type { NetworkRules } from "../network-rules/controller"
 import { AgentOperationError, OVERLAY_ABI, type AgentOperation } from "./protocol"
 import { withTab, withoutTab, type AgentSession, type SessionStore } from "./sessions"
 import { originOf, type SitePermissions } from "./site-permissions"
@@ -131,6 +132,8 @@ export interface ExecutorDeps {
   sleep: (ms: number) => Promise<void>
   signal?: AbortSignal
   checkActive?: () => void
+  /** Request rules (`network-rules-v1`); absent, its operations are unknown. */
+  networkRules?: NetworkRules
 }
 
 /** The overlay bundle and the main-world hooks, as WXT emits them. */
@@ -539,7 +542,29 @@ export function createAgentExecutor(deps: ExecutorDeps) {
     const kept = current.tabIds.filter((id) => !current.ownedTabIds.includes(id))
     if (kept.length > 0) await browser.ungroup(kept).catch(() => undefined)
     await permissions.dropQuestions(current.id, checkActive)
+    if (deps.networkRules && (await deps.networkRules.agentSets())[current.id])
+      await deps.networkRules
+        .clearAgent(current.id, await sessionTabs(current))
+        .catch(() => undefined)
     await sessions.remove(current.id, checkActive)
+  }
+
+  async function sessionTabs(current: AgentSession) {
+    const tabs: { id: number; url: string }[] = []
+    for (const tabId of current.tabIds) {
+      const tab = await browser.getTab(tabId).catch(() => null)
+      if (tab) tabs.push({ id: tab.id, url: tab.url })
+    }
+    return tabs
+  }
+
+  function requireRules(): NetworkRules {
+    if (!deps.networkRules)
+      throw new AgentOperationError(
+        "browser_operation_unknown",
+        "this extension does not implement request rules"
+      )
+    return deps.networkRules
   }
 
   async function execute(
@@ -920,6 +945,26 @@ export function createAgentExecutor(deps: ExecutorDeps) {
         const item = await sessionDownload(current, stringArg(args, "downloadId"))
         await browser.deleteDownload(item.id, checkActive)
         return { deleted: true, id: String(item.id) }
+      }
+      case "set_network_rules": {
+        const result = await requireRules().setAgentRules(
+          sessionId,
+          args.rules,
+          await sessionTabs(current)
+        )
+        if (!result.ok)
+          throw new AgentOperationError(
+            "malformed",
+            `rules[${result.index}] is not a rule this browser can apply: check its match, action and that action's fields`
+          )
+        return { rules: result.rules }
+      }
+      case "clear_network_rules": {
+        await requireRules().clearAgent(sessionId, await sessionTabs(current))
+        return { rules: [] }
+      }
+      case "list_network_rules": {
+        return { rules: await requireRules().listAgent(sessionId, current.tabIds) }
       }
       default: {
         throw new AgentOperationError(

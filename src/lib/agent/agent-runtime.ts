@@ -16,6 +16,7 @@ import { AgentOperationError, operationBudgetMs, type AgentOperation } from "./p
 import { SessionStore, sessionForTab, withTab, withoutTab, type AgentSession } from "./sessions"
 import { SitePermissions, type SiteQuestion } from "./site-permissions"
 import type { StorageArea } from "./storage-area"
+import type { NetworkRules } from "../network-rules/controller"
 
 export interface AgentRuntimeDeps {
   browser: AgentBrowser
@@ -29,6 +30,8 @@ export interface AgentRuntimeDeps {
   onQuestion: (question: SiteQuestion) => void
   /** Cancel the Host task acting in this conversation (Stop on the bar). */
   cancelConversation: (sessionId: string) => Promise<void>
+  /** The request rules; a conversation's own end with it (ADR-0242). */
+  networkRules?: NetworkRules
 }
 
 export type AgentControlAction = "stop" | "takeover" | "resume"
@@ -131,6 +134,23 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
     }
   }
 
+  /** Stop and Take over leave the person's pages without the agent's rules. */
+  async function dropRules(current: AgentSession) {
+    const rules = deps.networkRules
+    if (!rules) return
+    try {
+      if (!(await rules.agentSets())[current.id]) return
+      const tabs = []
+      for (const tabId of current.tabIds) {
+        const tab = await browser.getTab(tabId).catch(() => null)
+        if (tab) tabs.push({ id: tab.id, url: tab.url })
+      }
+      await rules.clearAgent(current.id, tabs)
+    } catch {
+      // The pause itself must not fail on the rules; the next sync prunes them.
+    }
+  }
+
   /** Whether `tabId` belongs to the conversation the message names. */
   async function owns(sessionId: string, tabId: number | undefined): Promise<AgentSession | null> {
     if (tabId === undefined) return null
@@ -180,6 +200,7 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
           sleep: deps.sleep,
           signal: controller.signal,
           checkActive,
+          ...(deps.networkRules ? { networkRules: deps.networkRules } : {}),
         })
         const value = await executor.execute(operation, args, budget)
         checkActive()
@@ -222,6 +243,7 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
               // Keep Resume available; delayed Host frames cannot restart a stopped turn.
               await paintBars(next, true)
               await permissions.dropQuestions(current.id)
+              await dropRules(next)
               await deps.cancelConversation(current.id)
               return true
             }
@@ -232,8 +254,10 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
               }))
               persistedPause = true
               // Nothing will act until the person resumes, so nothing should be
-              // waiting on their answer either.
+              // waiting on their answer either; and the pages are theirs again,
+              // without the requests the agent rigged.
               await permissions.dropQuestions(current.id)
+              await dropRules(next)
               await paintBars(next, true)
               return true
             }

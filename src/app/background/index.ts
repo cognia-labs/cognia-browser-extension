@@ -14,7 +14,11 @@ import {
   PENDING_SITE_QUESTIONS_KEY,
   isAgentPermissionMessage,
 } from "@ext/src/lib/agent/site-permissions"
+import { AGENT_SESSIONS_KEY } from "@ext/src/lib/agent/sessions"
 import { BADGE_COLORS } from "@ext/src/lib/background/status-tracker"
+import { createChromeNetworkRulesBrowser } from "@ext/src/lib/network-rules/chrome-network-rules"
+import { isPageRulesMessage } from "@ext/src/lib/network-rules/page"
+import { isRuleCommandMessage } from "@ext/src/lib/network-rules/store"
 import { PANEL_PORT, createWorker } from "@ext/src/lib/background/worker"
 import {
   CAPTURE_MENU_IDS,
@@ -57,6 +61,7 @@ export default defineBackground(() => {
       return signer ? createHostClient({ pairing, signer }) : null
     },
     browser: createChromeAgentBrowser(),
+    networkRulesBrowser: createChromeNetworkRulesBrowser(),
     createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
     setBadge: async (badge) => {
       await chrome.action.setBadgeText({ text: badge.text })
@@ -220,6 +225,20 @@ export default defineBackground(() => {
         .then(sendResponse, () => sendResponse(false))
       return true
     }
+    if (isRuleCommandMessage(message)) {
+      void ready
+        .then(() => worker.onNetworkRuleCommand(message.command, sender.url))
+        .then(sendResponse, () => sendResponse(false))
+      return true
+    }
+    // Only this extension's loader, inside a tab, asks; the page itself cannot.
+    if (isPageRulesMessage(message)) {
+      if (sender.tab?.id === undefined || sender.frameId !== 0) return false
+      void ready
+        .then(() => worker.pageRules(sender.tab?.id, sender.url))
+        .then(sendResponse, () => sendResponse([]))
+      return true
+    }
     if (isAgentOpenTabMessage(message)) {
       void ready
         .then(() => worker.runtime.openTab(message, sender.tab?.id))
@@ -244,8 +263,13 @@ export default defineBackground(() => {
           void ready.then(() => worker.onLocalChange(key, changes[key]?.newValue ?? null))
         }
       }
-    } else if (areaName === "session" && Object.hasOwn(changes, PENDING_SITE_QUESTIONS_KEY)) {
-      void ready.then(() => worker.onQuestionsChange())
+    } else if (areaName === "session") {
+      if (Object.hasOwn(changes, PENDING_SITE_QUESTIONS_KEY))
+        void ready.then(() => worker.onQuestionsChange())
+      if (Object.hasOwn(changes, AGENT_SESSIONS_KEY))
+        void ready.then(() =>
+          worker.onSessionsChange((changes[AGENT_SESSIONS_KEY]?.newValue ?? null) as never)
+        )
     }
   })
 

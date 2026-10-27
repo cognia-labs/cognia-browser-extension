@@ -48,6 +48,15 @@ export const AGENT_OPERATIONS = [
   "set_storage",
   "clear_storage",
   "finalize_tabs",
+  // network-rules-v1, recording-v1 (ADR-0242): the Host sends these only to a
+  // build that names the feature; one that does not answers them as unknown.
+  "set_network_rules",
+  "clear_network_rules",
+  "list_network_rules",
+  "start_recording",
+  "stop_recording",
+  "list_recordings",
+  "get_recording",
 ] as const
 
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number]

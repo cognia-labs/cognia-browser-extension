@@ -62,7 +62,22 @@ describe("the extension manifest", () => {
 
   it("keeps every broader grant optional, asked for by the feature that needs it", async () => {
     const { optionalPermissions } = await manifestBlock()
-    expect(optionalPermissions.sort()).toEqual(["cookies", "downloads", "notifications", "tabs"])
+    expect(optionalPermissions.sort()).toEqual([
+      "cookies",
+      "declarativeNetRequestWithHostAccess",
+      "downloads",
+      "notifications",
+      "tabs",
+    ])
+  })
+
+  it("rewrites requests only where host access is already granted", async () => {
+    // Plain `declarativeNetRequest` cannot be optional and warns "Block
+    // content on any page" at install; the host-access variant acts only on
+    // sites the person has already allowed.
+    const { permissions, optionalPermissions } = await manifestBlock()
+    expect([...permissions, ...optionalPermissions]).not.toContain("declarativeNetRequest")
+    expect(permissions).not.toContain("declarativeNetRequestWithHostAccess")
   })
 
   it("never asks for all-urls access at install", async () => {

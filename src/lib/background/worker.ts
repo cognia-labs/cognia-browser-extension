@@ -35,7 +35,10 @@ import {
   type SocketLike,
   type SocketState,
 } from "../agent/socket-client"
+import type { AgentSessions } from "../agent/sessions"
 import type { StorageArea } from "../agent/storage-area"
+import { createNetworkRules, type NetworkRulesBrowser } from "../network-rules/controller"
+import type { RuleCommand, RuleCommandResult } from "../network-rules/store"
 import { SESSION_KEYS, STORAGE_KEYS } from "../browser-api"
 import type { HostClient, PairingRecord } from "../client"
 import { parsePreferences, type ExtensionPreferences } from "../preferences"
@@ -65,6 +68,7 @@ export interface WorkerDeps {
   /** The paired Host's client, or null when this browser is not paired. */
   loadClient(pairing: PairingRecord): Promise<HostClient | null>
   browser: AgentBrowser
+  networkRulesBrowser: NetworkRulesBrowser
   createSocket(url: string): SocketLike
   setBadge(badge: Badge): Promise<void>
   /** Whether the optional `notifications` permission is granted. */
@@ -86,7 +90,7 @@ export interface WorkerDeps {
 }
 
 /** What the hello tells the Host this build implements. */
-export const EXTENSION_FEATURES = [AGENT_PROFILE, "status-hints-v1"]
+export const EXTENSION_FEATURES = [AGENT_PROFILE, "status-hints-v1", "network-rules-v1"]
 
 export function createWorker(deps: WorkerDeps) {
   let pairing: PairingRecord | null = null
@@ -100,6 +104,15 @@ export function createWorker(deps: WorkerDeps) {
   let refreshAgain = false
   let permissionChanges: Promise<unknown> = Promise.resolve()
 
+  // Its sessions are the runtime's, read lazily: the two are built together.
+  const networkRules = createNetworkRules({
+    local: deps.local,
+    session: deps.session,
+    newId: deps.newId,
+    browser: deps.networkRulesBrowser,
+    sessions: () => runtime.sessions.all(),
+  })
+
   const runtime: AgentRuntime = createAgentRuntime({
     browser: deps.browser,
     local: deps.local,
@@ -109,6 +122,7 @@ export function createWorker(deps: WorkerDeps) {
     newId: deps.newId,
     onQuestion: (question) => void announceQuestion(question),
     cancelConversation: (sessionId) => cancelConversation(sessionId),
+    networkRules,
   })
 
   const socket: SocketClient = createSocketClient({
@@ -295,6 +309,25 @@ export function createWorker(deps: WorkerDeps) {
   return {
     runtime,
     socket,
+    networkRules,
+
+    /** A request-rule change from the panel, which only the panel may send. */
+    onNetworkRuleCommand(
+      command: RuleCommand,
+      senderUrl: string | undefined
+    ): Promise<RuleCommandResult | false> {
+      if (senderUrl?.split(/[?#]/)[0] !== deps.panelUrl) return Promise.resolve(false)
+      return networkRules.command(command)
+    },
+
+    /** A page's loader asking for its tab's rules, at `document_start`. */
+    pageRules(tabId: number | undefined, url: string | undefined) {
+      return tabId === undefined ? Promise.resolve([]) : networkRules.pageRulesFor(tabId, url)
+    },
+
+    onSessionsChange(sessions: AgentSessions | null): Promise<void> {
+      return networkRules.sessionsChanged(sessions ?? {})
+    },
 
     onPermissionMessage(
       message: AgentPermissionMessage,
@@ -317,6 +350,8 @@ export function createWorker(deps: WorkerDeps) {
       preferences = parsePreferences(await deps.local.get(STORAGE_KEYS.preferences))
       localMode = (await deps.local.get(STORAGE_KEYS.localMode)) === true
       await loadPairing()
+      // Session rules do not survive a browser restart; the stored ones do.
+      await networkRules.sync().catch(() => undefined)
       await refreshStatus()
     },
 

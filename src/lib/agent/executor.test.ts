@@ -25,6 +25,8 @@ import {
 import { SessionStore } from "./sessions"
 import { SITE_DECISIONS_KEY, SitePermissions } from "./site-permissions"
 import { memoryStorageArea } from "./storage-area"
+import { createNetworkRules } from "../network-rules/controller"
+import { fakeNetworkRulesBrowser } from "../network-rules/fake-browser"
 
 type Handler = (tabId: number, args: unknown[]) => unknown
 
@@ -33,6 +35,7 @@ function harness(
     decisions?: Record<string, "always" | "never">
     permissions?: string[]
     signal?: AbortSignal
+    networkRules?: boolean
   } = {}
 ) {
   let clock = 10_000
@@ -157,10 +160,20 @@ function harness(
       ((await sessions.get(session))?.onceOrigins ?? []).includes(origin),
     grantOnce: async () => undefined,
   })
+  const rulesBrowser = fakeNetworkRulesBrowser()
+  let nextRule = 0
+  const networkRules = createNetworkRules({
+    local: localArea,
+    session: memoryStorageArea(),
+    newId: () => `rule-${++nextRule}`,
+    browser: rulesBrowser.browser,
+    sessions: () => sessions.all(),
+  })
   const executor = createAgentExecutor({
     browser,
     sessions,
     permissions,
+    ...(options.networkRules ? { networkRules } : {}),
     signal: options.signal,
     now: () => clock,
     sleep: async (ms) => {
@@ -186,6 +199,8 @@ function harness(
     cookies,
     removedCookies,
     sessions,
+    networkRules,
+    rulesBrowser: rulesBrowser.state,
     failInject: () => {
       failInject = true
     },
@@ -662,6 +677,49 @@ describe("createAgentExecutor", () => {
       ok: true,
       error: null,
       zoom: 1.5,
+    })
+  })
+
+  it("sets, lists and clears the conversation's request rules, and drops them on release", async () => {
+    const h = harness({ decisions: ALWAYS, networkRules: true })
+    await h.run("navigate", { url: "https://example.com/" })
+    const tabId = (await h.sessions.get("s1"))!.activeTabId!
+    await expect(
+      h.run("set_network_rules", {
+        rules: [
+          { match: "/api/orders", action: "respond", status: 503 },
+          { match: "/track", action: "fail" },
+        ],
+      })
+    ).resolves.toEqual({
+      rules: [
+        expect.objectContaining({ match: "/api/orders", coverage: "page-requests", hits: 0 }),
+        expect.objectContaining({ match: "/track", coverage: "all-requests", hits: 0 }),
+      ],
+    })
+    expect(h.rulesBrowser.pages.get(tabId)).toEqual([
+      expect.objectContaining({ match: "/api/orders", status: 503 }),
+    ])
+    expect(h.rulesBrowser.session[0]!.condition.tabIds).toEqual([tabId])
+    await expect(h.run("list_network_rules")).resolves.toMatchObject({
+      rules: [{ hits: 0 }, { hits: null }],
+    })
+    await expect(
+      h.run("set_network_rules", { rules: [{ match: "/a", action: "redirect" }] })
+    ).rejects.toMatchObject({ code: "malformed", message: expect.stringContaining("rules[0]") })
+    await expect(h.run("clear_network_rules")).resolves.toEqual({ rules: [] })
+    expect(h.rulesBrowser.session).toEqual([])
+    await h.run("set_network_rules", { rules: [{ match: "/track", action: "fail" }] })
+    await h.run("release")
+    expect(await h.networkRules.agentSets()).toEqual({})
+    expect(h.rulesBrowser.session).toEqual([])
+  })
+
+  it("answers request rules as unknown in a build without them", async () => {
+    const h = harness({ decisions: ALWAYS })
+    await h.run("navigate", { url: "https://example.com/" })
+    await expect(h.run("list_network_rules")).rejects.toMatchObject({
+      code: "browser_operation_unknown",
     })
   })
 

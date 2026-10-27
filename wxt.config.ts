@@ -28,7 +28,11 @@ const extensionIcons = {
  *    a page's own origin to recover missing capture access; `tabs` and a
  *    page's own origin when the person adds another tab to a
  *    capture; `<all_urls>` when they allow all websites or turn on agent mode; `notifications`,
- *    `downloads` and `cookies` from their settings toggles. Somebody who
+ *    `downloads` and `cookies` from their settings toggles;
+ *    `declarativeNetRequestWithHostAccess` when a request rule first needs
+ *    the browser to rewrite requests — it acts only on sites already granted,
+ *    which is why the plain `declarativeNetRequest`, which cannot be optional,
+ *    is not used. Somebody who
  *    installs and never opts in has granted what the original build did.
  *  - **No static `content_scripts`.** The extractor, the overlay, the page
  *    hooks, the element picker and the design overlay are injected per use
@@ -65,7 +69,13 @@ export default defineConfig({
       "alarms",
       "tabGroups",
     ],
-    optional_permissions: ["tabs", "notifications", "downloads", "cookies"],
+    optional_permissions: [
+      "tabs",
+      "notifications",
+      "downloads",
+      "cookies",
+      "declarativeNetRequestWithHostAccess",
+    ],
     optional_host_permissions: ["http://127.0.0.1/*", "<all_urls>"],
     incognito: "not_allowed",
     action: {

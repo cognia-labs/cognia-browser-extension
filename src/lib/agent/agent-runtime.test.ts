@@ -4,6 +4,8 @@ import { mainEvaluate, pageActingBar } from "./page-functions"
 import { AGENT_SESSIONS_KEY } from "./sessions"
 import { PENDING_SITE_QUESTIONS_KEY, SITE_DECISIONS_KEY } from "./site-permissions"
 import { memoryStorageArea } from "./storage-area"
+import { createNetworkRules } from "../network-rules/controller"
+import { fakeNetworkRulesBrowser } from "../network-rules/fake-browser"
 
 function harness() {
   let clock = 1_000
@@ -49,7 +51,17 @@ function harness() {
   } as unknown as AgentBrowser
   const local = memoryStorageArea()
   const session = memoryStorageArea()
+  const rulesBrowser = fakeNetworkRulesBrowser()
+  let nextRule = 0
+  const networkRules = createNetworkRules({
+    local,
+    session,
+    newId: () => `rule-${++nextRule}`,
+    browser: rulesBrowser.browser,
+    sessions: () => runtime.sessions.all(),
+  })
   const runtime = createAgentRuntime({
+    networkRules,
     browser,
     local,
     session,
@@ -80,6 +92,8 @@ function harness() {
     local,
     session,
     seed,
+    networkRules,
+    rulesBrowser: rulesBrowser.state,
     advance: (ms: number) => {
       clock += ms
     },
@@ -281,6 +295,36 @@ describe("createAgentRuntime", () => {
     })
     expect((h.bars.at(-1)?.state as { takenOver: boolean }).takenOver).toBe(false)
   })
+
+  it.each(["takeover", "stop"] as const)(
+    "%s leaves the person's pages without the conversation's request rules",
+    async (action) => {
+      const h = harness()
+      await h.seed([5])
+      h.tabs.set(5, {
+        id: 5,
+        windowId: 1,
+        url: "https://a.test/",
+        title: "",
+        status: "complete",
+        active: true,
+        groupId: 4,
+      })
+      await h.networkRules.setAgentRules(
+        "s1",
+        [
+          { match: "/a", action: "respond", status: 503 },
+          { match: "/b", action: "fail" },
+        ],
+        [{ id: 5, url: "https://a.test/" }]
+      )
+      expect(h.rulesBrowser.session).toHaveLength(1)
+      await h.runtime.control({ kind: "cognia-agent-control", session: "s1", action }, 5)
+      expect(await h.networkRules.agentSets()).toEqual({})
+      expect(h.rulesBrowser.session).toEqual([])
+      expect(h.rulesBrowser.pages.get(5)).toEqual([])
+    }
+  )
 
   it("stops the task and keeps a paused bar so only the person can resume", async () => {
     const h = harness()
