@@ -535,7 +535,7 @@
     },
     "vendor/companion-client/src/browser-agent-protocol.json": {
       "source": "packages/companion-client/src/browser-agent-protocol.json",
-      "sourceRevision": "b9309e07e875af92e5e2b46e3a5e52ae89119430",
+      "sourceRevision": "bd182cf9ba0d5dfaa8e5ab8a153ab084bc76313c",
       "sha256": "af901fe8da30a45fac323c4780542cea224e5e698671445f5e925404d02a8bc0"
     },
     "vendor/companion-client/src/browser-companion.ts": {
