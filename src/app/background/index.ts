@@ -299,10 +299,16 @@ export default defineBackground(() => {
     void ready.then(() => worker.recordings.stopTab(tabId)).catch(() => undefined)
   })
 
-  // A recording tab loaded a page: the recorder goes back in.
-  chrome.tabs.onUpdated.addListener((tabId, change) => {
-    if (change.status !== "complete") return
-    void ready.then(() => worker.recordings.tabLoaded(tabId)).catch(() => undefined)
+  // A recording tab loaded a page: the recorder goes back in. A
+  // conversation's tab with request rules that reached a new site: the gate
+  // follows it, and the rules go into the page.
+  chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+    const complete = change.status === "complete"
+    if (complete) void ready.then(() => worker.recordings.tabLoaded(tabId)).catch(() => undefined)
+    if (complete || change.url)
+      void ready
+        .then(() => worker.networkRules.tabUpdated(tabId, change.url ?? tab.url, complete))
+        .catch(() => undefined)
   })
 
   chrome.storage.onChanged.addListener((changes, areaName) => {

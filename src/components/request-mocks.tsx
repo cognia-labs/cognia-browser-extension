@@ -175,6 +175,7 @@ export function RequestMocks({
   onRefresh,
   onPoll,
   onKeep,
+  onSaveAsRules,
 }: {
   api: BrowserApi
   rules: RequestMock[]
@@ -190,10 +191,17 @@ export function RequestMocks({
   /** Read the counts and log again, without holding up the controls. */
   onPoll: () => void
   onKeep: (keep: boolean) => void
+  /**
+   * Keep these rules for the page's site, in the saved request rules; answers
+   * how many were saved and skipped, or null when nothing was saved.
+   */
+  onSaveAsRules?: () => Promise<{ saved: number; skipped: number } | null>
 }) {
   const [form, setForm] = useState<Form>(EMPTY_FORM)
   const [more, setMore] = useState(false)
   const [showLog, setShowLog] = useState(false)
+  const [saved, setSaved] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const set = (patch: Partial<Form>) => setForm((current) => ({ ...current, ...patch }))
   const draft = cleanMock({
     id: "",
@@ -608,7 +616,47 @@ export function RequestMocks({
               >
                 {api.message("mockClear")}
               </Button>
+              {onSaveAsRules && canKeep ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-[11px]"
+                  disabled={busy || saving}
+                  onClick={() => {
+                    setSaving(true)
+                    setSaved(null)
+                    void onSaveAsRules()
+                      .then(
+                        (outcome) =>
+                          setSaved(
+                            !outcome
+                              ? api.message("mockSaveFailed")
+                              : outcome.skipped > 0
+                                ? api.message("mockSavedSkipped", [
+                                    String(outcome.saved),
+                                    String(outcome.skipped),
+                                  ])
+                                : api.message("mockSaved", [String(outcome.saved)])
+                          ),
+                        () => setSaved(api.message("mockSaveFailed"))
+                      )
+                      .finally(() => setSaving(false))
+                  }}
+                  data-testid="mock-save-rules"
+                >
+                  {api.message("mockSaveAsRules")}
+                </Button>
+              ) : null}
             </div>
+            {saved ? (
+              <p
+                className="px-1.5 text-[11px] text-muted-foreground"
+                role="status"
+                data-testid="mock-saved"
+              >
+                {saved}
+              </p>
+            ) : null}
             <CollapsibleContent>
               {log.length === 0 ? (
                 <p className="px-1.5 text-[11px] text-muted-foreground">

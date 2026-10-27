@@ -36,6 +36,7 @@ import {
   cleanSite,
   coverageOf,
   exportLibrary,
+  headerLines,
   importLibrary,
   parseAgentRuleSets,
   parseLibrary,
@@ -148,16 +149,8 @@ const EMPTY_FORM: Form = {
   times: "0",
 }
 
-/** `Name: value` a line, as people paste them from DevTools. */
-export function parseHeaderLines(text: string): Record<string, string> {
-  const headers: Record<string, string> = {}
-  for (const line of text.split("\n")) {
-    const at = line.indexOf(":")
-    if (at <= 0) continue
-    headers[line.slice(0, at).trim()] = line.slice(at + 1).trim()
-  }
-  return headers
-}
+/** `Name: value` a line; the same reading the tab's simulated requests use. */
+export const parseHeaderLines = headerLines
 
 function draftOf(form: Form): NetworkRule | null {
   return cleanRule(

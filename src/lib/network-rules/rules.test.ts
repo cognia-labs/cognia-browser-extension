@@ -12,6 +12,7 @@ import {
   parseLibrary,
   ruleSummary,
   rulesForHost,
+  rulesFromMocks,
   type RuleLibrary,
 } from "./rules"
 
@@ -223,6 +224,54 @@ describe("export and import", () => {
       () => `id-${next++}`
     )
     expect(outcome).toMatchObject({ ok: true, skipped: 1 })
+  })
+})
+
+describe("rulesFromMocks", () => {
+  const mock = {
+    id: "m",
+    match: "/api/orders*",
+    method: "GET",
+    action: "respond" as const,
+    status: 503,
+    body: "down",
+    headers: "x-a: 1\nnot a header",
+    target: "",
+    delayMs: 0,
+    times: 2,
+    chance: 50,
+    enabled: true,
+  }
+
+  it("keeps a tab's rules for the site, resolving a redirect path against the page", () => {
+    const { rules, skipped } = rulesFromMocks(
+      [
+        mock,
+        {
+          ...mock,
+          id: "r",
+          action: "redirect",
+          target: "/v2/orders",
+          status: 0,
+          body: "",
+          headers: "",
+        },
+        { ...mock, id: "x", action: "redirect", target: "v2", status: 0, body: "", headers: "" },
+      ],
+      "https://shop.test/cart"
+    )
+    expect(skipped).toBe(1)
+    expect(rules).toEqual([
+      expect.objectContaining({
+        match: "/api/orders*",
+        method: "GET",
+        status: 503,
+        headers: { "x-a": "1" },
+        times: 2,
+        chance: 50,
+      }),
+      expect.objectContaining({ action: "redirect", redirectTo: "https://shop.test/v2/orders" }),
+    ])
   })
 })
 

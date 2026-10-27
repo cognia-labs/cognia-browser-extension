@@ -2657,5 +2657,30 @@
   },
   "recordingsEmpty": {
     "message": "No recordings yet."
+  },
+  "mockSaveAsRules": {
+    "message": "Save as rules for this site"
+  },
+  "mockSaved": {
+    "message": "Saved $COUNT$ rules to Request rules, for every visit to this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockSavedSkipped": {
+    "message": "Saved $COUNT$ rules to Request rules. $SKIPPED$ could not be kept: a redirect that replaces part of the address only works in this tab.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "skipped": {
+        "content": "$2"
+      }
+    }
+  },
+  "mockSaveFailed": {
+    "message": "Could not save the rules. Try again."
   }
 }

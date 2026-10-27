@@ -634,6 +634,7 @@ export function createAgentExecutor(deps: ExecutorDeps) {
         const url = stringArg(args, "url")
         originOf(url)
         await permissions.ensureAllowed(sessionId, url, operation, deadline, signal)
+        await deps.networkRules?.beforeNavigate(sessionId, url).catch(() => undefined)
         let tab: AgentTab
         if (current.activeTabId === null) {
           tab = await openTab(current, url)
@@ -652,6 +653,7 @@ export function createAgentExecutor(deps: ExecutorDeps) {
         if (url !== "about:blank") {
           originOf(url)
           await permissions.ensureAllowed(sessionId, url, operation, deadline, signal)
+          await deps.networkRules?.beforeNavigate(sessionId, url).catch(() => undefined)
         }
         const tab = await openTab(current, url)
         const landed = (await waitForComplete(tab.id, deadline)) ?? tab

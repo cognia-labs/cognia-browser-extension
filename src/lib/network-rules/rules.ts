@@ -335,6 +335,62 @@ export function pageMocks(rules: readonly NetworkRule[]): RequestMock[] {
     .map(toPageMock)
 }
 
+/** `Name: value` a line, as people paste them from DevTools. */
+export function headerLines(text: string): Record<string, string> {
+  const headers: Record<string, string> = {}
+  for (const line of text.split("\n")) {
+    const at = line.indexOf(":")
+    if (at <= 0) continue
+    headers[line.slice(0, at).trim()] = line.slice(at + 1).trim()
+  }
+  return headers
+}
+
+/**
+ * The tab's simulated requests (`request-mocks.ts`) as saved rules, for
+ * keeping them for the site. A redirect to a path resolves against the page
+ * it was made on; one that only replaces part of the address cannot be kept,
+ * and is counted as skipped rather than saved as something else.
+ */
+export function rulesFromMocks(
+  mocks: readonly RequestMock[],
+  pageUrl: string
+): { rules: NetworkRule[]; skipped: number } {
+  const rules: NetworkRule[] = []
+  let skipped = 0
+  for (const mock of mocks) {
+    let redirectTo = ""
+    if (mock.action === "redirect") {
+      try {
+        redirectTo = /^(?:https?:)?\/\/|^\//.test(mock.target)
+          ? new URL(mock.target, pageUrl).href
+          : ""
+      } catch {
+        redirectTo = ""
+      }
+    }
+    const rule = cleanRule(
+      {
+        match: mock.match,
+        method: mock.method,
+        action: mock.action,
+        status: mock.status,
+        body: mock.body,
+        headers: headerLines(mock.headers),
+        redirectTo,
+        delayMs: mock.delayMs,
+        times: mock.times,
+        chance: mock.chance,
+        enabled: mock.enabled,
+      },
+      mock.id
+    )
+    if (rule) rules.push(rule)
+    else skipped += 1
+  }
+  return { rules, skipped }
+}
+
 /** A file the person can keep, share, and import again. */
 export function exportLibrary(library: RuleLibrary, now: number): string {
   return `${JSON.stringify(

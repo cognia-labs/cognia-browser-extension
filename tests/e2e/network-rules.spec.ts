@@ -11,7 +11,15 @@
  */
 import contract from "@cognia/companion-client/browser-agent-protocol.json" with { type: "json" }
 
-import { expect, openView, pairThroughPanel, tabIdOf, test, type Page } from "./fixtures"
+import {
+  expect,
+  openView,
+  pairThroughPanel,
+  requestCapture,
+  tabIdOf,
+  test,
+  type Page,
+} from "./fixtures"
 import type { MockHost } from "./mock-host"
 
 test.use({ extensionProfile: "granted" })
@@ -80,6 +88,39 @@ test.describe("saved rules", () => {
     await panel.getByTestId("rules-headers").fill("x-env: staging")
     await panel.getByTestId("rules-add").click()
     await expect(panel.getByTestId("rules-needs-dnr")).toBeVisible()
+  })
+})
+
+test.describe("a tab's simulated requests", () => {
+  test("can be kept for the site, and then answer a fresh tab as it loads", async ({
+    panel,
+    mockHost,
+    serviceWorker,
+    context,
+  }) => {
+    const url = servePages(mockHost)
+    await panel.getByRole("button", { name: "Use local mode", exact: true }).click()
+    const first = await context.newPage()
+    await first.goto(url)
+    await requestCapture(serviceWorker, await tabIdOf(serviceWorker, url), "auto")
+    await expect(panel.getByTestId("capture-preview")).toBeVisible()
+    await openView(panel, "tools")
+    await panel.getByRole("button", { name: "Simulate requests", exact: true }).click()
+    await panel.getByTestId("mock-match").fill("/page/orders-data")
+    await panel.getByTestId("mock-action").click()
+    await panel.getByRole("option", { name: "Respond with" }).click()
+    await panel.getByTestId("mock-status").fill("503")
+    await panel.getByTestId("mock-body").fill("kept")
+    await panel.getByTestId("mock-delay").fill("0")
+    await panel.getByTestId("mock-add").click()
+    await panel.getByTestId("mock-save-rules").click()
+    await expect(panel.getByTestId("mock-saved")).toContainText("Saved 1 rules")
+
+    const fresh = await context.newPage()
+    await fresh.goto(url)
+    await expect.poll(() => resultOf(fresh)).toBe("fetch 503 kept")
+    await panel.getByRole("button", { name: "Request rules", exact: true }).click()
+    await expect(panel.getByTestId("rules-groups")).toContainText("127.0.0.1")
   })
 })
 

@@ -102,9 +102,9 @@ describe("a conversation's rules", () => {
         condition: expect.objectContaining({ tabIds: [5] }),
       }),
     ])
-    expect(fake.state.scripts).toEqual(
-      expect.arrayContaining(["http://*/*", "https://*/*", "https://shop.test/*"])
-    )
+    // Only where its tab is: no other page waits for the gate.
+    expect(fake.state.scripts).toContain("https://shop.test/*")
+    expect(fake.state.scripts).not.toContain("https://*/*")
     expect(fake.state.pages.get(5)!.map((rule) => rule.status)).toEqual([503, 200])
     expect(await rules.pageRulesFor(6, "https://shop.test/")).toEqual([
       expect.objectContaining({ status: 200 }),
@@ -150,6 +150,35 @@ describe("a conversation's rules", () => {
     await rules.sync()
     expect(await rules.agentSets()).toEqual({})
     expect(fake.state.session).toEqual([])
+  })
+
+  it("move the gate where the agent goes, before it loads", async () => {
+    const { rules, fake, hold } = harness()
+    hold("s1", [5])
+    fake.state.urls.set(5, "https://shop.test/")
+    await rules.setAgentRules("s1", [{ match: "/a", action: "respond", status: 503 }], [tab(5)])
+    await rules.beforeNavigate("s1", "https://pay.test/checkout")
+    expect(fake.state.scripts).toContain("https://pay.test/*")
+    // Not for a conversation without page rules.
+    hold("s2", [9])
+    await rules.beforeNavigate("s2", "https://other.test/")
+    expect(fake.state.scripts).not.toContain("https://other.test/*")
+  })
+
+  it("follow a tab that reached a new site by itself, and fill its page", async () => {
+    const { rules, fake, hold } = harness()
+    hold("s1", [5])
+    fake.state.urls.set(5, "https://shop.test/")
+    await rules.setAgentRules("s1", [{ match: "/a", action: "respond", status: 503 }], [])
+    fake.state.urls.set(5, "https://elsewhere.test/")
+    await rules.tabUpdated(5, "https://elsewhere.test/", false)
+    expect(fake.state.scripts).toContain("https://elsewhere.test/*")
+    expect(fake.state.pages.has(5)).toBe(false)
+    await rules.tabUpdated(5, "https://elsewhere.test/", true)
+    expect(fake.state.pages.get(5)).toEqual([expect.objectContaining({ status: 503 })])
+    // A tab no conversation holds is left alone.
+    await rules.tabUpdated(8, "https://elsewhere.test/", true)
+    expect(fake.state.pages.has(8)).toBe(false)
   })
 
   it("refuses a set with any rule it cannot apply", async () => {

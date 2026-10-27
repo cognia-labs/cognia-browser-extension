@@ -24,7 +24,7 @@ import {
 } from "./rules"
 
 export type RuleCommand =
-  | { op: "add-group"; name: string; sites: string[] }
+  | { op: "add-group"; name: string; sites: string[]; rules?: unknown[] }
   | { op: "update-group"; groupId: string; name?: string; sites?: string[]; enabled?: boolean }
   | { op: "remove-group"; groupId: string }
   | { op: "add-rule"; groupId: string; rule: unknown }
@@ -40,7 +40,9 @@ export interface RuleCommandMessage {
   command: RuleCommand
 }
 
-export type RuleCommandResult = { ok: true } | { ok: false; error: RuleCommandError }
+/** `skipped`: rules sent with a new group that could not be applied. */
+export type RuleCommandResult =
+  { ok: true; skipped?: number } | { ok: false; error: RuleCommandError }
 
 export type RuleCommandError =
   | "invalid_rule"
@@ -134,7 +136,14 @@ export class NetworkRuleStore {
           return { ok: true }
         }
         const library = await this.library()
-        await this.local.set(NETWORK_RULES_KEY, this.change(library, command))
+        const changed = this.change(library, command)
+        await this.local.set(NETWORK_RULES_KEY, changed)
+        if (command.op === "add-group" && command.rules) {
+          const kept = changed.groups.at(-1)?.rules.length ?? 0
+          const skipped = Math.min(command.rules.length, MAX_RULES_PER_GROUP) - kept
+          const over = Math.max(0, command.rules.length - MAX_RULES_PER_GROUP)
+          if (skipped + over > 0) return { ok: true, skipped: skipped + over }
+        }
         return { ok: true }
       } catch (error) {
         if (error instanceof Refusal) return { ok: false, error: error.code }
@@ -167,12 +176,16 @@ export class NetworkRuleStore {
       case "add-group": {
         if (groups.length >= MAX_GROUPS) throw new Refusal("too_many_groups")
         const sites = sitesOf(command.sites)
+        const rules = (command.rules ?? [])
+          .slice(0, MAX_RULES_PER_GROUP)
+          .map((rule) => cleanRule(rule, this.newId()))
+          .filter((rule): rule is NetworkRule => rule !== null)
         groups.push({
           id: this.newId(),
           name: command.name.trim().slice(0, 80) || sites.join(", "),
           sites,
           enabled: true,
-          rules: [],
+          rules,
         })
         return { v: 1, groups }
       }

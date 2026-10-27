@@ -29,6 +29,8 @@ function hits(overrides: Partial<MockHits> = {}): MockHits {
   return { installed: true, kept: false, hits: {}, log: [], ...overrides }
 }
 
+let saveOutcome: { saved: number; skipped: number } | null = { saved: 1, skipped: 0 }
+
 function setup(
   rules: RequestMock[] = [],
   mockHits: MockHits | null = null,
@@ -47,6 +49,7 @@ function setup(
     onRefresh: jest.fn(),
     onPoll: jest.fn(),
     onKeep: jest.fn(),
+    onSaveAsRules: jest.fn(async () => saveOutcome),
   }
   render(<RequestMocks {...props} />)
   if (
@@ -285,5 +288,23 @@ describe("RequestMocks", () => {
     fireEvent.change(screen.getByTestId("mock-match"), { target: { value: "/x" } })
     expect(screen.getByTestId("mock-add")).toBeDisabled()
     expect(screen.getByTestId("mock-add")).toHaveTextContent("mockFull")
+  })
+
+  it("saves the tab's rules for the site and says what it kept", async () => {
+    saveOutcome = { saved: 1, skipped: 1 }
+    const props = setup([RULE], hits())
+    fireEvent.click(screen.getByTestId("mock-save-rules"))
+    expect(await screen.findByTestId("mock-saved")).toHaveTextContent("mockSavedSkipped:1/1")
+    expect(props.onSaveAsRules).toHaveBeenCalledTimes(1)
+    saveOutcome = null
+    fireEvent.click(screen.getByTestId("mock-save-rules"))
+    await act(async () => undefined)
+    expect(await screen.findByTestId("mock-saved")).toHaveTextContent("mockSaveFailed")
+    saveOutcome = { saved: 1, skipped: 0 }
+  })
+
+  it("offers saving only for a web page", () => {
+    setup([RULE], hits(), { canKeep: false })
+    expect(screen.queryByTestId("mock-save-rules")).toBeNull()
   })
 })

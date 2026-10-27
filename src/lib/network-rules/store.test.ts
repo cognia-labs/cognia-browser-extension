@@ -77,6 +77,24 @@ describe("NetworkRuleStore", () => {
     )
   })
 
+  it("adds a group with its rules at once, and counts the ones it could not keep", async () => {
+    const { store } = harness()
+    expect(
+      await store.apply({
+        op: "add-group",
+        name: "",
+        sites: ["shop.test"],
+        rules: [
+          { match: "/a", action: "fail" },
+          { match: "", action: "fail" },
+        ],
+      })
+    ).toEqual({ ok: true, skipped: 1 })
+    expect((await store.library()).groups[0]!.rules).toEqual([
+      expect.objectContaining({ match: "/a" }),
+    ])
+  })
+
   it("serializes changes that land together", async () => {
     const { store } = harness()
     await Promise.all([

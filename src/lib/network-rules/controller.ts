@@ -87,6 +87,22 @@ export function createNetworkRules(deps: NetworkRulesDeps) {
         .map((id) => [id, sessions[id]?.tabIds ?? []])
     )
 
+  /** Hosts an agent is about to load, added to the gate before the load starts. */
+  const upcoming = new Set<string>()
+  /** Hosts the last sync registered the gate for, for a conversation's page rules. */
+  let gated = new Set<string>()
+
+  async function ownerOf(tabId: number) {
+    const sessions = await deps.sessions()
+    return Object.values(sessions).find((session) => session.tabIds.includes(tabId)) ?? null
+  }
+
+  async function hasPageRules(sessionId: string) {
+    return ((await store.agentSets())[sessionId] ?? []).some(
+      (rule) => rule.enabled && coverageOf(rule) === "page-requests"
+    )
+  }
+
   function sync(): Promise<void> {
     const run = syncing.then(async () => {
       const sessions = await deps.sessions()
@@ -96,7 +112,8 @@ export function createNetworkRules(deps: NetworkRulesDeps) {
       )
       const sets = await store.agentSets()
       scoped = scopeOf(sessions, sets)
-      const agentHosts = new Set<string>()
+      const agentHosts = new Set<string>(upcoming)
+      upcoming.clear()
       for (const id of Object.keys(sets)) {
         for (const tabId of sessions[id]?.tabIds ?? []) {
           const host = hostOf((await deps.browser.tabUrl(tabId).catch(() => null)) ?? undefined)
@@ -110,6 +127,7 @@ export function createNetworkRules(deps: NetworkRulesDeps) {
         tabsBySession,
         [...agentHosts]
       )
+      gated = agentHosts
       await deps.session.set(RULE_SYNC_STATUS_KEY, status)
     })
     syncing = run.catch(() => undefined)
@@ -138,6 +156,33 @@ export function createNetworkRules(deps: NetworkRulesDeps) {
   return {
     sync,
     pageRulesFor,
+
+    /**
+     * An agent is about to load `url`: the gate goes there first, so the
+     * page's first requests meet the conversation's rules.
+     */
+    async beforeNavigate(sessionId: string, url: string): Promise<void> {
+      const host = hostOf(url)
+      if (!host || gated.has(host) || !(await hasPageRules(sessionId))) return
+      upcoming.add(host)
+      await sync()
+    },
+
+    /**
+     * A tab changed address or finished loading. A conversation's tab that
+     * reached a site some other way — a link, a redirect — gets the gate for
+     * the next load there, and the rules in this page once it has loaded.
+     */
+    async tabUpdated(tabId: number, url: string | undefined, complete: boolean): Promise<void> {
+      const owner = await ownerOf(tabId)
+      if (!owner || !(await hasPageRules(owner.id))) return
+      const host = hostOf(url)
+      if (host && !gated.has(host)) await sync().catch(() => undefined)
+      if (complete)
+        await deps.browser
+          .runPageRules(tabId, await pageRulesFor(tabId, url))
+          .catch(() => undefined)
+    },
 
     /**
      * The conversations changed. Their rules follow their tabs, so a tab

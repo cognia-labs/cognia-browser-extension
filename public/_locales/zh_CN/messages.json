@@ -2657,5 +2657,30 @@
   },
   "recordingsEmpty": {
     "message": "还没有录制。"
+  },
+  "mockSaveAsRules": {
+    "message": "保存为此网站的规则"
+  },
+  "mockSaved": {
+    "message": "已将 $COUNT$ 条规则保存到“请求规则”，每次访问此网站都会生效。",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockSavedSkipped": {
+    "message": "已将 $COUNT$ 条规则保存到“请求规则”。有 $SKIPPED$ 条无法保存：只替换部分地址的重定向仅在此标签页中有效。",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "skipped": {
+        "content": "$2"
+      }
+    }
+  },
+  "mockSaveFailed": {
+    "message": "无法保存规则，请重试。"
   }
 }

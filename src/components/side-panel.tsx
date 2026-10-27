@@ -189,6 +189,7 @@ import { Measurements } from "./measurements"
 import { PageAudit, ruleTitle, type AuditAction } from "./page-audit"
 import { layoutRuleTitle } from "./layout-result"
 import { focusRuleTitle } from "./focus-result"
+import { rulesFromMocks } from "@ext/src/lib/network-rules/rules"
 import { NetworkRules } from "./network-rules"
 import { Recordings } from "./recordings"
 import { RequestMocks } from "./request-mocks"
@@ -2732,6 +2733,23 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
    * Keep the rules across reloads of the tab, or stop: the site's permission
    * is asked for first, while the click still counts as the person's.
    */
+  /** The tab's simulated requests, kept for its site in the saved request rules. */
+  const saveMocksAsRules = useCallback(async () => {
+    const host = hostOf(mocks?.url)
+    if (!mocks || !host) return null
+    const { rules, skipped } = rulesFromMocks(mocks.rules, mocks.url)
+    if (rules.length === 0) return { saved: 0, skipped }
+    const result = await api.networkRuleCommand({
+      op: "add-group",
+      name: host,
+      sites: [host],
+      rules,
+    })
+    if (!result.ok) return null
+    const lost = result.skipped ?? 0
+    return { saved: rules.length - lost, skipped: skipped + lost }
+  }, [api, mocks])
+
   const keepMocks = useCallback(
     async (keep: boolean) => {
       if (!mocks) return
@@ -4199,6 +4217,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           onPoll={pollMocks}
           canKeep={/^https?:/.test(mocks?.url ?? "")}
           onKeep={(keep) => void keepMocks(keep)}
+          onSaveAsRules={saveMocksAsRules}
         />
         <NetworkRules api={api} currentHost={hostOf(state.captured?.url)} />
         <Recordings

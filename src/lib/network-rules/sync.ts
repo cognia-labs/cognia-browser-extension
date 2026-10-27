@@ -44,7 +44,7 @@ export async function syncNetworkRules(
   library: RuleLibrary,
   agentSets: AgentRuleSets,
   tabsBySession: Readonly<Record<string, readonly number[]>>,
-  /** The hosts the conversations' tabs are on, for when not every site is granted. */
+  /** The hosts the conversations' tabs are on, or are being sent to. */
   agentHosts: readonly string[] = []
 ): Promise<RuleSyncStatus> {
   let id = 0
@@ -70,12 +70,10 @@ export async function syncNetworkRules(
   for (const [sessionId, rules] of Object.entries(agentSets)) {
     const tabIds = [...(tabsBySession[sessionId] ?? [])]
     for (const rule of rules) {
-      // A conversation's tabs can open any site, and the gate is registered
-      // by site: while it has page rules, every page asks the worker, and
-      // only its tabs get an answer.
+      // The gate is registered by site, for the sites the conversation's
+      // tabs are on and about to go to: other pages never wait for it.
       if (rule.enabled && coverageOf(rule) === "page-requests")
-        for (const pattern of [...sitePatterns(["*"]), ...sitePatterns(agentHosts)])
-          pageSites.add(pattern)
+        for (const pattern of sitePatterns(agentHosts)) pageSites.add(pattern)
       await add(
         compileRule(rule, { tabIds }, nextId, Math.max(1, AGENT_PRIORITY - order++)),
         rule.id
