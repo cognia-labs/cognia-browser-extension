@@ -197,6 +197,8 @@ function harness(
       tabInfo: async () => null,
       injectRecorder: async () => undefined,
       removeRecorder: async () => undefined,
+      hasOrigin: async () => true,
+      setRecorderScripts: async () => undefined,
     },
     createSocket: (url) => {
       sockets.push(url)

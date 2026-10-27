@@ -21,6 +21,7 @@ import { isPageRulesMessage } from "@ext/src/lib/network-rules/page"
 import { isRuleCommandMessage } from "@ext/src/lib/network-rules/store"
 import { createChromeRecordingBrowser } from "@ext/src/lib/recordings/chrome-recordings"
 import {
+  isRecordingAskMessage,
   isRecordingCommandMessage,
   isRecordingStepMessage,
   isRecordingStopMessage,
@@ -242,6 +243,14 @@ export default defineBackground(() => {
       void ready
         .then(() => worker.onRecordingCommand(message.command, sender.url))
         .then(sendResponse, () => sendResponse(false))
+      return true
+    }
+    // The registered recorder at `document_start`: is this tab recording?
+    if (isRecordingAskMessage(message)) {
+      if (sender.tab?.id === undefined || sender.frameId !== 0) return false
+      void ready
+        .then(() => worker.recordings.askFor(sender.tab?.id))
+        .then(sendResponse, () => sendResponse(null))
       return true
     }
     // The recorder, from inside the tab it records; the worker checks the tab is recording.

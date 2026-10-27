@@ -187,6 +187,8 @@ function harness(
         injectedRecorders.push(tabId)
       },
       removeRecorder: async () => undefined,
+      hasOrigin: async () => true,
+      setRecorderScripts: async () => undefined,
     },
   })
   const executor = createAgentExecutor({

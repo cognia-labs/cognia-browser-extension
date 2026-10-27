@@ -1,6 +1,7 @@
-// Injected by the worker into a tab that is recording for a test, in the
-// isolated world, on every load until the recording stops
-// (`recordings/recorder.ts`). The worker then calls the starter it leaves.
+// The recorder for a tab that is recording for a test, in the isolated world
+// (`recordings/recorder.ts`). Registered at `document_start` for the sites
+// being recorded, it asks the worker whether this tab is one of them; put in
+// by the worker after a load, it is started by the worker instead.
 import { defineUnlistedScript } from "wxt/utils/define-unlisted-script"
 
 import { installTestRecorder } from "@ext/src/lib/recordings/recorder"
@@ -22,4 +23,11 @@ export default defineUnlistedScript(() => {
     })
     return true
   }
+  void chrome.runtime.sendMessage({ kind: "cognia-recording-ask" }).then(
+    (answer: { synthetic?: unknown } | null) => {
+      if (answer && typeof answer === "object")
+        globalThis.__cogniaStartTestRecorder?.(answer.synthetic === true)
+    },
+    () => undefined
+  )
 })

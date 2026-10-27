@@ -3,7 +3,11 @@ import { memoryStorageArea } from "../agent/storage-area"
 import { createRecordings, isRecordingCommandMessage, type RecordingBrowser } from "./controller"
 import { ACTIVE_RECORDINGS_KEY, RECORDINGS_KEY } from "./model"
 
-function harness(tabs: Record<number, { url: string; title: string }> = {}) {
+function harness(
+  tabs: Record<number, { url: string; title: string }> = {},
+  granted: (pattern: string) => boolean = () => true
+) {
+  const scripts: string[][] = []
   const local = memoryStorageArea()
   const session = memoryStorageArea()
   const injected: [number, boolean][] = []
@@ -16,6 +20,10 @@ function harness(tabs: Record<number, { url: string; title: string }> = {}) {
     removeRecorder: async (tabId) => {
       removed.push(tabId)
     },
+    hasOrigin: async (pattern) => granted(pattern),
+    setRecorderScripts: async (matches) => {
+      scripts.push(matches)
+    },
   }
   let clock = 100
   let next = 0
@@ -26,7 +34,7 @@ function harness(tabs: Record<number, { url: string; title: string }> = {}) {
     newId: () => `rec-${++next}`,
     now: () => clock++,
   })
-  return { recordings, local, session, injected, removed }
+  return { recordings, local, session, injected, removed, scripts, tabs }
 }
 
 const SHOP = { url: "https://shop.test/", title: "Shop" }
@@ -112,6 +120,31 @@ describe("createRecordings", () => {
     expect((await h.local.get<{ title: string }[]>(RECORDINGS_KEY))![0]!.title).toBe("Checkout")
     expect(await h.recordings.command({ op: "remove", recordingId: "rec-1" })).toBe(true)
     expect(await h.local.get(RECORDINGS_KEY)).toEqual([])
+  })
+
+  it("registers the recorder for the recording tabs' sites, and answers it there", async () => {
+    const h = harness(
+      { 5: SHOP, 6: { url: "http://other.test/a", title: "" }, 7: SHOP },
+      (pattern) => pattern !== "http://other.test/*"
+    )
+    await h.recordings.start(5, { byAgent: false })
+    await h.recordings.start(6, { byAgent: true, sessionId: "s1" })
+    expect(h.scripts).toEqual([["https://shop.test/*"]])
+    expect(await h.recordings.askFor(5)).toEqual({ synthetic: false })
+    expect(await h.recordings.askFor(6)).toEqual({ synthetic: true })
+    expect(await h.recordings.askFor(7)).toBeNull()
+    expect(await h.recordings.askFor(undefined)).toBeNull()
+
+    // The tab moved to a granted site: the next load is covered there too.
+    h.tabs[6] = { url: "https://next.test/", title: "" }
+    await h.recordings.tabLoaded(6)
+    expect(h.scripts.at(-1)).toEqual(["https://next.test/*", "https://shop.test/*"])
+    await h.recordings.tabLoaded(6)
+    expect(h.scripts).toHaveLength(2)
+
+    await h.recordings.stopTab(5)
+    await h.recordings.stopTab(6)
+    expect(h.scripts.at(-1)).toEqual([])
   })
 
   it("accepts only known panel commands", () => {

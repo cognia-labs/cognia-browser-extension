@@ -101,6 +101,33 @@ test("records what the person does, across a load, and never a password", async 
   await expect(panel.getByTestId("recordings-item")).toContainText("6 steps")
 })
 
+test("records what is done on a page before it has finished loading", async ({
+  panel,
+  mockHost,
+  serviceWorker,
+  context,
+}) => {
+  await panel.getByRole("button", { name: "Use local mode", exact: true }).click()
+  const { page, url } = await openLogin(mockHost, context)
+  const slowUrl = mockHost.servePage(
+    "slow",
+    `<!doctype html><title>Slow</title><button onclick="this.textContent='Early'">Act now</button><img src="/slow/4000" alt="" />`
+  )
+  await requestCapture(serviceWorker, await tabIdOf(serviceWorker, url), "auto")
+  await openView(panel, "tools")
+  await panel.getByRole("button", { name: "Record a test", exact: true }).click()
+  await panel.getByTestId("recordings-start").click()
+  await expect(panel.getByTestId("recordings-stop")).toBeVisible()
+
+  await page.goto(slowUrl, { waitUntil: "domcontentloaded" })
+  await page.getByRole("button", { name: "Act now" }).click()
+  expect(await page.evaluate(() => document.readyState)).not.toBe("complete")
+  await expect
+    .poll(async () => (await stored(serviceWorker))[0]?.steps.map((step) => step.action))
+    .toEqual(["navigate", "assert", "click"])
+  await panel.getByTestId("recordings-stop").click()
+})
+
 test("lets an agent record its own tab and read the test made from it", async ({
   panel,
   mockHost,

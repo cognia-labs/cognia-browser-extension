@@ -380,6 +380,7 @@ export function createWorker(deps: WorkerDeps) {
       await loadPairing()
       // Session rules do not survive a browser restart; the stored ones do.
       await networkRules.sync().catch(() => undefined)
+      await recordings.sync().catch(() => undefined)
       await refreshStatus()
     },
 

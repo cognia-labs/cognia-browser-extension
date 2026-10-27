@@ -26,6 +26,13 @@ export interface RecordingBrowser {
   /** Put the recorder into the tab's page; `synthetic` also takes events the page did not get from a person. */
   injectRecorder(tabId: number, options: { synthetic: boolean }): Promise<void>
   removeRecorder(tabId: number): Promise<void>
+  /** Whether the extension may run scripts on pages matching `pattern`. */
+  hasOrigin(pattern: string): Promise<boolean>
+  /**
+   * Register the recorder at `document_start` for exactly these patterns, so
+   * it is in place before a page's first action; none unregisters it.
+   */
+  setRecorderScripts(matches: string[]): Promise<void>
 }
 
 export interface RecordingsDeps {
@@ -75,6 +82,14 @@ export function isRecordingStepMessage(
   )
 }
 
+export function isRecordingAskMessage(value: unknown): value is { kind: "cognia-recording-ask" } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    (value as { kind?: unknown }).kind === "cognia-recording-ask"
+  )
+}
+
 export function isRecordingStopMessage(value: unknown): value is { kind: "cognia-recording-stop" } {
   return (
     !!value &&
@@ -104,6 +119,28 @@ export function createRecordings(deps: RecordingsDeps) {
   const active = async () => ((await session.get<Active>(ACTIVE_RECORDINGS_KEY)) ?? {}) as Active
   const write = (recordings: Recording[]) => local.set(RECORDINGS_KEY, recordings)
 
+  /** The sites of the recording tabs, per scheme, where the extension may run. */
+  let registered = ""
+  async function syncScripts(): Promise<void> {
+    const patterns = new Set<string>()
+    for (const tabId of Object.keys(await active())) {
+      const tab = await browser.tabInfo(Number(tabId)).catch(() => null)
+      try {
+        const url = new URL(tab?.url ?? "")
+        if (/^https?:$/.test(url.protocol)) patterns.add(`${url.protocol}//${url.hostname}/*`)
+      } catch {
+        // Gone, or not a web page: nothing to register for it.
+      }
+    }
+    const granted: string[] = []
+    for (const pattern of [...patterns].sort())
+      if (await browser.hasOrigin(pattern).catch(() => false)) granted.push(pattern)
+    const key = granted.join(" ")
+    if (key === registered) return
+    await browser.setRecorderScripts(granted)
+    registered = key
+  }
+
   async function finish(recordingId: string): Promise<RecordingSummary | null> {
     const tabs = await active()
     const tabIds = Object.entries(tabs)
@@ -119,6 +156,7 @@ export function createRecordings(deps: RecordingsDeps) {
       await write(recordings)
     }
     for (const tabId of tabIds) await browser.removeRecorder(tabId).catch(() => undefined)
+    await syncScripts().catch(() => undefined)
     return summaryOf(recording)
   }
 
@@ -159,6 +197,7 @@ export function createRecordings(deps: RecordingsDeps) {
         tabs[String(tabId)] = recording.id
         await session.set(ACTIVE_RECORDINGS_KEY, tabs)
         await browser.injectRecorder(tabId, { synthetic: options.byAgent })
+        await syncScripts().catch(() => undefined)
         return summaryOf(recording)
       })
     },
@@ -204,7 +243,11 @@ export function createRecordings(deps: RecordingsDeps) {
       })
     },
 
-    /** A tab finished loading: put the recorder back if it is recording. */
+    /**
+     * A tab finished loading. The registered recorder is usually in already;
+     * this puts it back where it could not be (a site it is not registered
+     * for yet), and follows the tab to that site for the next load.
+     */
     async tabLoaded(tabId: number) {
       const id = (await active())[String(tabId)]
       if (!id) return
@@ -212,7 +255,23 @@ export function createRecordings(deps: RecordingsDeps) {
       await browser
         .injectRecorder(tabId, { synthetic: recording?.byAgent === true })
         .catch(() => undefined)
+      await serialize(syncScripts).catch(() => undefined)
     },
+
+    /**
+     * The registered recorder asking, at `document_start`, whether its tab is
+     * recording: how to start if so, null otherwise.
+     */
+    async askFor(tabId: number | undefined): Promise<{ synthetic: boolean } | null> {
+      if (tabId === undefined) return null
+      const id = (await active())[String(tabId)]
+      if (!id) return null
+      const recording = (await all()).find((entry) => entry.id === id)
+      return recording ? { synthetic: recording.byAgent } : null
+    },
+
+    /** Every wake-up: the registration follows the tabs still recording. */
+    sync: () => serialize(syncScripts),
 
     async isRecording(tabId: number) {
       return (await active())[String(tabId)] !== undefined
