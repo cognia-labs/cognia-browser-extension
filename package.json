@@ -1,6 +1,6 @@
 {
   "name": "@cognia/browser-extension",
-  "version": "0.1.1",
+  "version": "0.1.6",
   "private": true,
   "description": "Capture, inspect, edit and export pages locally in Chrome/Edge, with optional Cognia task delivery and agent control.",
   "type": "module",
