@@ -82,7 +82,8 @@ export const A11Y_RULE_TEXT: Record<A11yRule, string> = {
   "heading-order": "Heading level skips a level",
   "empty-heading": "Heading is empty",
   "duplicate-id": "Id is used more than once",
-  "target-size": "Target is smaller than 24×24 px",
+  "target-size":
+    "Target is smaller than 24×24 px and too close to others for the spacing exception",
   "aria-hidden-focus": "Focusable element is hidden from assistive technology",
   "frame-title": "Frame has no title",
   tabindex: "Positive tabindex changes the focus order",
@@ -94,6 +95,54 @@ const MAX_PER_RULE = 15
 const MAX_SCANNED = 4_000
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+
+/** WCAG 2.5.8's minimum, in CSS pixels: the side of a target, and the spacing circle's diameter. */
+const TARGET_SIZE = 24
+
+interface Target {
+  element: Element
+  rect: { left: number; top: number; right: number; bottom: number; width: number; height: number }
+  undersized: boolean
+}
+
+/** How far a point is from a rectangle; 0 inside it. */
+function distanceToRect(x: number, y: number, rect: Target["rect"]): number {
+  const dx = Math.max(rect.left - x, 0, x - rect.right)
+  const dy = Math.max(rect.top - y, 0, y - rect.bottom)
+  return Math.hypot(dx, dy)
+}
+
+/**
+ * Why an undersized target fails WCAG 2.5.8's spacing exception, or null when
+ * it qualifies for it: a 24 px circle centred on its box must touch neither
+ * another target nor the 24 px circle of another undersized target. A target
+ * nested in another (a wrapper and the control in it) is the same place to
+ * press, not a neighbour.
+ */
+function crowdedBy(target: Target, targets: readonly Target[]): string | null {
+  const x = (target.rect.left + target.rect.right) / 2
+  const y = (target.rect.top + target.rect.bottom) / 2
+  const radius = TARGET_SIZE / 2
+  let nearest = Number.POSITIVE_INFINITY
+  for (const other of targets) {
+    if (
+      other === target ||
+      other.element.contains(target.element) ||
+      target.element.contains(other.element)
+    )
+      continue
+    const toBox = distanceToRect(x, y, other.rect)
+    const toCircle = other.undersized
+      ? Math.hypot(
+          x - (other.rect.left + other.rect.right) / 2,
+          y - (other.rect.top + other.rect.bottom) / 2
+        ) - radius
+      : Number.POSITIVE_INFINITY
+    nearest = Math.min(nearest, toBox, toCircle)
+  }
+  if (nearest >= radius) return null
+  return `another target or its 24 px circle ${Math.max(0, Math.round(nearest))} px from its centre, needs 12 px`
+}
 
 /** Whether an element has a name from its content or attributes, images and icons included. */
 function hasName(element: Element): boolean {
@@ -155,6 +204,7 @@ export function auditDocument(
   // On screen, form fields and frames included; aria-hidden is a rule here,
   // not a reason to look away.
   const visible = createVisibility(hidesFromView)
+  const targets: Target[] = []
 
   for (const element of elements) {
     if (element.closest("[data-cognia-chrome]")) continue
@@ -236,18 +286,33 @@ export function auditDocument(
     if (element.matches(FOCUSABLE) && view) {
       const style = view.getComputedStyle(element)
       const rect = element.getBoundingClientRect()
-      // Inline links in running text are WCAG's own exception.
-      const inline = tag === "a" && style.display === "inline"
-      if (!inline && rect.width > 0 && rect.height > 0 && (rect.width < 24 || rect.height < 24))
-        report(
-          "target-size",
-          "moderate",
+      if (rect.width > 0 && rect.height > 0) {
+        // Inline links in running text are WCAG's own exception; they are
+        // still targets another one may sit too close to.
+        const inline = tag === "a" && style.display === "inline"
+        targets.push({
           element,
-          `${Math.round(rect.width)}×${Math.round(rect.height)}`
-        )
+          rect,
+          undersized: !inline && (rect.width < TARGET_SIZE || rect.height < TARGET_SIZE),
+        })
+      }
     }
 
     if (view) checkContrast(element, view, readColor, report)
+  }
+
+  // Judged once every target on the page is known: the spacing exception
+  // looks at the neighbours.
+  for (const target of targets) {
+    if (!target.undersized) continue
+    const crowding = crowdedBy(target, targets)
+    if (crowding === null) continue
+    report(
+      "target-size",
+      "moderate",
+      target.element,
+      `${Math.round(target.rect.width)}×${Math.round(target.rect.height)}, ${crowding}; review by hand`
+    )
   }
 
   for (const [id, holders] of ids) {
@@ -341,16 +406,30 @@ function checkContrast(
   )
 }
 
+/**
+ * What the pass looks at and what it leaves to a person, said with every
+ * result: a clean run is not a pass, and a finding is a lead, not a verdict.
+ */
+export const AUDIT_COVERAGE =
+  "Covers on-screen elements of the top document (no iframes, no shadow roots, at most 4,000 elements): names, labels, text contrast, headings, ids, focus and tabindex, frame titles, page language and title, and target size with WCAG 2.5.8's spacing and inline-link exceptions. Findings are heuristic and need review by hand; keyboard use, screen-reader output, motion, reflow and the equivalent-control and essential exceptions are not checked."
+
 /** The findings as Markdown for the agent, worst first. */
 export function auditMarkdown(audit: Pick<A11yAudit, "issues" | "checked" | "truncated">): string {
   const lines = [`## Accessibility check (${audit.issues.length} findings)`, ""]
   if (audit.issues.length === 0) {
     lines.push(
-      `No findings in ${audit.checked} elements. This is a first pass, not a conformance audit.`
+      `No findings in ${audit.checked} elements. This is a first pass, not a conformance audit.`,
+      "",
+      AUDIT_COVERAGE
     )
     return lines.join("\n")
   }
-  lines.push("A first pass with WCAG 2.2 AA thresholds; selectors match the live page.", "")
+  lines.push(
+    "A first pass with WCAG 2.2 AA thresholds; selectors match the live page.",
+    "",
+    AUDIT_COVERAGE,
+    ""
+  )
   for (const issue of audit.issues) {
     const where = issue.selector ? ` — \`${issue.selector}\`` : ""
     const detail = issue.detail ? ` (${issue.detail})` : ""

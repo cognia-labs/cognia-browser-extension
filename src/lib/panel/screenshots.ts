@@ -107,8 +107,40 @@ export function regionInImagePixels(
 }
 
 /**
+ * The rows each segment adds, in device pixels, from where each one actually
+ * landed — not where it was asked to go. A page that scrolled less than asked
+ * (smooth scrolling, a sticky footer, a script holding the position) overlaps
+ * the segment before it; only the rows below the previous one's bottom are
+ * new. The first segment is new entirely.
+ */
+export function freshSegmentRows(
+  landed: readonly number[],
+  viewportHeight: number,
+  dpr: number
+): number[] {
+  return landed.map((at, index) => {
+    const fresh = index === 0 ? viewportHeight : at - landed[index - 1]!
+    return Math.round(Math.max(0, Math.min(viewportHeight, fresh)) * dpr)
+  })
+}
+
+/**
+ * Whether the stitched segments stop short of the page's bottom: the last one
+ * landed too high to reach it. One CSS pixel of slack for fractional scroll
+ * positions.
+ */
+export function stopsShort(
+  landed: readonly number[],
+  metrics: { scrollHeight: number; viewportHeight: number }
+): boolean {
+  const last = landed.at(-1) ?? 0
+  return last + metrics.viewportHeight < metrics.scrollHeight - 1
+}
+
+/**
  * The whole page, stitched. Answers base64 PNG and whether it was cut short
- * (more segments than {@link MAX_SEGMENTS}, or taller than a canvas draws).
+ * (more segments than {@link MAX_SEGMENTS}, taller than a canvas draws, or a
+ * page that would not scroll as far as its height says).
  */
 export async function captureFullPage(
   api: ShotApi,
@@ -128,33 +160,30 @@ export async function captureFullPage(
     Math.max(1, Math.ceil(metrics.scrollHeight / metrics.viewportHeight))
   )
   const shots: string[] = []
-  const heights: number[] = []
+  const landed: number[] = []
   await withoutChrome(api, tab.id, async () => {
     try {
       for (let step = 0; step < steps; step++) {
-        const landed = await api.scrollTo(tab.id, step * metrics.viewportHeight)
+        // Sideways the page stays where the person left it; every segment is
+        // the same horizontal slice.
+        const at = await api.scrollTo(tab.id, step * metrics.viewportHeight)
         await sleep(step === 0 ? 150 : CAPTURE_SPACING_MS)
         shots.push(await api.captureVisible(windowId))
-        // A last segment that could not scroll a full viewport overlaps the one
-        // before it; only the rows below the previous bottom are new.
-        const previousBottom = step * metrics.viewportHeight
-        const fresh =
-          step === 0 ? metrics.viewportHeight : landed + metrics.viewportHeight - previousBottom
-        heights.push(Math.round(Math.max(0, Math.min(metrics.viewportHeight, fresh)) * metrics.dpr))
+        landed.push(at)
       }
     } finally {
-      await api.scrollTo(tab.id, metrics.scrollY).catch(() => undefined)
+      // Both axes back, also when a capture failed part way.
+      await api.scrollTo(tab.id, metrics.scrollY, metrics.scrollX).catch(() => undefined)
     }
   })
+  const heights = freshSegmentRows(landed, metrics.viewportHeight, metrics.dpr)
   const width = Math.min(MAX_CANVAS_SIDE, Math.round(metrics.viewportWidth * metrics.dpr))
   const rows = heights.reduce((sum, value) => sum + value, 0)
   return {
     base64: await api.stitchImages(shots, width, heights),
     width,
     height: Math.min(MAX_CANVAS_SIDE, rows),
-    truncated:
-      rows > MAX_CANVAS_SIDE ||
-      (steps === MAX_SEGMENTS && metrics.scrollHeight > steps * metrics.viewportHeight),
+    truncated: rows > MAX_CANVAS_SIDE || stopsShort(landed, metrics),
   }
 }
 

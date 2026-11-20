@@ -160,6 +160,7 @@ export function pageScrollMetrics(): {
   viewportHeight: number
   viewportWidth: number
   scrollY: number
+  scrollX: number
   dpr: number
 } {
   const root = document.scrollingElement ?? document.documentElement
@@ -168,12 +169,27 @@ export function pageScrollMetrics(): {
     viewportHeight: window.innerHeight,
     viewportWidth: window.innerWidth,
     scrollY: window.scrollY,
+    scrollX: window.scrollX,
     dpr: window.devicePixelRatio || 1,
   }
 }
 
-export function pageScrollTo(y: number): number {
-  window.scrollTo(0, y)
+/**
+ * Scroll to `y`, and to `x` when given (else where the page already is
+ * sideways); answers where the page actually landed.
+ *
+ * `instant` on purpose: a page styled `scroll-behavior: smooth` otherwise
+ * animates, and `scrollY` read straight after is where the animation started
+ * — a full-page capture then stitches segments from the wrong rows.
+ * `null` stands for "not given": `chrome.scripting` serializes the arguments
+ * as JSON, which has no `undefined`.
+ */
+export function pageScrollTo(y: number, x?: number | null): number {
+  window.scrollTo({
+    left: typeof x === "number" ? x : window.scrollX,
+    top: y,
+    behavior: "instant",
+  })
   return window.scrollY
 }
 
@@ -322,6 +338,8 @@ export function pageActingBar(
   state: null | {
     session: string
     takenOver: boolean
+    /** A line under the state, e.g. that the Host did not confirm a Stop. */
+    notice?: string
     labels: {
       acting: string
       paused: string
@@ -358,7 +376,8 @@ export function pageActingBar(
     "box-shadow:0 6px 24px rgba(0,0,0,.25)}.dot{width:8px;height:8px;border-radius:50%;" +
     "background:#34d399}.paused .dot{background:#fbbf24}button{all:unset;cursor:pointer;" +
     "padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.14)}" +
-    "button:hover{background:rgba(255,255,255,.26)}button:focus-visible{outline:2px solid #93c5fd}"
+    "button:hover{background:rgba(255,255,255,.26)}button:focus-visible{outline:2px solid #93c5fd}" +
+    ".words{display:flex;flex-direction:column}.notice{font-size:11px;font-weight:400;color:#fcd34d}"
   const bar = document.createElement("div")
   bar.className = state.takenOver ? "bar paused" : "bar"
   bar.setAttribute("role", "status")
@@ -366,6 +385,15 @@ export function pageActingBar(
   dot.className = "dot"
   const text = document.createElement("span")
   text.textContent = state.takenOver ? state.labels.paused : state.labels.acting
+  const words = document.createElement("span")
+  words.className = "words"
+  words.append(text)
+  if (state.notice) {
+    const notice = document.createElement("span")
+    notice.className = "notice"
+    notice.textContent = state.notice
+    words.append(notice)
+  }
   const send = (action: "stop" | "takeover" | "resume") =>
     void chrome.runtime.sendMessage({
       kind: "cognia-agent-control",
@@ -386,7 +414,7 @@ export function pageActingBar(
   stop.addEventListener("click", (event) => {
     if (event.isTrusted) send("stop")
   })
-  bar.append(dot, text, toggle, stop)
+  bar.append(dot, words, toggle, stop)
   root.append(style, bar)
   return true
 }

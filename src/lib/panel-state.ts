@@ -39,7 +39,17 @@ export interface CapturedPage {
   /** Already normalized: credentials gone, query/fragment gone unless asked. */
   url: string
   rawUrl: string
-  selection: { text: string; truncated: boolean; markdown?: string } | null
+  /**
+   * `truncated` is the plain text's cut; `markdownTruncated` the Markdown's,
+   * which is longer and can be cut where the plain text was not. Whichever
+   * form is shown and sent, its own flag says so ({@link selectionTruncated}).
+   */
+  selection: {
+    text: string
+    truncated: boolean
+    markdown?: string
+    markdownTruncated?: boolean
+  } | null
   readableText: {
     text: string
     truncated: boolean
@@ -69,6 +79,17 @@ export interface CapturedPage {
  * is the main content as Markdown.
  */
 export type CaptureScope = "auto" | "page" | "article"
+
+/**
+ * Whether the selection as shown and sent — its Markdown when it has one,
+ * else its plain text — was cut to fit.
+ */
+export function selectionTruncated(selection: CapturedPage["selection"]): boolean {
+  if (!selection) return false
+  return selection.markdown !== undefined
+    ? (selection.markdownTruncated ?? selection.truncated)
+    : selection.truncated
+}
 
 export function hasFeature(
   capability: Pick<BrowserCompanionCapabilityV1, "features"> | undefined,

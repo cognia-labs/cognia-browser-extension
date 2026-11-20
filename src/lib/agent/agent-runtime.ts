@@ -13,7 +13,14 @@
 import { createAgentExecutor, GROUP_TITLE, type AgentBrowser } from "./executor"
 import { pageActingBar } from "./page-functions"
 import { AgentOperationError, operationBudgetMs, type AgentOperation } from "./protocol"
-import { SessionStore, sessionForTab, withTab, withoutTab, type AgentSession } from "./sessions"
+import {
+  SessionStore,
+  sessionForTab,
+  withTab,
+  withoutTab,
+  type AgentSession,
+  type HostCancelOutcome,
+} from "./sessions"
 import { SitePermissions, type SiteQuestion } from "./site-permissions"
 import type { StorageArea } from "./storage-area"
 import type { NetworkRules } from "../network-rules/controller"
@@ -29,13 +36,18 @@ export interface AgentRuntimeDeps {
   sleep: (ms: number) => Promise<void>
   newId: () => string
   onQuestion: (question: SiteQuestion) => void
-  /** Cancel the Host task acting in this conversation (Stop on the bar). */
-  cancelConversation: (sessionId: string) => Promise<void>
+  /**
+   * Cancel the Host task acting in this conversation (Stop on the bar), and
+   * say whether the Host confirmed it.
+   */
+  cancelConversation: (sessionId: string) => Promise<HostCancelOutcome>
   /** The request rules; a conversation's own end with it (ADR-0242). */
   networkRules?: NetworkRules
   /** The recordings; a conversation's end with it too. */
   recordings?: Recordings
 }
+
+export type { HostCancelOutcome } from "./sessions"
 
 export type AgentControlAction = "stop" | "takeover" | "resume"
 
@@ -115,10 +127,16 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
     }
   }
 
+  /**
+   * The bar for a session as stored: paused after a Stop that Cognia did not
+   * confirm, it says so — on every repaint, not only the one after the click.
+   */
   function barState(current: AgentSession) {
+    const unconfirmed = current.takeover && current.hostStop?.outcome === "failed"
     return {
       session: current.id,
       takenOver: current.takeover,
+      ...(unconfirmed ? { notice: browser.message("agentBarStopUnconfirmed") } : {}),
       labels: {
         acting: browser.message("agentBarActing"),
         paused: browser.message("agentBarPaused"),
@@ -135,6 +153,30 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
         .run(tabId, "ISOLATED", pageActingBar, [visible ? barState(current) : null])
         .catch(() => undefined)
     }
+  }
+
+  /**
+   * Ask Cognia to stop the conversation's task, and keep its answer on the
+   * session. Never fails: no answer is an answer — "failed" — and the browser
+   * stays paused either way. A session forgotten meanwhile is not recreated.
+   */
+  async function stopHostTask(sessionId: string): Promise<HostCancelOutcome> {
+    const outcome = await deps
+      .cancelConversation(sessionId)
+      .catch((): HostCancelOutcome => "failed")
+    const change = await sessions.update((all) => {
+      const current = all[sessionId]
+      if (!current) return { sessions: all, result: null }
+      const updated = { ...current, hostStop: { outcome, at: now() } }
+      return {
+        sessions: { ...all, [sessionId]: updated },
+        result: { updated, wasUnconfirmed: current.hostStop?.outcome === "failed" },
+      }
+    })
+    // Repainted only when the bar's notice comes or goes.
+    if (change && (outcome === "failed" || change.wasUnconfirmed))
+      await paintBars(change.updated, true)
+    return outcome
   }
 
   /** Stop and Take over leave the person's pages without the agent's rules or recorder. */
@@ -165,6 +207,17 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
   return {
     sessions,
     permissions,
+
+    /**
+     * The panel asking again for a paused conversation's task to stop in
+     * Cognia, after a Stop it did not confirm. Only a paused one: asking for
+     * a running conversation would stop the Host behind the person's back.
+     */
+    async retryHostStop(sessionId: string): Promise<HostCancelOutcome | null> {
+      const current = await sessions.get(sessionId)
+      if (!current?.takeover) return null
+      return stopHostTask(sessionId)
+    },
 
     async execute(
       operation: AgentOperation,
@@ -249,7 +302,10 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
               await paintBars(next, true)
               await permissions.dropQuestions(current.id)
               await dropRules(next)
-              await deps.cancelConversation(current.id)
+              // The browser is paused whatever the Host says; the session
+              // keeps Cognia's answer, and the bar says when it did not
+              // confirm that its task stopped too.
+              await stopHostTask(current.id)
               return true
             }
             case "takeover": {
@@ -267,10 +323,11 @@ export function createAgentRuntime(deps: AgentRuntimeDeps) {
               return true
             }
             case "resume": {
-              const next = await sessions.updateSession(current.id, now(), (s) => ({
-                ...s,
-                takeover: false,
-              }))
+              // Handing control back closes what the last Stop was about.
+              const next = await sessions.updateSession(current.id, now(), (s) => {
+                const { hostStop: _answered, ...rest } = s
+                return { ...rest, takeover: false }
+              })
               if (!pauseRequests.has(current.id)) pausing.delete(current.id)
               await paintBars(next, true)
               return true

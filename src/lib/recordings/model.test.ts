@@ -1,4 +1,5 @@
 import {
+  CAUSED_NAVIGATION_MS,
   MAX_RECORDINGS,
   appendStep,
   cleanStep,
@@ -8,10 +9,12 @@ import {
   toPlaywright,
   type RecordedStep,
   type Recording,
+  readableBy,
 } from "./model"
 
 const BUTTON = { locators: ['getByRole("button", { name: "Save", exact: true })'] }
 const EMAIL = { locators: ['getByLabel("Email")'], role: "textbox", name: "Email" }
+const click = (at: number): RecordedStep => ({ action: "click", target: BUTTON, at })
 
 describe("isLocator", () => {
   it("keeps exactly the locators the recorder builds", () => {
@@ -55,7 +58,6 @@ describe("appendStep", () => {
     value,
     at,
   })
-  const click = (at: number): RecordedStep => ({ action: "click", target: BUTTON, at })
 
   it("keeps the last fill of a field, and folds two clicks into a double click", () => {
     let steps = appendStep([], { action: "navigate", url: "https://a.test/", at: 0 })
@@ -71,19 +73,107 @@ describe("appendStep", () => {
     ])
   })
 
-  it("checks later addresses instead of visiting them, once each", () => {
+  it("checks the address a click led to, once", () => {
     let steps = appendStep([], { action: "navigate", url: "https://a.test/", at: 0 })
     steps = appendStep(steps, { action: "navigate", url: "https://a.test/", at: 1 })
-    steps = appendStep(steps, { action: "navigate", url: "https://a.test/done", at: 2 })
+    steps = appendStep(steps, click(2))
     steps = appendStep(steps, { action: "navigate", url: "https://a.test/done", at: 3 })
+    steps = appendStep(steps, { action: "navigate", url: "https://a.test/done", at: 4 })
     expect(steps).toEqual([
       { action: "navigate", url: "https://a.test/", at: 0 },
-      { action: "assert", assertion: { kind: "url", expected: "https://a.test/done" }, at: 2 },
+      click(2),
+      { action: "assert", assertion: { kind: "url", expected: "https://a.test/done" }, at: 3 },
+    ])
+  })
+
+  it("visits an address nothing in the recording led to", () => {
+    let steps = appendStep([], { action: "navigate", url: "https://a.test/", at: 0 })
+    // Typed into the address bar: the test has to go there itself.
+    steps = appendStep(steps, { action: "navigate", url: "https://a.test/b", at: 5 })
+    // Typing in a field takes nobody anywhere.
+    steps = appendStep(steps, fill("x", 6))
+    steps = appendStep(steps, { action: "navigate", url: "https://a.test/c", at: 7 })
+    expect(steps.map((step) => [step.action, step.url])).toEqual([
+      ["navigate", "https://a.test/"],
+      ["navigate", "https://a.test/b"],
+      ["fill", undefined],
+      ["navigate", "https://a.test/c"],
+    ])
+  })
+
+  it("does not credit a click long ago with a later load", () => {
+    let steps = appendStep([], { action: "navigate", url: "https://a.test/", at: 0 })
+    steps = appendStep(steps, click(10))
+    steps = appendStep(steps, {
+      action: "navigate",
+      url: "https://a.test/late",
+      at: 10 + CAUSED_NAVIGATION_MS + 1,
+    })
+    // An assertion in between is not something done: the click still counts.
+    steps = appendStep(steps, click(20_000))
+    steps = appendStep(steps, {
+      action: "assert",
+      target: BUTTON,
+      assertion: { kind: "visible" },
+      at: 20_001,
+    })
+    steps = appendStep(steps, { action: "navigate", url: "https://a.test/next", at: 20_002 })
+    expect(steps.map((step) => [step.action, step.url ?? step.assertion?.expected])).toEqual([
+      ["navigate", "https://a.test/"],
+      ["click", undefined],
+      ["navigate", "https://a.test/late"],
+      ["click", undefined],
+      ["assert", undefined],
+      ["assert", "https://a.test/next"],
     ])
   })
 })
 
 describe("parseRecordings", () => {
+  it("shares a person's recording only when they chose to, and an agent's from the start", () => {
+    const [legacy, chosen, unshared, agent] = parseRecordings([
+      // Kept by an earlier build, which shared every recording at once.
+      { id: "legacy", byAgent: false, shared: true, steps: [] },
+      { id: "chosen", byAgent: false, shared: true, sharedAt: 50, steps: [] },
+      { id: "unshared", byAgent: false, shared: false, sharedAt: 50, steps: [] },
+      { id: "agent", byAgent: true, shared: true, steps: [] },
+    ])
+    expect(legacy).toMatchObject({ shared: false })
+    expect(legacy).not.toHaveProperty("sharedAt")
+    expect(chosen).toMatchObject({ shared: true, sharedAt: 50 })
+    expect(unshared).toMatchObject({ shared: false })
+    expect(unshared).not.toHaveProperty("sharedAt")
+    expect(agent).toMatchObject({ shared: true })
+  })
+
+  it("keeps an agent's recording to its own conversation, and who it was shared with", () => {
+    const [agent, widened, named, junk] = parseRecordings([
+      // An earlier build let every conversation read an agent's recording.
+      { id: "agent", byAgent: true, sessionId: "s1", shared: true, steps: [] },
+      { id: "widened", byAgent: true, sessionId: "s1", shared: true, sharedAt: 9, steps: [] },
+      {
+        id: "named",
+        byAgent: false,
+        shared: true,
+        sharedAt: 9,
+        sharedWith: ["s2", "s2", 4],
+        steps: [],
+      },
+      { id: "junk", byAgent: false, shared: false, sharedWith: ["s2"], steps: [] },
+    ])
+    expect(agent).toMatchObject({ shared: true, sharedWith: ["s1"] })
+    expect(readableBy(agent!, "s1")).toBe(true)
+    expect(readableBy(agent!, "s2")).toBe(false)
+    // Shared wider by the person: every conversation.
+    expect(widened).not.toHaveProperty("sharedWith")
+    expect(readableBy(widened!, "s9")).toBe(true)
+    expect(named).toMatchObject({ sharedWith: ["s2"] })
+    expect(readableBy(named!, "s1")).toBe(false)
+    // Not shared: no one, whatever it names.
+    expect(junk).not.toHaveProperty("sharedWith")
+    expect(readableBy(junk!, "s2")).toBe(false)
+  })
+
   it("caps the list and drops duplicates and junk", () => {
     const many = Array.from({ length: MAX_RECORDINGS + 3 }, (_, index) => ({
       id: `r${index}`,
@@ -147,6 +237,42 @@ describe("toPlaywright", () => {
         "",
       ].join("\n")
     )
+  })
+
+  it("lists the other locators beside the one it uses", () => {
+    const code = toPlaywright({
+      ...recording,
+      steps: [
+        { action: "navigate", url: "https://a.test/login", at: 0 },
+        {
+          action: "click",
+          target: {
+            locators: [
+              'getByRole("button", { name: "Save", exact: true })',
+              'getByText("Save")',
+              'locator("#save\u2028x")',
+            ],
+          },
+          at: 1,
+        },
+      ],
+    })
+    expect(code).toContain(
+      '  await page.getByRole("button", { name: "Save", exact: true }).click() // or: page.getByText("Save"), page.locator("#save\\u2028x")'
+    )
+    // A raw line separator would end the comment; written as its escape it cannot.
+    expect(code).not.toMatch(/[\u2028\u2029]/)
+  })
+
+  it("goes to an address the person opened, rather than checking for it", () => {
+    let steps = appendStep([], { action: "navigate", url: "https://a.test/a", at: 0 })
+    steps = appendStep(steps, { action: "navigate", url: "https://a.test/b", at: 1 })
+    steps = appendStep(steps, click(2))
+    const code = toPlaywright({ ...recording, url: "https://a.test/a", steps })
+    expect(code).toContain(
+      '  await page.goto("https://a.test/a")\n  await page.goto("https://a.test/b")'
+    )
+    expect(code).not.toContain("toHaveURL")
   })
 
   it("names an unnamed secret by its place", () => {

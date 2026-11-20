@@ -52,8 +52,19 @@ export interface Recording {
   byAgent: boolean
   /** The conversation that recorded it, for an agent's. */
   sessionId?: string
-  /** Whether agents may read it: the person's choice for their own. */
+  /**
+   * Whether agents may read it. An agent's is shared with agents from the
+   * start; the person's stays private until they share it (ADR-0242).
+   */
   shared: boolean
+  /** When the person shared it: the proof that a recording of theirs is shared by choice. */
+  sharedAt?: number
+  /**
+   * The conversations it is shared with, by id; absent while shared, every
+   * conversation. An agent's is its own conversation's unless the person
+   * shares it wider.
+   */
+  sharedWith?: string[]
   steps: RecordedStep[]
 }
 
@@ -73,6 +84,8 @@ export const RECORDINGS_KEY = "cognia.recordings.v1"
 export const ACTIVE_RECORDINGS_KEY = "cognia.recordings.active.v1"
 
 export const MAX_RECORDINGS = 30
+/** More conversations than this to share one recording with is "every conversation". */
+export const MAX_SHARED_WITH = 20
 export const MAX_STEPS = 500
 const MAX_VALUE = 2_000
 const MAX_LOCATORS = 5
@@ -171,15 +184,44 @@ function cleanRecording(input: unknown): Recording | null {
     .filter((step): step is RecordedStep => step !== null)
     .slice(0, MAX_STEPS)
   const stoppedAt = Number(record.stoppedAt)
+  const byAgent = record.byAgent === true
+  const sharedAt =
+    typeof record.sharedAt === "number" && Number.isFinite(record.sharedAt) && record.sharedAt > 0
+      ? record.sharedAt
+      : undefined
+  // A person's recording is shared only when they shared it. Ones kept by an
+  // earlier build, which shared every recording from the start, carry no such
+  // choice and become private: the person shares them again if they meant to.
+  const shared = record.shared !== false && (byAgent || sharedAt !== undefined)
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId : undefined
+  const named = Array.isArray(record.sharedWith)
+    ? [
+        ...new Set(
+          record.sharedWith.filter(
+            (id): id is string => typeof id === "string" && id.length > 0 && id.length <= 128
+          )
+        ),
+      ].slice(0, MAX_SHARED_WITH)
+    : []
+  // An agent's recording kept by an earlier build was readable by every
+  // conversation; now it is its own conversation's unless the person widened it.
+  const sharedWith =
+    named.length > 0
+      ? named
+      : byAgent && sessionId && sharedAt === undefined
+        ? [sessionId]
+        : undefined
   return {
     id: record.id.slice(0, 64),
     title: text(record.title, 200) ?? "",
     url: text(record.url, MAX_VALUE) ?? "",
     startedAt: Number(record.startedAt) || 0,
     ...(Number.isFinite(stoppedAt) && stoppedAt > 0 ? { stoppedAt } : {}),
-    byAgent: record.byAgent === true,
-    ...(typeof record.sessionId === "string" ? { sessionId: record.sessionId } : {}),
-    shared: record.shared !== false,
+    byAgent,
+    ...(sessionId ? { sessionId } : {}),
+    shared,
+    ...(shared && sharedAt !== undefined ? { sharedAt } : {}),
+    ...(shared && sharedWith ? { sharedWith } : {}),
     steps,
   }
 }
@@ -198,6 +240,16 @@ export function parseRecordings(value: unknown): Recording[] {
   return recordings
 }
 
+/**
+ * Whether the conversation `sessionId` may read a recording: shared, and with
+ * every conversation or with this one. Which others it is shared with is not
+ * said to any of them.
+ */
+export function readableBy(recording: Recording, sessionId: string): boolean {
+  if (!recording.shared) return false
+  return !recording.sharedWith || recording.sharedWith.includes(sessionId)
+}
+
 export function summaryOf(recording: Recording): RecordingSummary {
   return {
     id: recording.id,
@@ -209,6 +261,23 @@ export function summaryOf(recording: Recording): RecordingSummary {
     byAgent: recording.byAgent,
     shared: recording.shared,
   }
+}
+
+/** How soon after a click, key or choice a new address counts as what it caused. */
+export const CAUSED_NAVIGATION_MS = 10_000
+
+/** The actions that can take a page to another address. */
+const CAUSES: readonly StepAction[] = ["click", "double_click", "press_key", "select"]
+
+/**
+ * Whether a new address followed from the steps before it: the last thing
+ * done was a click, a key or a choice, a moment ago. Anything else — an
+ * address typed in, a bookmark, a link opened from outside — the test has to
+ * do itself.
+ */
+function causedBy(steps: readonly RecordedStep[], at: number): boolean {
+  const last = [...steps].reverse().find((entry) => entry.action !== "assert")
+  return !!last && CAUSES.includes(last.action) && at - last.at <= CAUSED_NAVIGATION_MS
 }
 
 /**
@@ -232,7 +301,6 @@ export function appendStep(steps: readonly RecordedStep[], step: RecordedStep): 
     const drop = before && before.action === "click" && same(before.target, step.target) ? 2 : 1
     return [...steps.slice(0, -drop), step]
   }
-  // The load a click caused is not a step of its own: it is checked, not done.
   if (step.action === "navigate" && steps.length > 0) {
     // The same address again (a reload, or the recorder put back) says nothing new.
     const known = [...steps]
@@ -240,6 +308,10 @@ export function appendStep(steps: readonly RecordedStep[], step: RecordedStep): 
       .find((entry) => entry.url !== undefined || entry.assertion?.kind === "url")
     const previous = known?.url ?? known?.assertion?.expected
     if (previous === step.url) return [...steps]
+    // A load nothing in the recording caused is a step the test must take:
+    // checking for an address it never goes to would fail every run.
+    if (!causedBy(steps, step.at)) return [...steps, step].slice(0, MAX_STEPS)
+    // The load a click caused is not a step of its own: it is checked, not done.
     const check: RecordedStep = {
       action: "assert",
       assertion: { kind: "url", ...(step.url ? { expected: step.url } : {}) },
@@ -265,12 +337,27 @@ function locatorCode(step: RecordedStep): string {
   return `page.${best}`
 }
 
+/**
+ * The other locators the recorder found, as a comment after the line, to
+ * check or swap in. A line separator that JavaScript would end the comment
+ * at is written as its escape, which means the same inside the string.
+ */
+function alternatives(step: RecordedStep): string {
+  const others = step.target?.locators.slice(1) ?? []
+  if (others.length === 0) return ""
+  const listed = others
+    .map((locator) => `page.${locator}`)
+    .join(", ")
+    .replace(/[\u2028\u2029]/g, (separator) => `\\u${separator.charCodeAt(0).toString(16)}`)
+  return ` // or: ${listed}`
+}
+
 const KEYS: Record<string, string> = { " ": "Space" }
 
 /**
  * A Playwright test from a recording, to refine rather than to run unread:
- * it follows the best locator each step had, and says where a secret comes
- * from. Locators are built by the recorder from a fixed vocabulary; every
+ * it follows the best locator each step had, lists the others beside it, and
+ * says where a secret comes from. Locators are built by the recorder from a fixed vocabulary; every
  * value the page or the person supplied is a quoted literal.
  */
 export function toPlaywright(recording: Recording): string {
@@ -282,6 +369,7 @@ export function toPlaywright(recording: Recording): string {
   let opened = false
   for (const [index, step] of recording.steps.entries()) {
     const at = locatorCode(step)
+    const before = lines.length
     switch (step.action) {
       case "navigate":
         lines.push(`  await page.goto(${literal(step.url ?? recording.url)})`)
@@ -341,6 +429,7 @@ export function toPlaywright(recording: Recording): string {
         break
       }
     }
+    if (lines.length > before && step.target) lines[lines.length - 1] += alternatives(step)
   }
   if (!opened && recording.url) lines.unshift(`  await page.goto(${literal(recording.url)})`)
   const header = [

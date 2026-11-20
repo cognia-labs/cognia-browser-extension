@@ -1,5 +1,11 @@
 /** @jest-environment <rootDir>/testing/jsdom-environment.cjs */
-import { auditDocument, auditMarkdown, textContrast, type A11yIssue } from "./a11y-audit"
+import {
+  AUDIT_COVERAGE,
+  auditDocument,
+  auditMarkdown,
+  textContrast,
+  type A11yIssue,
+} from "./a11y-audit"
 import { createColorReader } from "./page-colors"
 
 function audit(html: string, { lang = "en", title = "Page" } = {}) {
@@ -117,6 +123,76 @@ describe("auditDocument", () => {
     expect(result.issues.find((issue) => issue.rule === "heading-order")?.detail).toBe("h1 → h3")
   })
 
+  describe("target size (WCAG 2.5.8)", () => {
+    /** Give each `[data-box]` element the box `x,y,width,height` (jsdom lays nothing out). */
+    function boxed(html: string) {
+      document.documentElement.setAttribute("lang", "en")
+      document.title = "Page"
+      document.body.innerHTML = html
+      for (const element of document.querySelectorAll<HTMLElement>("[data-box]")) {
+        const [x, y, width, height] = element.dataset.box!.split(",").map(Number) as [
+          number,
+          number,
+          number,
+          number,
+        ]
+        element.getBoundingClientRect = () =>
+          ({
+            x,
+            y,
+            left: x,
+            top: y,
+            width,
+            height,
+            right: x + width,
+            bottom: y + height,
+          }) as DOMRect
+      }
+      const result = auditDocument(document, () => "id")
+      return result.issues.filter((issue) => issue.rule === "target-size")
+    }
+
+    it("lets a small target with room around it pass, by the spacing exception", () => {
+      expect(boxed(`<button data-box="100,100,16,16">×</button>`)).toEqual([])
+      // Far enough from a full-size neighbour and another small one.
+      expect(
+        boxed(`
+          <button data-box="100,100,16,16">×</button>
+          <button data-box="140,100,40,40">Save</button>
+          <button data-box="100,140,16,16">+</button>`)
+      ).toEqual([])
+    })
+
+    it("flags small targets crowded together, for review by hand", () => {
+      const issues = boxed(`
+        <button data-box="100,100,16,16">−</button>
+        <button data-box="118,100,16,16">+</button>`)
+      expect(issues).toHaveLength(2)
+      expect(issues[0]?.detail).toMatch(
+        /^16×16, another target or its 24 px circle .* review by hand$/
+      )
+    })
+
+    it("flags a small target whose circle reaches a full-size one", () => {
+      const issues = boxed(`
+        <button data-box="100,100,16,16">×</button>
+        <button data-box="110,100,60,30">Save</button>`)
+      expect(issues.map((issue) => issue.label)).toEqual(["button"])
+      expect(issues).toHaveLength(1)
+    })
+
+    it("keeps the inline-link exception, and counts nested targets as one place", () => {
+      expect(
+        boxed(`<p>Read <a href="/a" style="display:inline" data-box="100,100,30,12">more</a></p>`)
+      ).toEqual([])
+      expect(
+        boxed(
+          `<a href="/card" data-box="0,0,300,200"><span tabindex="0" data-box="10,10,16,16">i</span></a>`
+        )
+      ).toEqual([])
+    })
+  })
+
   it("leaves hidden content and the extension's own overlay out", () => {
     const result = audit(`
       <div style="display:none"><img src="x.png" /></div>
@@ -141,12 +217,17 @@ describe("auditMarkdown", () => {
         "",
         "A first pass with WCAG 2.2 AA thresholds; selectors match the live page.",
         "",
+        AUDIT_COVERAGE,
+        "",
         "- [critical] Image has no text alternative — `img.hero` (hero.png)",
         "- … more findings of the same kinds were left out",
       ].join("\n")
     )
-    expect(auditMarkdown({ issues: [], checked: 9, truncated: false })).toContain(
-      "No findings in 9 elements"
-    )
+    const clean = auditMarkdown({ issues: [], checked: 9, truncated: false })
+    expect(clean).toContain("No findings in 9 elements")
+    // A clean run still says what it did not look at.
+    expect(clean).toContain(AUDIT_COVERAGE)
+    expect(AUDIT_COVERAGE).toContain("spacing and inline-link exceptions")
+    expect(AUDIT_COVERAGE).toContain("need review by hand")
   })
 })

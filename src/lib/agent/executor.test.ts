@@ -578,21 +578,76 @@ describe("createAgentExecutor", () => {
       viewportHeight: 1_000,
       viewportWidth: 500,
       scrollY: 40,
+      scrollX: 12,
       dpr: 1,
     }))
     // The last segment can only scroll to 1500: the bottom 500 rows are new.
     h.handlers.set(pageScrollTo, (_tab, [y]) => Math.min(Number(y), 1_500))
     const before = h.captures.length
-    const full = await h.run("screenshot", { options: { scope: "fullPage" } })
+    const full = (await h.run("screenshot", { options: { scope: "fullPage" } })) as Record<
+      string,
+      unknown
+    >
     expect(full).toMatchObject({
       bytes: "stitch:3:500:1000+1000+500",
       width: 500,
       height: 2_500,
     })
+    expect(full.truncated).toBeUndefined()
     const spacing = h.captures.slice(before)
     expect(spacing[1]! - spacing[0]!).toBeGreaterThanOrEqual(500)
-    // Scrolled back to where the person left it.
-    expect(h.ran.filter((call) => call.func === pageScrollTo).at(-1)?.args).toEqual([40])
+    const scrolls = h.ran.filter((call) => call.func === pageScrollTo)
+    // Segments leave the page where it is sideways…
+    expect(scrolls.slice(-4, -1).map((call) => call.args)).toEqual([
+      [0, null],
+      [1_000, null],
+      [2_000, null],
+    ])
+    // …and both axes go back to where the person left them.
+    expect(scrolls.at(-1)?.args).toEqual([40, 12])
+  })
+
+  it("stitches a smooth-scrolling page from where each segment landed, or says it was cut", async () => {
+    const h = harness({ decisions: ALWAYS })
+    await h.run("navigate", { url: "https://example.com/" })
+    h.handlers.set(pageScrollMetrics, () => ({
+      scrollHeight: 1_000,
+      viewportHeight: 400,
+      viewportWidth: 300,
+      scrollY: 120,
+      scrollX: 300,
+      dpr: 1,
+    }))
+    // A page still animating answers behind each target: 0, then 0, then 400.
+    const lagging = [0, 0, 400]
+    h.handlers.set(pageScrollTo, () => lagging.shift() ?? 120)
+    const full = (await h.run("screenshot", { options: { scope: "fullPage" } })) as Record<
+      string,
+      unknown
+    >
+    // Nothing stacked twice: the repeat at 0 adds no rows, the 400 adds 400.
+    expect(full).toMatchObject({ bytes: "stitch:3:300:400+0+400", height: 800, truncated: true })
+    expect(h.ran.filter((call) => call.func === pageScrollTo).at(-1)?.args).toEqual([120, 300])
+  })
+
+  it("puts the scroll back when a segment fails", async () => {
+    const h = harness({ decisions: ALWAYS })
+    await h.run("navigate", { url: "https://example.com/" })
+    h.handlers.set(pageScrollMetrics, () => ({
+      scrollHeight: 2_000,
+      viewportHeight: 1_000,
+      viewportWidth: 300,
+      scrollY: 70,
+      scrollX: 5,
+      dpr: 1,
+    }))
+    // The page goes away under the second segment.
+    h.handlers.set(pageScrollTo, (_tab, [y]) => {
+      if (y === 1_000) throw new Error("the page navigated")
+      return Number(y)
+    })
+    await expect(h.run("screenshot", { options: { scope: "fullPage" } })).rejects.toBeTruthy()
+    expect(h.ran.filter((call) => call.func === pageScrollTo).at(-1)?.args).toEqual([70, 5])
   })
 
   it("keeps cookie values in the browser and needs the cookies permission", async () => {

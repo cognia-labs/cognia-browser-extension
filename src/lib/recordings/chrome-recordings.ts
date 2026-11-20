@@ -44,7 +44,12 @@ export function createChromeRecordingBrowser(): RecordingBrowser {
       ])
     },
     async removeRecorder(tabId) {
-      await chrome.scripting.executeScript({ target: { tabId }, func: stopTestRecorder })
+      const [injected] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: stopTestRecorder,
+      })
+      // Plain data from the page's world; the controller cleans every step.
+      return Array.isArray(injected?.result) ? (injected.result as unknown[]) : []
     },
   }
 }

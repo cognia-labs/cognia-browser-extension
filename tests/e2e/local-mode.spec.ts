@@ -10,12 +10,20 @@ test("opens local mode on the shipped manifest without optional permissions", as
 }) => {
   await panel.getByRole("button", { name: "Use local mode", exact: true }).click()
   await expect(panel.getByText("Local mode", { exact: true })).toBeVisible()
+  await expect(panel.getByRole("tab", { name: "Capture" })).toBeVisible()
+  // The first capture needs no standing grant: access to every website is a
+  // choice in Settings, not an action beside it.
+  await expect(panel.getByTestId("capture-access-hint")).toBeVisible()
+  await expect(panel.getByRole("button", { name: "Allow all websites", exact: true })).toBeHidden()
+  await openView(panel, "settings")
   await expect(panel.getByRole("button", { name: "Allow all websites", exact: true })).toBeVisible()
   expect(await serviceWorker.evaluate(() => chrome.permissions.getAll())).toMatchObject({
     origins: [],
   })
   await panel.reload()
+  await openView(panel, "send")
   await expect(panel.getByRole("button", { name: "Connect to Cognia", exact: true })).toBeVisible()
+  await openView(panel, "settings")
   await expect(panel.getByRole("button", { name: "Allow all websites", exact: true })).toBeVisible()
   await expect(panel.getByLabel("Paste the pairing code")).toHaveCount(0)
 })

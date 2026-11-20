@@ -239,11 +239,12 @@ export function createChromeBrowserApi(): BrowserApi {
       return injected.result
     },
 
-    async scrollTo(tabId, y) {
+    async scrollTo(tabId, y, x) {
       const [injected] = await chrome.scripting.executeScript({
         target: { tabId },
         func: pageScrollTo,
-        args: [y],
+        // JSON carries no `undefined`: `null` keeps the page where it is sideways.
+        args: [y, x ?? null],
       })
       return typeof injected?.result === "number" ? injected.result : y
     },
@@ -366,6 +367,12 @@ export function createChromeBrowserApi(): BrowserApi {
         kind: "cognia-agent-permission",
         action: "forget",
         origin,
+      }),
+    retryHostStop: (session) =>
+      mutatePermission({
+        kind: "cognia-agent-permission",
+        action: "stop-host-task",
+        session,
       }),
 
     async pickElement(tabId, hint) {

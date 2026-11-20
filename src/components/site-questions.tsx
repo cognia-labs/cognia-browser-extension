@@ -58,7 +58,14 @@ function hostOf(origin: string): string {
  * answer is the person's click: allow this conversation once, always, or
  * never.
  */
-export function SiteQuestions({ api }: { api: BrowserApi }) {
+export function SiteQuestions({
+  api,
+  conversationTitles = {},
+}: {
+  api: BrowserApi
+  /** Cognia conversations by id, to say which one is asking. */
+  conversationTitles?: Record<string, string>
+}) {
   const questions = useStoredValue(api, "session", PENDING_SITE_QUESTIONS_KEY, parseQuestions)
   const [answering, setAnswering] = useState<string | null>(null)
   if (questions.length === 0) return null
@@ -83,6 +90,16 @@ export function SiteQuestions({ api }: { api: BrowserApi }) {
                 siteOperationMessage(question.operation, api.message),
               ])}
             </p>
+            {/* Which conversation asks, and what each answer covers: "for this
+                task" lasts while this conversation does, "always" is for
+                every conversation until forgotten in Settings. */}
+            <p className="text-[11px] text-muted-foreground" data-testid="site-question-from">
+              {api.message("siteQuestionFrom", [
+                conversationTitles[question.session] ??
+                  api.message("agentControlConversation", [question.session.slice(0, 8)]),
+              ])}
+            </p>
+            <p className="text-[11px] text-muted-foreground">{api.message("siteQuestionScope")}</p>
             <div className="flex flex-wrap gap-1.5">
               <Button
                 size="sm"

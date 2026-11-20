@@ -16,7 +16,7 @@ import {
   type BrowserContextLimits,
 } from "@cognia/companion-client"
 
-import { captureModeFor, type CapturedPage } from "../panel-state"
+import { captureModeFor, selectionTruncated, type CapturedPage } from "../panel-state"
 import type { PickedElement, SourceLocation } from "./element-context"
 import { styleChanges } from "./style-edits"
 
@@ -202,11 +202,11 @@ function capturedMarkdown(page: ExportPage, mode: BrowserCaptureMode): string {
           ? page.selection
           : null
   const text = mode === "selection" ? (page.selection?.markdown ?? content?.text) : content?.text
+  const cut =
+    mode === "selection" ? selectionTruncated(page.selection ?? null) : Boolean(content?.truncated)
   const sections: string[] = []
   if (text) {
-    sections.push(
-      `## Page content\n\n${text}${content?.truncated ? "\n\n[Capture truncated]" : ""}`
-    )
+    sections.push(`## Page content\n\n${text}${cut ? "\n\n[Capture truncated]" : ""}`)
   }
   if (page.metadata && Object.keys(page.metadata).length > 0) {
     sections.push(
@@ -262,6 +262,15 @@ export function promptForClipboard(
  * was written, and the attachments by name — they go along as files of their
  * own, not inside the text.
  */
+/** An attachment packed beside the Markdown, at a path relative to it. */
+export interface BundledFile {
+  name: string
+  path: string
+  image: boolean
+}
+
+const minute = (at: number) => new Date(at).toISOString().slice(0, 16).replace("T", " ")
+
 export function exportMarkdown(
   page: ExportPage,
   instruction: string,
@@ -269,16 +278,32 @@ export function exportMarkdown(
   attachments: readonly string[],
   now: number,
   mode: BrowserCaptureMode = "selection",
-  extraPages: readonly CapturedPage[] = []
+  extraPages: readonly CapturedPage[] = [],
+  /** The files packed with it, for an evidence bundle; the rest are named only. */
+  bundled?: readonly BundledFile[]
 ): string {
   const lines = [
     promptForClipboard(page, instruction, inspection, mode, extraPages),
     "",
     "---",
     "",
-    `Exported from Cognia Browser Companion on ${new Date(now).toISOString().slice(0, 16).replace("T", " ")} UTC.`,
+    `Exported from Cognia Browser Companion on ${minute(now)} UTC.`,
   ]
-  if (attachments.length > 0)
+  if (bundled) {
+    if (page.capturedAt) lines.push(`Page captured on ${minute(page.capturedAt)} UTC.`)
+    if (bundled.length > 0)
+      lines.push(
+        "",
+        `## Attachments (${bundled.length}), in this archive`,
+        "",
+        // Angle brackets: a name with spaces or parentheses still links.
+        ...bundled.map((file) =>
+          file.image ? `![${file.name}](<${file.path}>)` : `- [${file.name}](<${file.path}>)`
+        )
+      )
+    const left = attachments.length - bundled.length
+    if (left > 0) lines.push("", `${left} other attachment(s) were left out of this archive.`)
+  } else if (attachments.length > 0)
     lines.push(
       "",
       `Attachments (${attachments.length}), not included in this file:`,
@@ -318,12 +343,19 @@ export function withInspection(
   const join = (own: string) => (own ? `${own}\n\n${inspection}` : inspection)
   const text = clipToBytes(join(ownText), limits.selectionBytes)
   const rich = markdown ? clipToBytes(join(ownMarkdown), limits.selectionBytes) : null
+  // Each form keeps its own cut: the Markdown is longer, and can run past the
+  // ceiling where the plain text still fits.
   return {
     ...page,
     selection: {
       text: text.text,
       truncated: Boolean(page.selection?.truncated) || text.truncated,
-      ...(rich ? { markdown: rich.text } : {}),
+      ...(rich
+        ? {
+            markdown: rich.text,
+            markdownTruncated: selectionTruncated(page.selection) || rich.truncated,
+          }
+        : {}),
     },
   }
 }

@@ -112,6 +112,8 @@ interface Harness {
   portOpen: boolean
   siteAnswers: [string, string][]
   forgottenDecisions: string[]
+  /** Conversations the panel asked to stop in Cognia again. */
+  hostStopRetries: string[]
   openedUrls: string[]
   /** The options each `list()` call carried, and what later pages answer. */
   listCalls: unknown[]
@@ -228,6 +230,7 @@ function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: neve
     portOpen: false,
     siteAnswers: [],
     forgottenDecisions: [],
+    hostStopRetries: [],
     openedUrls: [],
     listCalls: [],
     olderPage: [],
@@ -546,6 +549,9 @@ function harness(overrides: Partial<Harness> = {}): Harness & { makeClient: neve
       },
       answerSiteQuestion: async (id, answer) => {
         state.siteAnswers.push([id, answer])
+      },
+      retryHostStop: async (session) => {
+        state.hostStopRetries.push(session)
       },
       forgetSiteDecision: async (origin) => {
         state.forgottenDecisions.push(origin)
@@ -879,7 +885,7 @@ describe("SidePanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "tabInspect" }))
     fireEvent.click(screen.getByRole("button", { name: /inspectPick/ }))
     await screen.findByRole("button", { name: /1\. button\.primary/ })
-    fireEvent.click(screen.getByRole("tab", { name: /tabSend/ }))
+    fireEvent.click(screen.getByRole("tab", { name: /tabCapture/ }))
     fireEvent.change(screen.getByLabelText("captureEditText"), {
       target: { value: "Reviewed local text" },
     })
@@ -1105,6 +1111,8 @@ describe("SidePanel capture and settings", () => {
     const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
     const capture = jest.spyOn(state.api, "capturePage")
     renderPanel(state)
+    // A standing choice, in Settings: not offered beside the first capture.
+    fireEvent.click(await screen.findByTestId("settings-toggle"))
     const allow = await screen.findByRole("button", { name: "siteAccessAllowAll" })
     await waitFor(() => expect(allow).toBeEnabled())
     expect(state.permissionRequests).toEqual([])
@@ -1140,11 +1148,14 @@ describe("SidePanel capture and settings", () => {
       api: { activeTab: async () => null } as never,
     })
     renderPanel(state)
+    // A standing choice, in Settings: not offered beside the first capture.
+    fireEvent.click(await screen.findByTestId("settings-toggle"))
     const allow = await screen.findByRole("button", { name: "siteAccessAllowAll" })
     await waitFor(() => expect(allow).toBeEnabled())
     fireEvent.click(allow)
     await screen.findByText("siteAccessDenied")
     expect(allow).toBeEnabled()
+    fireEvent.click(screen.getByTestId("settings-toggle"))
     fireEvent.click(screen.getByTestId("capture-now"))
     await screen.findByRole("button", { name: "captureAllowSite" })
     expect(state.store.get(STORAGE_KEYS.preferences) ?? {}).not.toMatchObject({
@@ -1156,6 +1167,7 @@ describe("SidePanel capture and settings", () => {
     const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
     state.granted.add("<all_urls>")
     renderPanel(state)
+    fireEvent.click(await screen.findByTestId("settings-toggle"))
     await screen.findByText("siteAccessAllAllowed")
     expect(state.permissionRequests).toEqual([])
     fireEvent.click(screen.getByRole("button", { name: "siteAccessManage" }))
@@ -1169,6 +1181,8 @@ describe("SidePanel capture and settings", () => {
     const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
     jest.spyOn(state.api, "requestPermissions").mockRejectedValueOnce(new Error("Unavailable"))
     renderPanel(state)
+    // A standing choice, in Settings: not offered beside the first capture.
+    fireEvent.click(await screen.findByTestId("settings-toggle"))
     const allow = await screen.findByRole("button", { name: "siteAccessAllowAll" })
     fireEvent.click(allow)
     await screen.findByText("siteAccessFailed")
@@ -1182,6 +1196,12 @@ describe("SidePanel capture and settings", () => {
     const state = harness({ store: new Map([[STORAGE_KEYS.localMode, true]]) as never })
     const tab = { id: 1, url: "https://example.com/a", title: "A page", windowId: 1 }
     state.api.activeTab = async () => (state.granted.has("tabs") ? tab : null)
+    const read = state.api.capturePage
+    state.api.capturePage = async (...args) => ({
+      ...(await read(...args)),
+      readableText: "the whole page",
+      readableCharacterCount: 14,
+    })
     const capture = jest.spyOn(state.api, "capturePage")
     renderPanel(state)
     fireEvent.click(await screen.findByRole("button", { name: "captureWholePage" }))
@@ -1191,7 +1211,7 @@ describe("SidePanel capture and settings", () => {
     expect(capture).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "captureAllowSite" }))
     expect(state.permissionRequests).toEqual([["tabs"], ["https://example.com/*"]])
-    expect(await screen.findByLabelText("captureEditText")).toHaveValue("the selected sentence")
+    expect(await screen.findByLabelText("captureEditText")).toHaveValue("the whole page")
     expect(capture).toHaveBeenCalledWith(1, { wholePage: true, article: false })
     expect(screen.queryByRole("button", { name: "captureAllowSite" })).not.toBeInTheDocument()
     expect(state.capabilityCalls).toEqual([])
@@ -2259,18 +2279,21 @@ describe("SidePanel — ADR-0228", () => {
     })
   }
 
-  it("sends the article, Markdown selection and metadata to a Host that reads them", async () => {
+  it("sends the article and metadata to a Host that reads them, without a page selection nobody saw", async () => {
     const state = paired()
     renderPanel(state, FEATURED)
     await captureAndAsk("capture-article")
     fireEvent.click(screen.getByTestId("submit"))
     await waitFor(() => expect(state.submitted).toHaveLength(1))
-    expect((state.submitted[0] as { context: unknown }).context).toMatchObject({
+    const context = (state.submitted[0] as { context: Record<string, unknown> }).context
+    expect(context).toMatchObject({
       captureMode: "article",
-      selection: { text: "**plain**", format: "markdown" },
       article: { text: "# Heading\n\nbody", format: "markdown" },
       metadata: { byline: "Ann" },
     })
+    // The editor, the clipboard and the export show the article alone; the
+    // text selected on the page before is not sent beside it either.
+    expect(context.selection).toBeUndefined()
   })
 
   it("keeps the old shape for a Host that lists no features", async () => {
@@ -3588,6 +3611,322 @@ describe("SidePanel — ADR-0228", () => {
       fireEvent.click(screen.getByTestId("dev-record"))
       expect(await screen.findByTestId("submit-error")).toHaveTextContent("captureBlocked")
       expect(state.inspectCalls).not.toContain("record:1")
+    })
+  })
+
+  describe("gap research 2026-11-19", () => {
+    type Sent = {
+      submissionId: string
+      instruction: string
+      context: { url: string; title: string; selection?: { text: string } }
+      additionalContexts?: { url: string }[]
+    }
+
+    /** A client whose submit waits for `release`, so a test can act meanwhile. */
+    function renderHeld(state: Harness, capability = FEATURED) {
+      const base = clientFactory(state, capability) as unknown as (
+        ...args: unknown[]
+      ) => ReturnType<ReturnType<typeof clientFactory>>
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      render(
+        <SidePanel
+          api={state.api}
+          makeClient={
+            ((...args: unknown[]) => {
+              const client = base(...args)
+              return {
+                ...client,
+                submit: async (...call: Parameters<typeof client.submit>) => {
+                  await gate
+                  return client.submit(...call)
+                },
+              }
+            }) as never
+          }
+          now={() => 1_000}
+        />
+      )
+      return () => release()
+    }
+
+    /** One tab whose address the test moves, as navigation would. */
+    function oneTab(state: Harness, url: string) {
+      const tab = { id: 1, url, title: "A page", windowId: 1 }
+      state.api.activeTab = async () => ({ ...tab })
+      state.api.tabById = async (id) => (id === 1 ? { ...tab } : null)
+      return (next: string) => {
+        tab.url = next
+      }
+    }
+
+    it("01: a check read from one page is not sent with the next page the tab shows", async () => {
+      const state = paired()
+      const navigate = oneTab(state, "https://example.com/a")
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("capture-now"))
+      await screen.findByTestId("capture-preview")
+      fireEvent.click(screen.getByTestId("page-audit-toggle"))
+      fireEvent.click(screen.getByTestId("insight-run-seo"))
+      expect(await screen.findByTestId("seo-result")).toBeInTheDocument()
+
+      navigate("https://example.com/b")
+      fireEvent.click(screen.getByTestId("capture-now"))
+      await waitFor(() =>
+        expect(screen.getByTestId("capture-url")).toHaveTextContent("https://example.com/b")
+      )
+      await waitFor(() => expect(screen.queryByTestId("seo-result")).toBeNull())
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Go" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const sent = state.submitted[0] as Sent
+      expect(sent.context.url).toBe("https://example.com/b")
+      expect(sent.context.selection?.text ?? "").not.toContain("## SEO and link previews")
+    })
+
+    it("01: a check the tab navigated away from mid-run is not filed under the capture", async () => {
+      const state = paired()
+      const navigate = oneTab(state, "https://example.com/a")
+      const read = state.api.readSeo
+      state.api.readSeo = async (tabId) => {
+        const report = await read(tabId)
+        navigate("https://example.com/elsewhere")
+        return report
+      }
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("capture-now"))
+      await screen.findByTestId("capture-preview")
+      fireEvent.click(screen.getByTestId("page-audit-toggle"))
+      fireEvent.click(screen.getByTestId("insight-run-seo"))
+      expect(await screen.findByTestId("submit-error")).toHaveTextContent("insightPageMoved")
+      expect(screen.queryByTestId("seo-result")).toBeNull()
+    })
+
+    it("11: keeps only a digest for a lost response, and drops it with the capture", async () => {
+      const state = paired({ submitError: new Error("response lost") })
+      renderPanel(state, FEATURED)
+      await captureAndAsk("capture-now", "Summarize the secret plan")
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitAttempts).toHaveLength(1))
+      const stored = state.store.get(STORAGE_KEYS.pendingSubmission) as Record<string, unknown>
+      expect(Object.keys(stored).sort()).toEqual(["digest", "savedAt", "submissionId"])
+      const persisted = JSON.stringify(stored)
+      expect(persisted).not.toContain("secret plan")
+      expect(persisted).not.toContain("example.com")
+      expect(persisted).not.toContain("A page")
+
+      fireEvent.click(screen.getByTestId("clear-capture"))
+      await waitFor(() => expect(state.store.has(STORAGE_KEYS.pendingSubmission)).toBe(false))
+    })
+
+    it("11: removes the earlier plain-text retry record on open", async () => {
+      const state = paired()
+      state.store.set(STORAGE_KEYS.pendingSubmission, {
+        fingerprint: JSON.stringify(["ws-default", "chat:new", "the old instruction"]),
+        submissionId: "old",
+      })
+      renderPanel(state, FEATURED)
+      await waitFor(() => expect(state.store.has(STORAGE_KEYS.pendingSubmission)).toBe(false))
+    })
+
+    it("12: an earlier submission's answer leaves the page and words captured after it", async () => {
+      const state = paired()
+      const release = renderHeld(state)
+      await captureAndAsk("capture-now", "Ask about A")
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(screen.getByTestId("submit")).toBeDisabled())
+
+      state.api.capturePage = async () => ({ ...RICH_CAPTURE, title: "B page" })
+      fireEvent.click(screen.getByTestId("capture-now"))
+      await screen.findByText("B page")
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Ask about B" } })
+
+      await act(async () => release())
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      expect((state.submitted[0] as Sent).instruction).toBe("Ask about A")
+      await waitFor(() => expect(screen.getByTestId("submit")).toBeEnabled())
+      expect(screen.getByText("B page")).toBeInTheDocument()
+      expect(screen.getByTestId("instruction")).toHaveValue("Ask about B")
+    })
+
+    it("13: the full address chosen for one capture is not carried to the next", async () => {
+      const state = paired()
+      const navigate = oneTab(state, "https://example.com/a?token=1#top")
+      state.api.listTabs = async () => [
+        { id: 1, url: "https://example.com/a?token=1#top", title: "A page", windowId: 1 },
+        { id: 2, url: "https://other.test/b?secret=2", title: "B page", windowId: 1 },
+      ]
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("capture-now"))
+      fireEvent.click(await screen.findByTestId("capture-full-url"))
+      expect(screen.getByTestId("capture-url")).toHaveTextContent(
+        "https://example.com/a?token=1#top"
+      )
+      // Another tab added meanwhile goes with its own cleaned address.
+      fireEvent.click(screen.getByTestId("extra-pages-add"))
+      fireEvent.click(await screen.findByTestId("extra-pages-tab-2"))
+      await screen.findByTestId("extra-page-0")
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Go" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const first = state.submitted[0] as Sent
+      expect(first.context.url).toBe("https://example.com/a?token=1#top")
+      expect(first.additionalContexts?.[0]?.url).toBe("https://other.test/b")
+
+      navigate("https://example.com/b?session=9#x")
+      fireEvent.click(await screen.findByTestId("capture-now"))
+      await waitFor(() =>
+        expect(screen.getByTestId("capture-url")).toHaveTextContent("https://example.com/b")
+      )
+      expect(screen.getByTestId("capture-url")).not.toHaveTextContent("session=9")
+      // Offered again, and off: the choice is this capture's to make.
+      expect(screen.getByTestId("capture-full-url")).not.toBeChecked()
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Go" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(2))
+      expect((state.submitted[1] as Sent).context.url).toBe("https://example.com/b")
+    })
+
+    it("14: a same-length edit after a lost response is a new submission", async () => {
+      const state = paired({ submitError: new Error("response lost") })
+      renderPanel(state, FEATURED)
+      await captureAndAsk("capture-now", "Alpha")
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitAttempts).toHaveLength(1))
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Bravo" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitAttempts).toHaveLength(2))
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitAttempts).toHaveLength(3))
+      const ids = state.submitAttempts.map((attempt) => (attempt as Sent).submissionId)
+      expect(ids[1]).not.toBe(ids[0])
+      // The very same request again is a retry, under the same id.
+      expect(ids[2]).toBe(ids[1])
+    })
+
+    it("15: a whole-page capture does not send a selection left on the page", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("capture-whole-page"))
+      await screen.findByTestId("capture-preview")
+      expect(screen.getByLabelText("captureEditText")).toHaveValue("all the words")
+      fireEvent.change(screen.getByTestId("instruction"), { target: { value: "Go" } })
+      fireEvent.click(screen.getByTestId("submit"))
+      await waitFor(() => expect(state.submitted).toHaveLength(1))
+      const context = (state.submitted[0] as { context: Record<string, unknown> }).context
+      expect(context.captureMode).toBe("readable-page")
+      expect(context.selection).toBeUndefined()
+    })
+
+    it("16: a slower earlier capture does not replace a later one, nor report over it", async () => {
+      const state = paired()
+      let finishA: (value: Awaited<ReturnType<BrowserApi["capturePage"]>>) => void = () => undefined
+      let failA: (error: Error) => void = () => undefined
+      let calls = 0
+      state.api.capturePage = () => {
+        calls++
+        if (calls === 1)
+          return new Promise((resolve, reject) => {
+            finishA = resolve
+            failA = reject
+          })
+        return Promise.resolve({ ...RICH_CAPTURE, title: "B page" })
+      }
+      renderPanel(state, FEATURED)
+      fireEvent.click(await screen.findByTestId("capture-now"))
+      await waitFor(() => expect(calls).toBe(1))
+      fireEvent.click(screen.getByTestId("capture-whole-page"))
+      await screen.findByText("B page")
+      await act(async () => finishA({ ...RICH_CAPTURE, title: "A page, late" }))
+      expect(screen.queryByText("A page, late")).toBeNull()
+      expect(screen.getByText("B page")).toBeInTheDocument()
+
+      // Nor can a late failure of the older one put its prompt over B.
+      calls = 0
+      fireEvent.click(screen.getByTestId("capture-now"))
+      await waitFor(() => expect(calls).toBe(1))
+      fireEvent.click(screen.getByTestId("capture-whole-page"))
+      await waitFor(() => expect(calls).toBe(2))
+      await act(async () => failA(new Error("Cannot access contents of the page")))
+      expect(screen.queryByTestId("submit-error")).toBeNull()
+      expect(screen.queryByRole("button", { name: "captureAllowSite" })).toBeNull()
+    })
+
+    it("19: an open markup holds Send, by button and by shortcut, until applied", async () => {
+      const state = paired()
+      renderPanel(state, FEATURED)
+      await captureAndAsk()
+      fireEvent.click(screen.getByTestId("attach-markup"))
+      await screen.findByTestId("annotate-surface")
+      expect(screen.getByTestId("submit")).toBeDisabled()
+      expect(screen.getByTestId("submit-markup-open")).toHaveTextContent("submitMarkupOpen")
+      fireEvent.keyDown(screen.getByTestId("instruction"), { key: "Enter", ctrlKey: true })
+      expect(state.submitAttempts).toHaveLength(0)
+
+      fireEvent.click(screen.getByTestId("annotate-confirm"))
+      await waitFor(() => expect(screen.getByTestId("submit")).toBeEnabled())
+      expect(screen.queryByTestId("submit-markup-open")).toBeNull()
+    })
+
+    it("05: exports the Markdown and the chosen screenshots as one archive", async () => {
+      const blobs: Blob[] = []
+      const names: string[] = []
+      Object.assign(URL, {
+        createObjectURL: jest.fn((blob: Blob) => {
+          blobs.push(blob)
+          return "blob:cognia/zip"
+        }),
+        revokeObjectURL: jest.fn(),
+      })
+      const click = jest.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+        this: HTMLAnchorElement
+      ) {
+        names.push(this.download)
+      })
+      try {
+        const state = paired()
+        renderPanel(state, FEATURED)
+        await captureAndAsk("capture-now", "Why is this cut off?")
+        expect(screen.queryByTestId("export-bundle")).toBeNull()
+        fireEvent.click(screen.getByTestId("attach-visible"))
+        fireEvent.click(await screen.findByTestId("export-bundle"))
+        fireEvent.click(await screen.findByTestId("evidence-export-download"))
+        expect(names).toEqual([expect.stringMatching(/^cognia-.+-\d{4}-\d{2}-\d{2}\.zip$/)])
+        expect(blobs[0]?.type).toBe("application/zip")
+        const bytes = await new Promise<Uint8Array>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer))
+          reader.readAsArrayBuffer(blobs[0]!)
+        })
+        const { readStoredZip } = await import("@ext/src/lib/panel/zip")
+        const entries = readStoredZip(bytes)
+        expect(entries).toHaveLength(2)
+        expect(entries[1]!.name).toMatch(/^attachments\/screenshot-visible-.+\.png$/)
+        const markdown = new TextDecoder().decode(entries[0]!.bytes)
+        expect(markdown).toContain("Why is this cut off?")
+        expect(markdown).toContain(`(<${entries[1]!.name}>)`)
+        expect(screen.queryByTestId("evidence-export")).toBeNull()
+      } finally {
+        click.mockRestore()
+      }
+    })
+
+    it("20: a screenshot over the Host's file limit is refused when taken, not at Send", async () => {
+      const state = paired()
+      renderPanel(state, {
+        ...FEATURED,
+        limits: { ...FEATURED.limits, attachmentBytes: 4 },
+      })
+      await captureAndAsk()
+      fireEvent.click(screen.getByTestId("attach-visible"))
+      expect(await screen.findByTestId("submit-error")).toHaveTextContent("attachTooLarge")
+      expect(screen.queryByTestId(/^attachment-remove-/)).toBeNull()
+      // Marking up starts from a shot that was not refused, or not at all.
+      fireEvent.click(screen.getByTestId("attach-markup"))
+      await waitFor(() => expect(screen.getByTestId("attach-markup")).toBeEnabled())
+      expect(screen.queryByTestId("annotate-surface")).toBeNull()
     })
   })
 })

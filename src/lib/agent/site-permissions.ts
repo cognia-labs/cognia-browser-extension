@@ -37,6 +37,8 @@ export type AgentPermissionMessage =
       answer: SiteAnswer
     }
   | { kind: "cognia-agent-permission"; action: "forget"; origin: string }
+  /** From the panel: ask Cognia again to stop a paused conversation's task. */
+  | { kind: "cognia-agent-permission"; action: "stop-host-task"; session: string }
 
 export function isAgentPermissionMessage(value: unknown): value is AgentPermissionMessage {
   if (!value || typeof value !== "object") return false
@@ -48,6 +50,8 @@ export function isAgentPermissionMessage(value: unknown): value is AgentPermissi
       message.questionId.length > 0 &&
       ["once", "always", "never"].includes(message.answer as string)
     )
+  if (message.action === "stop-host-task")
+    return typeof message.session === "string" && message.session.length > 0
   if (message.action !== "forget" || typeof message.origin !== "string") return false
   try {
     return originOf(message.origin) === message.origin

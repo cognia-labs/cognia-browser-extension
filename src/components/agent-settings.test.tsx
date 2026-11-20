@@ -22,6 +22,11 @@ function fakeApi(options: { grant?: boolean; preferences?: unknown } = {}) {
     ...(request.origins ?? []),
   ]
   const listeners = new Map<string, Set<(value: unknown) => void>>()
+  const permissionListeners = new Set<() => void>()
+  /** The browser granting or revoking something outside the panel. */
+  const permissionsChanged = () => {
+    for (const listener of permissionListeners) listener()
+  }
   const listen = (key: string, listener: (value: unknown) => void) => {
     const set = listeners.get(key) ?? new Set()
     set.add(listener)
@@ -49,11 +54,15 @@ function fakeApi(options: { grant?: boolean; preferences?: unknown } = {}) {
       for (const entry of entries(request)) granted.delete(entry)
       return true
     },
+    onPermissionsChange: (listener: () => void) => {
+      permissionListeners.add(listener)
+      return () => permissionListeners.delete(listener)
+    },
     forgetSiteDecision: async (origin: string) => {
       forgotten.push(origin)
     },
   } as unknown as BrowserApi
-  return { api, local, session, granted, forgotten }
+  return { api, local, session, granted, forgotten, permissionsChanged }
 }
 
 describe("AgentSettings", () => {
@@ -128,6 +137,23 @@ describe("AgentSettings", () => {
     expect(remove).not.toHaveBeenCalled()
     expect(fake.granted.has("<all_urls>")).toBe(true)
     expect(fake.local.get(STORAGE_KEYS.preferences)).toMatchObject({ agentMode: false })
+  })
+
+  it("follows a permission revoked or granted in the browser while it is open", async () => {
+    const fake = fakeApi({ preferences: { agentMode: true } })
+    fake.granted.add("downloads")
+    render(<AgentSettings api={fake.api} driveAllowed />)
+    await waitFor(() =>
+      expect(screen.getByTestId("agent-downloads-switch")).toHaveAttribute("aria-checked", "true")
+    )
+    // Revoked on the extensions page: no click in the panel.
+    fake.granted.delete("downloads")
+    fake.granted.add("cookies")
+    await act(async () => fake.permissionsChanged())
+    await waitFor(() =>
+      expect(screen.getByTestId("agent-downloads-switch")).toHaveAttribute("aria-checked", "false")
+    )
+    expect(screen.getByTestId("agent-cookies-switch")).toHaveAttribute("aria-checked", "true")
   })
 
   it("grants downloads and cookies separately", async () => {

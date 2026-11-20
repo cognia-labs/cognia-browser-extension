@@ -16,12 +16,17 @@
  * module state here is a cache that `start()` rebuilds.
  */
 import {
+  CompanionApiError,
   isTerminalBrowserSubmissionStatus,
   type BrowserContextSubmissionSummaryV1,
 } from "@cognia/companion-client"
 import { AGENT_PROFILE } from "../agent/protocol"
 
-import { createAgentRuntime, type AgentRuntime } from "../agent/agent-runtime"
+import {
+  createAgentRuntime,
+  type AgentRuntime,
+  type HostCancelOutcome,
+} from "../agent/agent-runtime"
 import type { AgentBrowser } from "../agent/executor"
 import {
   PENDING_SITE_QUESTIONS_KEY,
@@ -53,9 +58,11 @@ import {
   badgeFor,
   countStatuses,
   diffStatuses,
+  followUps,
   notificationMessageKey,
   shouldKeepPolling,
   type Badge,
+  type StatusItem,
   type StatusSnapshot,
 } from "./status-tracker"
 
@@ -64,8 +71,29 @@ export { PANEL_PORT } from "../browser-api"
 export const STATUS_POLL_MINUTES = 1
 /** Rows read per status poll; the badge counts within the newest of them. */
 export const STATUS_PAGE_SIZE = 50
+/**
+ * Unsettled tasks past the newest page that one read follows by id. A task
+ * still running when fifty newer ones finished is followed to its end rather
+ * than dropped from the badge; past this many, the oldest are let go.
+ */
+export const MAX_FOLLOWED = 20
+/** Pages of the list Stop searches for a conversation's task (fifty rows each). */
+export const MAX_CANCEL_PAGES = 40
 /** Notification ids carry what they are about, so a click knows where to go. */
 export const NOTIFICATION_PREFIX = "cognia:"
+
+/**
+ * Whether the Host answered and refused, as opposed to not being reached, or
+ * being too busy to say. A refusal is a final word about that submission.
+ */
+function isRefusal(error: unknown): boolean {
+  return (
+    error instanceof CompanionApiError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    error.status !== 429
+  )
+}
 
 export interface WorkerDeps {
   local: StorageArea
@@ -224,12 +252,15 @@ export function createWorker(deps: WorkerDeps) {
       return
     }
     if (client !== readingClient) return
-    lastCounts = countStatuses(items)
-    keepPolling = shouldKeepPolling(items)
+    const snapshot = (await deps.session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY)) ?? EMPTY_SNAPSHOT
+    const followed = await follow(readingClient, snapshot, items)
+    if (client !== readingClient) return
+    const all: StatusItem[] = [...items, ...followed]
+    lastCounts = countStatuses(all)
+    keepPolling = shouldKeepPolling(all)
     await refreshBadgeOnly()
 
-    const snapshot = (await deps.session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY)) ?? EMPTY_SNAPSHOT
-    const { transitions, next } = diffStatuses(snapshot, items)
+    const { transitions, next } = diffStatuses(snapshot, all)
     await deps.session.set(STATUS_SNAPSHOT_KEY, next)
     // The open panel shows these itself; a notification on top is noise.
     if (transitions.length === 0 || panelPorts > 0 || !(await wantsNotification())) return
@@ -238,10 +269,46 @@ export function createWorker(deps: WorkerDeps) {
         .notify(
           `${NOTIFICATION_PREFIX}submission:${transition.item.submissionId}`,
           deps.message(notificationMessageKey(transition.to)),
-          transition.item.title || transition.item.sourceHost
+          transition.item.title || transition.item.sourceHost || ""
         )
         .catch(() => undefined)
     }
+  }
+
+  /**
+   * The tasks last seen unsettled that the newest page no longer holds, read
+   * one by one. A refusal (gone, or another device's) ends following one; a
+   * Host that could not answer leaves it as it was last seen, to ask again.
+   */
+  async function follow(
+    readingClient: HostClient,
+    snapshot: StatusSnapshot,
+    items: readonly StatusItem[]
+  ): Promise<StatusItem[]> {
+    const followed: StatusItem[] = []
+    for (const submissionId of followUps(snapshot, items, MAX_FOLLOWED)) {
+      const known = snapshot.tracked?.[submissionId]
+      const label = known?.label ? { title: known.label } : {}
+      try {
+        const status = await readingClient.get(submissionId)
+        const sessionId = status.sessionId ?? known?.sessionId
+        followed.push({
+          submissionId,
+          status: status.status,
+          ...label,
+          ...(sessionId ? { sessionId } : {}),
+        })
+      } catch (error) {
+        if (isRefusal(error)) continue
+        followed.push({
+          submissionId,
+          status: snapshot.statuses[submissionId]!,
+          ...label,
+          ...(known?.sessionId ? { sessionId: known.sessionId } : {}),
+        })
+      }
+    }
+    return followed
   }
 
   /** One read at a time; a hint during a read schedules exactly one more. */
@@ -297,33 +364,79 @@ export function createWorker(deps: WorkerDeps) {
       return
     }
     client = loaded
-    await deps.session.set(STATUS_SNAPSHOT_KEY, EMPTY_SNAPSHOT)
+    // A woken worker loads its client again; what it saw of that same
+    // pairing's tasks is still true, and forgetting it would lose what
+    // finished while it slept and the tasks it follows past the first page.
+    const owner = next ? `${next.baseUrl}#${next.deviceId}` : undefined
+    const stored = await deps.session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY).catch(() => null)
+    if (load !== pairingLoad || (owner && stored?.owner === owner)) return
+    await deps.session.set(
+      STATUS_SNAPSHOT_KEY,
+      owner ? { ...EMPTY_SNAPSHOT, owner } : EMPTY_SNAPSHOT
+    )
   }
 
   /**
-   * Stop on the in-page bar: cancel the Host task acting in that conversation.
-   * The list is the only index from conversation to submission this device
-   * may read, so the newest non-terminal match is the one acting.
+   * Stop on the in-page bar: cancel the Host task acting in that conversation,
+   * and say whether the Host confirmed it.
+   *
+   * The tasks the status reads already follow for that conversation are tried
+   * first; then the list, the only index from conversation to submission this
+   * device may read, newest first, where the first unsettled match is the one
+   * acting. "none" is said only when the whole list was read and nothing in
+   * it is still going; anything the Host did not answer is "failed".
    */
-  async function cancelConversation(sessionId: string): Promise<void> {
-    if (!client) return
+  async function cancelConversation(sessionId: string): Promise<HostCancelOutcome> {
+    const reading = client
+    if (!reading) return "failed"
+    const tried = new Set<string>()
+    const cancel = async (submissionId: string): Promise<HostCancelOutcome | "refused"> => {
+      tried.add(submissionId)
+      try {
+        await reading.cancel(submissionId)
+      } catch (error) {
+        const code = error instanceof CompanionApiError ? error.code : ""
+        // Another device is driving it: running, and not stopped from here.
+        return isRefusal(error) && code !== "session_driven_elsewhere" ? "refused" : "failed"
+      }
+      void refreshStatus()
+      return "cancelled"
+    }
+    const snapshot = (await deps.session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY)) ?? EMPTY_SNAPSHOT
+    for (const [submissionId, tracked] of Object.entries(snapshot.tracked ?? {})) {
+      const status = snapshot.statuses[submissionId]
+      if (tracked.sessionId !== sessionId || !status || isTerminalBrowserSubmissionStatus(status))
+        continue
+      const outcome = await cancel(submissionId)
+      // Refused: it finished since, or is not this device's; look further.
+      if (outcome !== "refused") return outcome
+    }
     let pageToken: string | undefined
-    for (let page = 0; page < 2; page++) {
-      const result = await client
-        .list({ limit: 50, ...(pageToken ? { pageToken } : {}) })
-        .catch(() => null)
-      if (!result) return
+    for (let page = 0; page < MAX_CANCEL_PAGES; page++) {
+      let result: Awaited<ReturnType<HostClient["list"]>>
+      try {
+        result = await reading.list({
+          limit: STATUS_PAGE_SIZE,
+          ...(pageToken ? { pageToken } : {}),
+        })
+      } catch {
+        return "failed"
+      }
       const match = result.items.find(
-        (item) => item.sessionId === sessionId && !isTerminalBrowserSubmissionStatus(item.status)
+        (item) =>
+          item.sessionId === sessionId &&
+          !tried.has(item.submissionId) &&
+          !isTerminalBrowserSubmissionStatus(item.status)
       )
       if (match) {
-        await client.cancel(match.submissionId).catch(() => undefined)
-        void refreshStatus()
-        return
+        const outcome = await cancel(match.submissionId)
+        return outcome === "refused" ? "failed" : outcome
       }
-      if (!result.nextPageToken) return
+      if (!result.nextPageToken) return "none"
       pageToken = result.nextPageToken
     }
+    // The list goes on past what one press reads: nothing found is not "none".
+    return "failed"
   }
 
   return {
@@ -363,6 +476,10 @@ export function createWorker(deps: WorkerDeps) {
     ): Promise<boolean> {
       // Extension content scripts share runtime.id, so require the actual panel URL.
       if (senderUrl?.split(/[?#]/)[0] !== deps.panelUrl) return Promise.resolve(false)
+      if (message.action === "stop-host-task")
+        // Not a permission change: it waits on the Host, and must not hold
+        // up an answer to a site question queued behind it.
+        return runtime.retryHostStop(message.session).then((outcome) => outcome !== null)
       const run = permissionChanges.then(async () => {
         if (message.action === "answer")
           await runtime.permissions.answer(message.questionId, message.answer)

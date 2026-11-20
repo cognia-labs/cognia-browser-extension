@@ -455,6 +455,9 @@
   "agentBarResume": {
     "message": "Hand back"
   },
+  "agentBarStopUnconfirmed": {
+    "message": "Paused here, but Cognia did not confirm its task stopped. Stop it in Cognia."
+  },
   "agentTitle": {
     "message": "Agent mode"
   },
@@ -502,6 +505,69 @@
   },
   "agentConversationsTitle": {
     "message": "Conversations acting here"
+  },
+  "agentControlTitle": {
+    "message": "Controlling this browser"
+  },
+  "agentControlManage": {
+    "message": "Site access"
+  },
+  "agentControlConversation": {
+    "message": "Conversation $ID$",
+    "placeholders": {
+      "id": {
+        "content": "$1",
+        "example": "1a2b3c4d"
+      }
+    }
+  },
+  "agentControlActing": {
+    "message": "Acting"
+  },
+  "agentControlPaused": {
+    "message": "Paused"
+  },
+  "agentControlShowTab": {
+    "message": "Show its tab"
+  },
+  "agentControlOnceSites": {
+    "message": "Allowed for this conversation: $SITES$",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "shop.test"
+      }
+    }
+  },
+  "agentControlStopUnconfirmed": {
+    "message": "Paused here, but Cognia did not confirm its task stopped."
+  },
+  "agentControlRetryStop": {
+    "message": "Stop in Cognia"
+  },
+  "agentControlRetrying": {
+    "message": "Asking…"
+  },
+  "agentControlRetryFailed": {
+    "message": "Could not reach the worker. Try again, or stop the task in Cognia."
+  },
+  "agentControlStopConfirmed": {
+    "message": "Cognia stopped its task."
+  },
+  "agentControlStopNone": {
+    "message": "Cognia had no task running for it."
+  },
+  "siteQuestionFrom": {
+    "message": "Asked by: $CONVERSATION$",
+    "placeholders": {
+      "conversation": {
+        "content": "$1",
+        "example": "Checkout bug"
+      }
+    }
+  },
+  "siteQuestionScope": {
+    "message": "\"Allow for this task\" lasts while this conversation does. \"Always allow\" is for every conversation until you forget it in Settings."
   },
   "agentConversationTabs": {
     "message": "$COUNT$ tabs",
@@ -797,6 +863,9 @@
   "submitShortcutHint": {
     "message": "Ctrl/⌘ + Enter to send"
   },
+  "submitMarkupOpen": {
+    "message": "Apply or cancel the markup before sending: the screenshot does not include it yet."
+  },
   "transcriptAvailable": {
     "message": "Transcript included"
   },
@@ -1068,17 +1137,20 @@
   "insightFailed": {
     "message": "This check could not run on the page. Click the extension's icon on the page and try again."
   },
+  "insightPageMoved": {
+    "message": "The tab moved to another page while this ran, so the result was not kept. Capture the page again and rerun it."
+  },
   "accessTitle": {
     "message": "Accessibility"
   },
   "accessHint": {
-    "message": "WCAG 2.2 AA checks; not certification."
+    "message": "WCAG 2.2 AA first pass; findings need review by hand, not certification."
   },
   "accessRun": {
     "message": "Check accessibility"
   },
   "accessClean": {
-    "message": "No findings in $COUNT$ elements.",
+    "message": "No findings in $COUNT$ elements. A first pass: keyboard and screen-reader checks still need a person.",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -1145,7 +1217,7 @@
     "message": "Id is used more than once"
   },
   "accessRuleTargetSize": {
-    "message": "Target is smaller than 24×24"
+    "message": "Target under 24×24 and crowded (review by hand)"
   },
   "accessRuleHiddenFocus": {
     "message": "Focusable element hidden from assistive technology"
@@ -1414,7 +1486,7 @@
     "message": "First byte (TTFB)"
   },
   "perfVitalTbt": {
-    "message": "Blocked time (TBT)"
+    "message": "Long-task blocking observed this visit (not TBT)"
   },
   "perfGood": {
     "message": "Good"
@@ -1636,6 +1708,27 @@
         "content": "$1"
       }
     }
+  },
+  "exportBundle": {
+    "message": "Export with files (.zip)"
+  },
+  "exportBundleTitle": {
+    "message": "Files to include"
+  },
+  "exportBundleHint": {
+    "message": "Only checked files go in, beside the Markdown export. Marked-up screenshots are packed with their marks."
+  },
+  "exportBundleSize": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "12.5"
+      }
+    }
+  },
+  "exportBundleDownload": {
+    "message": "Download .zip"
   },
   "exportContext": {
     "message": "Export .md"
@@ -1941,6 +2034,9 @@
   },
   "panelPaired": {
     "message": "Paired"
+  },
+  "captureActiveTabHint": {
+    "message": "No setup needed: click the Cognia icon, right-click the page or use your shortcut to capture the tab in front. A site is asked for only if a page needs it."
   },
   "captureSubtitle": {
     "message": "Page, selection or article"
@@ -2270,6 +2366,9 @@
   },
   "adjustActive": {
     "message": "Adjusting element"
+  },
+  "tabCapture": {
+    "message": "Capture"
   },
   "tabSend": {
     "message": "Send"
@@ -2621,7 +2720,7 @@
     "message": "Stop recording"
   },
   "recordingsPrivacy": {
-    "message": "Steps keep what you type, except in password and other secret fields. Agents in your Cognia conversations can read recordings you share with them."
+    "message": "Steps keep what you type, except in password and other secret fields. Your recordings stay private to this browser until you share one, with one conversation or every conversation; an agent's own recording is for its conversation only."
   },
   "recordingsNoPage": {
     "message": "Open a web page in this tab to record it."
@@ -2653,10 +2752,81 @@
     "message": "Remove recording"
   },
   "recordingsShared": {
-    "message": "Agents can read it"
+    "message": "Who can read it"
   },
   "recordingsEmpty": {
     "message": "No recordings yet."
+  },
+  "recordingsSharePrivate": {
+    "message": "No conversation"
+  },
+  "recordingsShareAll": {
+    "message": "Every Cognia conversation"
+  },
+  "recordingsShareConversation": {
+    "message": "Conversation $ID$",
+    "placeholders": {
+      "id": {
+        "content": "$1",
+        "example": "1a2b3c4d"
+      }
+    }
+  },
+  "recordingsShareSome": {
+    "message": "$COUNT$ conversations",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    }
+  },
+  "recordingsShareAfterStop": {
+    "message": "Stop recording to review and share it"
+  },
+  "recordingsReview": {
+    "message": "Review steps"
+  },
+  "recordingsReviewHide": {
+    "message": "Hide steps"
+  },
+  "recordingsStepNavigate": {
+    "message": "Open"
+  },
+  "recordingsStepClick": {
+    "message": "Click"
+  },
+  "recordingsStepDoubleClick": {
+    "message": "Double-click"
+  },
+  "recordingsStepHover": {
+    "message": "Hover"
+  },
+  "recordingsStepFill": {
+    "message": "Type"
+  },
+  "recordingsStepSelect": {
+    "message": "Choose"
+  },
+  "recordingsStepPressKey": {
+    "message": "Press"
+  },
+  "recordingsStepScroll": {
+    "message": "Scroll"
+  },
+  "recordingsStepAssert": {
+    "message": "Check"
+  },
+  "recordingsStepUrl": {
+    "message": "Check the address"
+  },
+  "recordingsStepSecret": {
+    "message": "Not recorded; the test reads $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "mockSaveAsRules": {
     "message": "Save as rules for this site"

@@ -54,9 +54,18 @@ describe("originOf", () => {
         origin: "https://a.test",
       })
     ).toBe(true)
+    expect(
+      isAgentPermissionMessage({
+        kind: "cognia-agent-permission",
+        action: "stop-host-task",
+        session: "s1",
+      })
+    ).toBe(true)
     for (const value of [
       null,
       {},
+      { kind: "cognia-agent-permission", action: "stop-host-task", session: "" },
+      { kind: "cognia-agent-permission", action: "stop-host-task" },
       {
         kind: "cognia-agent-permission",
         action: "answer",

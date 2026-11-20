@@ -8,13 +8,15 @@ import {
   badgeFor,
   countStatuses,
   diffStatuses,
+  followUps,
   notificationMessageKey,
   shouldKeepPolling,
 } from "./status-tracker"
 
 function item(
   submissionId: string,
-  status: BrowserSubmissionStatus
+  status: BrowserSubmissionStatus,
+  extra: Partial<BrowserContextSubmissionSummaryV1> = {}
 ): BrowserContextSubmissionSummaryV1 {
   return {
     submissionId,
@@ -25,6 +27,7 @@ function item(
     submittedAt: 1,
     updatedAt: 2,
     deepLink: `cognia://s/${submissionId}`,
+    ...extra,
   }
 }
 
@@ -78,6 +81,29 @@ describe("diffStatuses", () => {
     expect(next).toEqual({
       primed: true,
       statuses: { a: "completed", b: "needs_input" },
+      // Only what can still change is followed.
+      tracked: { b: { label: "Task b" } },
+    })
+  })
+
+  it("remembers what an unsettled task is called and where it acts, and whose it is", () => {
+    const owned = { ...EMPTY_SNAPSHOT, owner: "http://h#d" }
+    const first = diffStatuses(owned, [
+      item("a", "running", { title: "", sourceHost: "a.test", sessionId: "s1" }),
+    ]).next
+    expect(first).toEqual({
+      primed: true,
+      statuses: { a: "running" },
+      tracked: { a: { label: "a.test", sessionId: "s1" } },
+      owner: "http://h#d",
+    })
+    // Re-read by id, with no title or conversation: both are kept.
+    const later = diffStatuses(first, [{ submissionId: "a", status: "needs_input" }]).next
+    expect(later.tracked).toEqual({ a: { label: "a.test", sessionId: "s1" } })
+    expect(diffStatuses(later, [{ submissionId: "a", status: "completed" }]).next).toEqual({
+      primed: true,
+      statuses: { a: "completed" },
+      owner: "http://h#d",
     })
   })
 
@@ -100,6 +126,18 @@ describe("diffStatuses", () => {
       ["d", null, "needs_input"],
     ])
     expect(diffStatuses(next, [item("a", "completed")]).transitions).toEqual([])
+  })
+
+  it("names the unsettled tasks a read missed, newest first and bounded", () => {
+    const snapshot = diffStatuses(EMPTY_SNAPSHOT, [
+      item("a", "running"),
+      item("b", "completed"),
+      item("c", "needs_input"),
+      item("d", "queued"),
+    ]).next
+    expect(followUps(snapshot, [item("d", "running")], 5)).toEqual(["a", "c"])
+    expect(followUps(snapshot, [], 1)).toEqual(["a"])
+    expect(followUps(EMPTY_SNAPSHOT, [], 5)).toEqual([])
   })
 
   it("names the message for each announced status", () => {

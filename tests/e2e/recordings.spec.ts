@@ -99,6 +99,11 @@ test("records what the person does, across a load, and never a password", async 
   ])
   expect(JSON.stringify(recording)).not.toContain("hunter2")
   await expect(panel.getByTestId("recordings-item")).toContainText("6 steps")
+  // The person's recording is theirs until they have looked and shared it.
+  await expect(panel.getByTestId("recordings-shared")).toHaveValue("private")
+  await panel.getByTestId("recordings-review").click()
+  await expect(panel.getByTestId("recordings-step")).toHaveCount(6)
+  await expect(panel.getByTestId("recordings-steps")).not.toContainText("hunter2")
 })
 
 test("records what is done on a page before it has finished loading", async ({
@@ -114,17 +119,21 @@ test("records what is done on a page before it has finished loading", async ({
     `<!doctype html><title>Slow</title><button onclick="this.textContent='Early'">Act now</button><img src="/slow/4000" alt="" />`
   )
   await requestCapture(serviceWorker, await tabIdOf(serviceWorker, url), "auto")
+  // The capture lands first: finishing it brings the panel back to Send, which
+  // would hide Tools again under a click made in the meantime.
+  await expect(panel.getByTestId("capture-preview")).toBeVisible()
   await openView(panel, "tools")
   await panel.getByRole("button", { name: "Record a test", exact: true }).click()
   await panel.getByTestId("recordings-start").click()
   await expect(panel.getByTestId("recordings-stop")).toBeVisible()
 
+  // Opened directly, not by anything recorded: the test has to go there itself.
   await page.goto(slowUrl, { waitUntil: "domcontentloaded" })
   await page.getByRole("button", { name: "Act now" }).click()
   expect(await page.evaluate(() => document.readyState)).not.toBe("complete")
   await expect
     .poll(async () => (await stored(serviceWorker))[0]?.steps.map((step) => step.action))
-    .toEqual(["navigate", "assert", "click"])
+    .toEqual(["navigate", "navigate", "click"])
   await panel.getByTestId("recordings-stop").click()
 })
 

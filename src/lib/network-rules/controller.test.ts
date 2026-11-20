@@ -152,6 +152,28 @@ describe("a conversation's rules", () => {
     expect(fake.state.session).toEqual([])
   })
 
+  it("take a rule removed in the panel out of the pages already open", async () => {
+    const { rules, fake, hold } = harness()
+    hold("s1", [5])
+    fake.state.urls.set(5, "https://shop.test/cart")
+    const set = await rules.setAgentRules(
+      "s1",
+      [{ match: "/api/orders", action: "respond", status: 503 }],
+      [tab(5)]
+    )
+    expect(fake.state.pages.get(5)!.map((rule) => rule.status)).toEqual([503])
+    const ruleId = (set as { rules: { id: string }[] }).rules[0]!.id
+    expect(await rules.command({ op: "remove-agent-rule", sessionId: "s1", ruleId })).toEqual({
+      ok: true,
+    })
+    // The last one gone: the open page answers for real again, without a reload.
+    expect(fake.state.pages.get(5)).toEqual([])
+    expect(await rules.agentSets()).toEqual({})
+    // And a stop or take-over afterwards has nothing left to undo.
+    await rules.clearAgent("s1", [tab(5)])
+    expect(fake.state.pages.get(5)).toEqual([])
+  })
+
   it("move the gate where the agent goes, before it loads", async () => {
     const { rules, fake, hold } = harness()
     hold("s1", [5])

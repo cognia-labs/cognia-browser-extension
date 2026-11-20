@@ -447,27 +447,41 @@ export function createAgentExecutor(deps: ExecutorDeps) {
       )
       const shots: string[] = []
       const heights: number[] = []
-      for (let step = 0; step < steps; step++) {
-        const target = step * metrics.viewportHeight
-        const landed = await browser.run(tab.id, "ISOLATED", pageScrollTo, [target])
-        await sleep(step === 0 ? 150 : CAPTURE_SPACING_MS)
-        shots.push(await browser.captureVisible(tab.windowId))
-        // The last step may overlap the previous one; keep only the new rows.
-        const previousBottom =
-          step === 0 ? 0 : (step - 1) * metrics.viewportHeight + metrics.viewportHeight
-        const fresh =
-          step === 0 ? metrics.viewportHeight : landed + metrics.viewportHeight - previousBottom
-        heights.push(Math.round(Math.max(0, Math.min(metrics.viewportHeight, fresh)) * metrics.dpr))
+      let previous = 0
+      let last = 0
+      try {
+        for (let step = 0; step < steps; step++) {
+          // Sideways the page stays where it is: every segment is one slice.
+          const landed = await browser.run(tab.id, "ISOLATED", pageScrollTo, [
+            step * metrics.viewportHeight,
+            null,
+          ])
+          await sleep(step === 0 ? 150 : CAPTURE_SPACING_MS)
+          shots.push(await browser.captureVisible(tab.windowId))
+          // From where each segment actually landed, not where it was asked to
+          // go: one that scrolled less than asked overlaps the one before it,
+          // and only the rows below that one's bottom are new.
+          const fresh = step === 0 ? metrics.viewportHeight : landed - previous
+          heights.push(
+            Math.round(Math.max(0, Math.min(metrics.viewportHeight, fresh)) * metrics.dpr)
+          )
+          previous = landed
+          last = landed
+        }
+      } finally {
+        // Both axes back, also when a capture failed part way.
+        await browser
+          .run(tab.id, "ISOLATED", pageScrollTo, [metrics.scrollY, metrics.scrollX])
+          .catch(() => undefined)
       }
-      await browser.run(tab.id, "ISOLATED", pageScrollTo, [metrics.scrollY])
       const width = Math.min(MAX_CANVAS_SIDE, Math.round(metrics.viewportWidth * metrics.dpr))
       const rows = heights.reduce((sum, value) => sum + value, 0)
       // The canvas the segments are stacked on stops at MAX_CANVAS_SIDE; a
-      // page taller than that, or than the segment budget, is cut and says so.
+      // page taller than that, or than the segment budget, or one that would
+      // not scroll as far as its height says, is cut and says so.
       const height = Math.min(MAX_CANVAS_SIDE, rows)
       const truncated =
-        rows > MAX_CANVAS_SIDE ||
-        (steps === MAX_FULL_PAGE_SEGMENTS && metrics.scrollHeight > steps * metrics.viewportHeight)
+        rows > MAX_CANVAS_SIDE || last + metrics.viewportHeight < metrics.scrollHeight - 1
       return {
         bytes: await browser.image.stitch(shots, width, heights),
         width,
@@ -1005,12 +1019,13 @@ export function createAgentExecutor(deps: ExecutorDeps) {
         return { recording }
       }
       case "list_recordings": {
-        return { recordings: await requireRecordings().listShared() }
+        // Only what is shared with the conversation asking.
+        return { recordings: await requireRecordings().listShared(sessionId) }
       }
       case "get_recording": {
         const recordings = requireRecordings()
         const format = args.format === "playwright" ? "playwright" : "steps"
-        return recordingCall(() => recordings.getShared(stringArg(args, "id"), format))
+        return recordingCall(() => recordings.getShared(stringArg(args, "id"), format, sessionId))
       }
       case "clear_network_rules": {
         await requireRules().clearAgent(sessionId, await sessionTabs(current))

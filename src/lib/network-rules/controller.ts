@@ -153,6 +153,17 @@ export function createNetworkRules(deps: NetworkRulesDeps) {
     }
   }
 
+  /** The pages a conversation has open now, as the browser reports them. */
+  async function openTabs(sessionId: string): Promise<{ id: number; url: string }[]> {
+    const session = (await deps.sessions())[sessionId]
+    const tabs: { id: number; url: string }[] = []
+    for (const id of session?.tabIds ?? []) {
+      const url = await deps.browser.tabUrl(id).catch(() => null)
+      if (url) tabs.push({ id, url })
+    }
+    return tabs
+  }
+
   return {
     sync,
     pageRulesFor,
@@ -195,7 +206,13 @@ export function createNetworkRules(deps: NetworkRulesDeps) {
 
     async command(command: RuleCommand): Promise<RuleCommandResult> {
       const result = await store.apply(command)
-      if (result.ok) await sync().catch(() => undefined)
+      if (!result.ok) return result
+      await sync().catch(() => undefined)
+      // The browser's rules follow the sync; a page's simulated responses run
+      // in the page, which loaded the old set. Removing a conversation's rule
+      // in the panel takes it out of the pages it has open now, as setting and
+      // clearing the set do — not at their next reload.
+      if (command.op === "remove-agent-rule") await repaint(await openTabs(command.sessionId))
       return result
     },
 

@@ -1,6 +1,7 @@
 import { useId, useRef, type KeyboardEvent, type ReactNode } from "react"
 import { Button, cn } from "@cognia/plugin-ui"
 import {
+  CameraIcon,
   SendIcon,
   Settings2Icon,
   SparklesIcon,
@@ -19,10 +20,11 @@ const TAB_ICONS: Record<PanelTab, LucideIcon> = {
   tools: WrenchIcon,
 }
 
-function tabLabel(api: BrowserApi, tab: PanelTab): string {
+function tabLabel(api: BrowserApi, tab: PanelTab, local: boolean): string {
   switch (tab) {
     case "send":
-      return api.message("tabSend")
+      // Without a Host nothing is sent: the first tab captures, to copy or export.
+      return local ? api.message("tabCapture") : api.message("tabSend")
     case "inspect":
       return api.message("tabInspect")
     case "tools":
@@ -45,6 +47,8 @@ export interface PanelShellProps {
   activity?: Partial<Record<PanelTab, TabActivity>>
   /** Pinned under Send's content: the instruction and the ways out. */
   composer?: ReactNode
+  /** No Host: the first tab is for capturing, not sending. */
+  local?: boolean
   panels: Record<PanelView, ReactNode>
 }
 
@@ -66,6 +70,7 @@ export function PanelShell({
   activity = {},
   composer,
   panels,
+  local = false,
 }: PanelShellProps) {
   const baseId = useId()
   const tabRefs = useRef<Partial<Record<PanelTab, HTMLButtonElement | null>>>({})
@@ -127,7 +132,7 @@ export function PanelShell({
           className="grid grid-cols-3 gap-0.5 rounded-lg bg-muted p-0.5"
         >
           {PANEL_TABS.map((tab) => {
-            const Icon = TAB_ICONS[tab]
+            const Icon = local && tab === "send" ? CameraIcon : TAB_ICONS[tab]
             const selected = view === tab
             const running = activity[tab]
             return (
@@ -152,7 +157,7 @@ export function PanelShell({
                 data-testid={`tab-${tab}`}
               >
                 <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-                <span className="truncate">{tabLabel(api, tab)}</span>
+                <span className="truncate">{tabLabel(api, tab, local)}</span>
                 {typeof running === "number" && running > 0 ? (
                   <span
                     className="min-w-4 rounded-full bg-info px-1 text-[10px] leading-4 text-white tabular-nums"

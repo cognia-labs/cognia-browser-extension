@@ -32,6 +32,7 @@ import {
   useCopy,
 } from "@cognia/plugin-ui"
 import {
+  ArchiveIcon,
   CameraIcon,
   CheckIcon,
   CopyIcon,
@@ -111,6 +112,7 @@ import {
   NO_INSIGHTS,
   insightSections,
   insightsForTab,
+  onPage,
   type InsightKind,
   type PageInsights,
 } from "@ext/src/lib/inspect/insights"
@@ -131,7 +133,13 @@ import {
   toCapturedPage,
   withoutUnsupported,
 } from "@ext/src/lib/panel/page-context"
+import { evidenceBundle } from "@ext/src/lib/panel/evidence-bundle"
 import { quickActionInstruction } from "@ext/src/lib/panel/quick-actions"
+import {
+  parsePendingSubmission,
+  submissionDigest,
+  type PendingSubmission,
+} from "@ext/src/lib/panel/submission-identity"
 import {
   captureFullPage,
   captureVisible,
@@ -176,6 +184,7 @@ import {
   type CaptureScope,
   type PanelState,
 } from "@ext/src/lib/panel-state"
+import { AgentControl } from "./agent-control"
 import { AgentSettings } from "./agent-settings"
 import { AttachmentsBar, type AttachAction } from "./attachments-bar"
 import { CaptureEditor } from "./capture-editor"
@@ -183,6 +192,7 @@ import { CapturePreview } from "./capture-preview"
 import { ExtensionSettings } from "./extension-settings"
 import { PanelShell } from "./panel-shell"
 import { SiteAccess } from "./site-access"
+import { EvidenceExport } from "./evidence-export"
 import { ExtraPages } from "./extra-pages"
 import { ImageAnnotator } from "./image-annotator"
 import { Measurements } from "./measurements"
@@ -284,6 +294,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     shapes: Shape[]
   } | null>(null)
   const [annotateBusy, setAnnotateBusy] = useState(false)
+  /** Choosing the files for an evidence bundle. */
+  const [bundling, setBundling] = useState(false)
   // The recent list's search and the pages loaded past the polled first one.
   const [query, setQuery] = useState("")
   const [olderItems, setOlderItems] = useState<BrowserContextSubmissionSummaryV1[]>([])
@@ -343,10 +355,14 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // Words edited on the page itself (Design Mode): the tab being edited, and
   // what changed once the person was done.
   const [textEditingTab, setTextEditingTab] = useState<number | null>(null)
-  const [textChanges, setTextChanges] = useState<{ tabId: number; changes: TextChange[] } | null>(
-    null
-  )
+  const [textChanges, setTextChanges] = useState<{
+    tabId: number
+    pageUrl?: string
+    changes: TextChange[]
+  } | null>(null)
   const textEditingTabRef = useRef<number | null>(null)
+  /** The page the tab showed when editing began, which the edits belong to. */
+  const textEditingUrlRef = useRef<string | null>(null)
   const stoppingTextRef = useRef<Promise<boolean> | null>(null)
   const [pickBusy, setPickBusy] = useState<{ elementId: string; action: PickAction } | null>(null)
   // The console and network report, the recorder behind it, the design mock.
@@ -392,6 +408,10 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const startPickRef = useRef<((tabId?: number) => Promise<void>) | null>(null)
   const clientRef = useRef<HostClient | null>(null)
   const retainedCaptureRef = useRef<CapturedPage | null>(null)
+  /** Bumped by every capture and clear: a capture lands only if still the newest. */
+  const captureSeqRef = useRef(0)
+  /** The capture on screen now, for a late answer to compare against what it sent. */
+  const capturedRef = useRef<CapturedPage | null>(null)
   const portRef = useRef<PanelPort | null>(null)
   const queryRef = useRef("")
   const instructionRef = useRef<HTMLTextAreaElement | null>(null)
@@ -401,10 +421,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // Earliest time the next poll may run, when the Host asked for a pause.
   const pollNotBeforeRef = useRef(0)
   const draftRestoredRef = useRef(false)
-  const pendingSubmissionRef = useRef<{
-    fingerprint: string
-    submissionId: string
-  } | null>(null)
+  const pendingSubmissionRef = useRef<PendingSubmission | null>(null)
   // Ids already asked about, so an answered row is not re-fetched every poll —
   // held in a ref rather than derived from `failureCodes` so this effect does
   // not depend on the state it writes.
@@ -561,15 +578,25 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // This used to live only in the ref, which dies with the panel — so the one
   // case it existed for (the panel closing mid-submit) was exactly the case it
   // could not cover, and reopening minted a fresh id for the same capture. The
-  // id is not content: it is a UUID and a fingerprint of the choices, so it is
-  // safe in `chrome.storage.local` alongside the pairing record.
+  // record is not content: a UUID, a digest of the request and when it was
+  // written. A record in any other shape — the earlier one kept the
+  // instruction, title and address in plain text — or past its age is removed.
   useEffect(() => {
     void api
-      .read<{ fingerprint: string; submissionId: string }>(STORAGE_KEYS.pendingSubmission)
+      .read<unknown>(STORAGE_KEYS.pendingSubmission)
       .then((stored) => {
-        if (stored?.fingerprint && stored.submissionId) pendingSubmissionRef.current = stored
+        if (stored === null || stored === undefined) return
+        const pending = parsePendingSubmission(stored, now())
+        if (pending) pendingSubmissionRef.current = pending
+        else void api.remove([STORAGE_KEYS.pendingSubmission]).catch(() => undefined)
       })
       .catch(() => undefined)
+  }, [api, now])
+
+  /** Forget a lost response's id: what it was for is no longer on screen. */
+  const forgetPendingSubmission = useCallback(() => {
+    pendingSubmissionRef.current = null
+    void api.remove([STORAGE_KEYS.pendingSubmission]).catch(() => undefined)
   }, [api])
 
   /**
@@ -764,8 +791,15 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         link?: BrowserLinkContextV1
         image?: BrowserImageContextV1
       } = {}
-    ): Promise<{ ok: true; page: CapturedPage } | { ok: false; message: string }> => {
-      const decision = normalizeCaptureUrl(tab.url, includeFullUrl)
+    ): Promise<
+      | { ok: true; page: CapturedPage }
+      | { ok: false; message: string; access?: CaptureAccessRequest }
+    > => {
+      // Always the cleaned address. Whether the full one goes is a choice made
+      // for one capture, on its preview — not a panel setting the next page
+      // inherits — and `strippedQuery` must say what the cleaning removed, or
+      // the preview cannot offer the choice back.
+      const decision = normalizeCaptureUrl(tab.url, false)
       if (!decision.ok) return { ok: false, message: api.message("captureRestricted") }
       if (isBlockedUrl(tab.url, preferences.blockedHosts)) {
         return { ok: false, message: api.message("captureBlocked") }
@@ -786,14 +820,19 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         if (/extensions gallery cannot be scripted/i.test(detail))
           return { ok: false, message: api.message("captureRestricted") }
         if (/cannot access contents|host permission|permission denied/i.test(detail)) {
-          offerCaptureAccess({
-            kind: "site",
-            tabId: tab.id,
-            origin: new URL(decision.url).origin,
-            scope: requested,
-            ...extras,
-          })
-          return { ok: false, message: api.message("captureNoGrant") }
+          // Answered, not offered here: only the capture still wanted may put
+          // a permission prompt on screen.
+          return {
+            ok: false,
+            message: api.message("captureNoGrant"),
+            access: {
+              kind: "site",
+              tabId: tab.id,
+              origin: new URL(decision.url).origin,
+              scope: requested,
+              ...extras,
+            },
+          }
         }
         return { ok: false, message: api.message("captureReadFailed") }
       }
@@ -819,9 +858,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         },
         resolveBrowserContextLimits(limitsRef.current)
       )
-      return { ok: true, page: withoutUnsupported(page, features) }
+      // The whole page or its article is what was asked for. A selection left
+      // on the page from before is neither shown in the editor nor copied or
+      // exported for those modes, so it is not sent either.
+      const asked = requested === "auto" ? page : { ...page, selection: null }
+      return { ok: true, page: withoutUnsupported(asked, features) }
     },
-    [api, includeFullUrl, now, preferences.blockedHosts, offerCaptureAccess]
+    [api, now, preferences.blockedHosts]
   )
 
   /**
@@ -844,10 +887,16 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         image?: BrowserImageContextV1
       } = {}
     ): Promise<CapturedPage | null> => {
+      // Only the newest capture lands. A slow read of A finishing after B was
+      // shown — or after the capture was cleared — must not replace B, nor
+      // put A's error or permission prompt over it.
+      const seq = ++captureSeqRef.current
+      const current = () => seq === captureSeqRef.current
       offerCaptureAccess(null)
       const wanted: CaptureScope =
         requested === true ? "page" : requested === false ? "auto" : requested
       const tab = tabId === undefined ? await api.activeTab() : await api.tabById(tabId)
+      if (!current()) return null
       if (!tab) {
         // Without activeTab or a host grant Chrome may omit the tab's URL.
         // Keep the capture intent so its permission action can identify the
@@ -857,7 +906,9 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         return null
       }
       const outcome = await readPage(tab, wanted, extras)
+      if (!current()) return null
       if (!outcome.ok) {
+        if (outcome.access) offerCaptureAccess(outcome.access)
         setSubmitError(outcome.message)
         return null
       }
@@ -867,6 +918,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setStalled(null)
       setStaleTab(false)
       setScope(wanted)
+      // The full address was the person's choice for the page they saw then.
+      setIncludeFullUrl(false)
       // Picks and a report describe one page; a capture of another drops them.
       const elsewhere = picksRef.current.filter(
         (pick) => pick.tabId !== outcome.page.tabId || pick.pageUrl !== outcome.page.rawUrl
@@ -882,11 +935,12 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         releaseMeasurements(measuredElsewhere, [])
         setMeasurements((current) => current.filter((entry) => !measuredElsewhere.includes(entry)))
       }
-      setDevReport((current) => (current && current.tabId !== outcome.page.tabId ? null : current))
-      setTextChanges((current) =>
-        current && current.tabId !== outcome.page.tabId ? null : current
-      )
-      setInsights((current) => insightsForTab(current, outcome.page.tabId))
+      // So do the checks and reports: each belongs to the page it was read
+      // from — the tab and its address — not to whatever the tab shows now.
+      const { tabId: pageTab, rawUrl: pageUrl } = outcome.page
+      setDevReport((current) => (current && !onPage(current, pageTab, pageUrl) ? null : current))
+      setTextChanges((current) => (current && !onPage(current, pageTab, pageUrl) ? null : current))
+      setInsights((current) => insightsForTab(current, pageTab, pageUrl))
       setState((current) =>
         current.kind === "ready" || current.kind === "local"
           ? { ...current, captured: outcome.page }
@@ -1394,6 +1448,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
 
   const onSubmit = useCallback(async () => {
     if (state.kind !== "ready" || !state.captured || !workspaceId) return
+    // A markup being drawn, or being burnt in, is not what would be sent: the
+    // attachment still holds the shot without it, and its notes are not in
+    // the report yet. The send button says so; this covers every other way
+    // in — the keyboard shortcut, Try again.
+    if (annotating !== null || annotateBusy) return
     const features = state.capability.features ?? []
     const limits = resolveBrowserContextLimits(state.capability.limits)
     // How often each simulated response matched, as of sending: the page
@@ -1416,9 +1475,21 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     }
     // The picks and the report ride in the page's selection, exactly as the
     // preview counted them.
+    // What this press sends, kept to settle exactly that once the Host has it:
+    // anything captured, typed or attached meanwhile is a newer draft.
+    const sentCapture = state.captured
+    const sentInstruction = instruction
+    const sentExtraPages = extraPages
+    const sentAttachments = features.includes("attachments") ? attachments : []
+    const sentPicks = picks
+    const sentMeasurements = measurements
+    const sentTextChanges = textChanges
+    const sentDevReport = devReport
+    const sentInsights = insights
+    const sentDesignDiff = designDiff
     const captured = withInspection(
       withDisplayUrl(state.captured, includeFullUrl),
-      inspectionFor(picks, devReport, insights, state.captured.tabId, {
+      inspectionFor(picks, devReport, insights, state.captured, {
         measurements,
         attachments: features.includes("attachments") ? attachments : [],
         textChanges,
@@ -1432,10 +1503,10 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     const mode: BrowserCaptureMode = captureModeFor(captured, scope, features)
     // Every page the person added, each sent in the mode it was captured for
     // (ADR-0228 §2); the Host fences each one separately.
+    // Each with its own cleaned address: the full-address choice on the
+    // preview is for the first page only, never carried to the others.
     const extraContexts: BrowserPageContextV1[] = features.includes("multi-page")
-      ? extraPages.map((page) =>
-          buildPageContext(withDisplayUrl(page, includeFullUrl), "page", features)
-        )
+      ? extraPages.map((page) => buildPageContext(withDisplayUrl(page, false), "page", features))
       : []
     const primaryContext = buildPageContext(captured, scope, features)
     const pagesCheck = checkPages([primaryContext, ...extraContexts], limits)
@@ -1499,43 +1570,19 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       // capture came from (ADR-0228 §6).
       ...(chosen?.kind === "browser-agent" ? { browserAgent: { tabId: captured.tabId } } : {}),
     }
-    // Cheap discriminators, not the payload. `readableText` runs to the
-    // whole-page ceiling, so hashing the draft serialized hundreds of KB on the
-    // main thread on every press — and then `submit` serialized the same object
-    // again for the request body, a visible hitch on the click for nothing.
-    // What decides "same capture" is the page, the moment it was taken, the
-    // mode, the ask and the target; the two content lengths catch a
-    // re-extraction of the same URL.
-    const fingerprint = JSON.stringify([
-      workspaceId,
-      // Where it goes is part of what makes this the same submission. Leaving
-      // it out would let a retry that changed the destination reuse the first
-      // one's id, which the Host refuses — as a mismatch the user cannot see
-      // the cause of.
-      chosenTarget,
-      draft.instruction,
-      // The values are part of what makes this the same submission: a retry
-      // that changed one and reused the id would ask a different question of
-      // the page the first attempt captured.
-      JSON.stringify(draft.targetParams ?? {}),
-      mode,
-      captured.url,
-      captured.capturedAt,
-      captured.title,
-      contextContentBytes(primaryContext),
-      extraContexts.map((context) => [
-        context.url,
-        context.capturedAt,
-        contextContentBytes(context),
-      ]),
-      sendsAttachments
-        ? attachments.map((attachment) => [attachment.id, attachment.bytes.byteLength])
-        : [],
-    ])
-    const reuse = pendingSubmissionRef.current?.fingerprint === fingerprint
-    const submissionId = reuse
-      ? (pendingSubmissionRef.current?.submissionId ?? crypto.randomUUID())
-      : crypto.randomUUID()
+    // Same request, same id; any change to what is sent, a new one. Decided by
+    // a digest of the request body and every attachment's bytes — an edit that
+    // keeps the length, `Alpha` to `Bravo`, is a different request — and only
+    // the digest is kept, never the text it was taken of
+    // (`lib/panel/submission-identity.ts`). The mode and the destination are
+    // in the body, so a retry to another target is a new submission too.
+    const digest = await submissionDigest(
+      { ...draft, mode },
+      sendsAttachments ? attachments : []
+    ).catch(() => null)
+    const pending = pendingSubmissionRef.current
+    const reuse = digest !== null && pending?.digest === digest
+    const submissionId = reuse ? pending.submissionId : crypto.randomUUID()
     // Re-driving a stalled submission. Same submission id, so the Host finds
     // its own row and finishes it in the conversation it already created — but
     // a FRESH idempotency key, because the Host's operation ledger holds a
@@ -1543,11 +1590,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     // there" back at us. The lost-response retry above is the opposite case:
     // no answer ever arrived, so the old key is exactly what should replay.
     const redrive = reuse && stalled?.submissionId === submissionId
-    pendingSubmissionRef.current = { fingerprint, submissionId }
-    await api.write(STORAGE_KEYS.pendingSubmission, {
-      fingerprint,
-      submissionId,
-    })
+    if (digest !== null) {
+      const record: PendingSubmission = { digest, submissionId, savedAt: now() }
+      pendingSubmissionRef.current = record
+      await api.write(STORAGE_KEYS.pendingSubmission, record)
+    } else {
+      forgetPendingSubmission()
+    }
     try {
       // Staged first, under this submission id: the Host binds them to the
       // conversation only when the submission lands, and an upload that fails
@@ -1593,26 +1642,52 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       pendingSubmissionRef.current = null
       await api.remove([STORAGE_KEYS.pendingSubmission])
       void api.write(STORAGE_KEYS.lastWorkspaceId, workspaceId)
-      setInstruction("")
-      setExtraPages([])
-      setAttachments([])
-      setAnnotating(null)
-      setDroppedAttachments(0)
-      // Sent: the request now lives in the conversation, and the page goes
-      // back to what its source says until the agent changes that.
-      releasePicks(picks)
-      setPicks([])
-      setDetachedPicks([])
-      releaseMeasurements(measurements, [])
-      setMeasurements([])
-      setDetachedMeasures([])
-      setTextChanges(null)
-      setDevReport(null)
-      setInsights(NO_INSIGHTS)
-      setDesignDiff(null)
-      void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
+      // Sent: the request now lives in the conversation. What it carried
+      // leaves the panel — and only that. The answer can arrive after the
+      // person captured another page, typed a new ask or attached something
+      // new; those are the next submission's, so each piece is settled
+      // against what this one sent rather than cleared wholesale.
+      const settled = capturedRef.current === sentCapture
+      const sentIds = new Set(sentAttachments.map((attachment) => attachment.id))
+      const pickKey = (pick: Pick<PickedElement, "tabId" | "elementId">) =>
+        `${pick.tabId}:${pick.elementId}`
+      const sentPickKeys = new Set(sentPicks.map(pickKey))
+      const sentMeasureIds = new Set(sentMeasurements.map((entry) => entry.id))
+      setInstruction((current) => (current === sentInstruction ? "" : current))
+      setExtraPages((current) => current.filter((page) => !sentExtraPages.includes(page)))
+      setAttachments((current) => current.filter((attachment) => !sentIds.has(attachment.id)))
+      setAnnotating((current) => (current && sentIds.has(current.id) ? null : current))
+      if (settled) setDroppedAttachments(0)
+      // The page goes back to what its source says until the agent changes that.
+      const releasedPicks = picksRef.current.filter((pick) => sentPickKeys.has(pickKey(pick)))
+      releasePicks(releasedPicks)
+      setPicks((current) => current.filter((pick) => !sentPickKeys.has(pickKey(pick))))
+      setDetachedPicks((current) =>
+        current.filter((id) => !releasedPicks.some((pick) => pick.elementId === id))
+      )
+      const releasedMeasures = measurementsRef.current.filter((entry) =>
+        sentMeasureIds.has(entry.id)
+      )
+      releaseMeasurements(releasedMeasures, [])
+      setMeasurements((current) => current.filter((entry) => !sentMeasureIds.has(entry.id)))
+      setDetachedMeasures((current) => current.filter((id) => !sentMeasureIds.has(id)))
+      setTextChanges((current) => (current === sentTextChanges ? null : current))
+      setDevReport((current) => (current === sentDevReport ? null : current))
+      setInsights((current) => {
+        const next = { ...current }
+        for (const kind of Object.keys(next) as InsightKind[])
+          if (next[kind] !== null && next[kind] === sentInsights[kind])
+            (next as Record<InsightKind, unknown>)[kind] = null
+        return next
+      })
+      setDesignDiff((current) => (current === sentDesignDiff ? null : current))
+      if (settled) void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
       portRef.current?.post({ kind: "refresh-status" })
-      setState((current) => (current.kind === "ready" ? { ...current, captured: null } : current))
+      setState((current) =>
+        current.kind === "ready" && current.captured === sentCapture
+          ? { ...current, captured: null }
+          : current
+      )
       // Both, because a submission changes both: the recent list gains a row,
       // and the target catalogue gains the conversation it just started. The
       // catalogue is only re-read here and on connect — it is a small list that
@@ -1666,17 +1741,21 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setSubmitting(false)
     }
   }, [
+    annotateBusy,
+    annotating,
     api,
     attachments,
     compareIncluded,
     devReport,
     extraPages,
+    forgetPendingSubmission,
     includeFullUrl,
     insights,
     instruction,
     listFirstPage,
     measurements,
     mocks,
+    now,
     designDiff,
     picks,
     textChanges,
@@ -1695,6 +1774,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const captured0 = ready ? state.captured : null
   useEffect(() => {
     if (ready) retainedCaptureRef.current = captured0
+    capturedRef.current = captured0
   }, [ready, captured0])
 
   useEffect(() => {
@@ -1810,9 +1890,31 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     return capturedTabId !== undefined ? api.tabById(capturedTabId) : api.activeTab()
   }, [api, capturedTabId])
 
-  const addAttachment = useCallback((attachment: PendingAttachment) => {
-    setAttachments((current) => [...current, attachment])
-  }, [])
+  /**
+   * Put an attachment on the capture if the Host would take it, else say why.
+   *
+   * Every way in — a screenshot, a region, a marked-up shot, a PDF, an image —
+   * passes the same check here, when it is made, rather than finding out at
+   * Send, after the person has written around a file the Host refuses.
+   */
+  const addAttachment = useCallback(
+    (attachment: PendingAttachment): boolean => {
+      const limits = resolveBrowserContextLimits(limitsRef.current)
+      if (attachment.bytes.byteLength > limits.attachmentBytes) {
+        setSubmitError(api.message("attachTooLarge"))
+        return false
+      }
+      if (attachmentsRef.current.length >= limits.maxAttachments) {
+        setSubmitError(api.message("attachFull"))
+        return false
+      }
+      // Counted at once, so two shots landing together cannot both pass.
+      attachmentsRef.current = [...attachmentsRef.current, attachment]
+      setAttachments((current) => [...current, attachment])
+      return true
+    },
+    [api]
+  )
 
   const sleep = useCallback(
     (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
@@ -1866,12 +1968,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             now(),
             "full-page"
           )
-          if (attachment.bytes.byteLength > limits.attachmentBytes) {
-            setSubmitError(api.message("attachTooLarge"))
-            return
-          }
-          addAttachment(attachment)
-          if (shot.truncated) setSubmitError(api.message("attachFullPageCut"))
+          if (addAttachment(attachment) && shot.truncated)
+            setSubmitError(api.message("attachFullPageCut"))
           return
         }
         const visible = await captureVisible(api, tab, sleep)
@@ -1885,7 +1983,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           now(),
           "visible"
         )
-        addAttachment(shot)
+        if (!addAttachment(shot)) return
         // Mark up the screen: the shot, straight into the markup.
         if (action === "markup") setAnnotating({ id: shot.id, src: visible, shapes: [] })
       } catch (error) {
@@ -2008,9 +2106,9 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         const visible = await captureVisible(api, tab, sleep)
         const base64 = await api.cropImage(visible, elementCrop(box, dpr))
         const attachment = screenshotAttachment(crypto.randomUUID(), base64, now(), "element")
+        // A pick is still a pick without its shot: no error for a quiet skip.
         if (attachment.bytes.byteLength > limits.attachmentBytes) return undefined
-        addAttachment(attachment)
-        return attachment.id
+        return addAttachment(attachment) ? attachment.id : undefined
       } catch {
         return undefined
       }
@@ -2031,12 +2129,18 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
    * shows this tab as it is now, otherwise a fresh one of it.
    */
   const ensureCapture = useCallback(
-    async (tab: TabRef): Promise<boolean> =>
-      Boolean(
-        (captured0 && captured0.tabId === tab.id && captured0.rawUrl === tab.url) ||
-        (await runCapture("auto", tab.id))
-      ),
+    async (tab: TabRef): Promise<CapturedPage | null> =>
+      captured0 && captured0.tabId === tab.id && captured0.rawUrl === tab.url
+        ? captured0
+        : runCapture("auto", tab.id),
     [captured0, runCapture]
+  )
+
+  /** Whether the tab still shows the page a result was read for. */
+  const stillOn = useCallback(
+    async (tabId: number, pageUrl: string): Promise<boolean> =>
+      (await api.tabById(tabId).catch(() => null))?.url === pageUrl,
+    [api]
   )
 
   /**
@@ -2266,11 +2370,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setSubmitError(api.message("captureNoGrant"))
       return
     }
-    if (!(await ensureCapture(tab))) return
+    const page = await ensureCapture(tab)
+    if (!page) return
     try {
       await api.activateTab(tab.id).catch(() => undefined)
       await api.editPageText(tab.id, api.message("textEditHint"))
       textEditingTabRef.current = tab.id
+      textEditingUrlRef.current = page.rawUrl
       setTextEditingTab(tab.id)
     } catch {
       setSubmitError(api.message("textEditFailed"))
@@ -2287,10 +2393,12 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       stoppingTextRef.current = (async () => {
         try {
           const changes = await api.stopEditingPageText(tabId, keep)
+          const pageUrl = textEditingUrlRef.current
           textEditingTabRef.current = null
+          textEditingUrlRef.current = null
           setTextEditingTab(null)
           if (keep && changes.length > 0) {
-            setTextChanges({ tabId, changes })
+            setTextChanges({ tabId, ...(pageUrl ? { pageUrl } : {}), changes })
             setInstruction((current) =>
               current.trim() ? current : api.message("textEditDefaultInstruction")
             )
@@ -2510,29 +2618,35 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     setToolBusy("report")
     try {
       const tab = await toolTab()
-      if (!tab || !(await ensureCapture(tab))) return
+      const page = tab ? await ensureCapture(tab) : null
+      if (!tab || !page) return
       const snapshot = await api.readDevSnapshot(tab.id)
+      if (!(await stillOn(tab.id, page.rawUrl))) {
+        setSubmitError(api.message("insightPageMoved"))
+        return
+      }
       const since = recording?.tabId === tab.id ? recording.since : null
       if (since !== null && !snapshot.recording) {
         // The page reloaded and took the recorder with it.
         setRecording(null)
         setSubmitError(api.message("devRecordingLost"))
       }
-      setDevReport(
-        buildDevReport(snapshot, {
+      setDevReport({
+        ...buildDevReport(snapshot, {
           tabId: tab.id,
           now: now(),
           includeFullUrl,
           recordingSince: since,
-        })
-      )
+        }),
+        pageUrl: page.rawUrl,
+      })
       setInstruction((current) => (current.trim() ? current : api.message("devDefaultInstruction")))
     } catch {
       setSubmitError(api.message("devReportFailed"))
     } finally {
       setToolBusy(null)
     }
-  }, [api, ensureCapture, includeFullUrl, now, recording, toolTab])
+  }, [api, ensureCapture, includeFullUrl, now, recording, stillOn, toolTab])
 
   /** Lay a design mock over the tab (PerfectPixel). */
   const onOverlayFile = useCallback(
@@ -2622,7 +2736,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         setSubmitError(api.message("overlayFailed"))
         return
       }
-      if (!(await ensureCapture(tab))) return
+      const page = await ensureCapture(tab)
+      if (!page) return
       await api.activateTab(tab.id).catch(() => undefined)
       await api.setDesignOverlay(tab.id, { ...settings, image: null, visible: false })
       hidden = true
@@ -2658,6 +2773,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setDesignDiff({
         ...diff.result,
         tabId: tab.id,
+        pageUrl: page.rawUrl,
         ranAt: now(),
         mock: name,
         ...(attach ? { attachmentId: attachment.id } : {}),
@@ -2807,57 +2923,38 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setAuditBusy(kind)
       try {
         const tab = await toolTab()
-        if (!tab || !(await ensureCapture(tab))) return
+        const page = tab ? await ensureCapture(tab) : null
+        if (!tab || !page) return
         const ranAt = now()
         // Included the first time — running it was the person asking — and
-        // left as the person set it when run again.
+        // left as the person set it when run again on the same page.
         const previous = insights[kind]
-        const include = previous?.tabId === tab.id ? previous.include : true
-        if (kind === "audit") {
-          const audit = await api.auditAccessibility(tab.id)
-          setInsights((current) => ({
-            ...current,
-            audit: { ...audit, tabId: tab.id, ranAt, include },
-          }))
-        } else if (kind === "tokens") {
-          const tokens = await api.readDesignTokens(tab.id)
-          setInsights((current) => ({
-            ...current,
-            tokens: { ...tokens, tabId: tab.id, ranAt, include },
-          }))
-        } else if (kind === "focus") {
-          const focus = await api.checkFocus(tab.id)
-          setInsights((current) => ({
-            ...current,
-            focus: { ...focus, tabId: tab.id, ranAt, include },
-          }))
+        const include = onPage(previous, tab.id, page.rawUrl) ? previous!.include : true
+        // Which page it describes: the capture it was run for.
+        const owner = { tabId: tab.id, pageUrl: page.rawUrl, ranAt, include }
+        let next: Partial<PageInsights>
+        if (kind === "audit")
+          next = { audit: { ...(await api.auditAccessibility(tab.id)), ...owner } }
+        else if (kind === "tokens")
+          next = { tokens: { ...(await api.readDesignTokens(tab.id)), ...owner } }
+        else if (kind === "focus") next = { focus: { ...(await api.checkFocus(tab.id)), ...owner } }
+        else if (kind === "layout")
+          next = { layout: { ...(await api.checkLayout(tab.id)), ...owner } }
+        else if (kind === "seo") next = { seo: { ...(await api.readSeo(tab.id)), ...owner } }
+        else if (kind === "perf")
+          next = { perf: { ...(await api.readPerformance(tab.id)), ...owner } }
+        else next = { stack: { ...(await api.detectStack(tab.id)), ...owner } }
+        // The tab may have moved on while the check ran; then what it read is
+        // some other page's, and is not filed under this one.
+        if (!(await stillOn(tab.id, page.rawUrl))) {
+          setSubmitError(api.message("insightPageMoved"))
+          return
+        }
+        setInsights((current) => ({ ...current, ...next }))
+        if (next.focus) {
           // The check numbers the stops on the page as it runs.
-          focusShownRef.current = focus.stops > 0 ? tab.id : null
-          setFocusNumbers(focus.stops > 0)
-        } else if (kind === "layout") {
-          const layout = await api.checkLayout(tab.id)
-          setInsights((current) => ({
-            ...current,
-            layout: { ...layout, tabId: tab.id, ranAt, include },
-          }))
-        } else if (kind === "seo") {
-          const seo = await api.readSeo(tab.id)
-          setInsights((current) => ({
-            ...current,
-            seo: { ...seo, tabId: tab.id, ranAt, include },
-          }))
-        } else if (kind === "perf") {
-          const perf = await api.readPerformance(tab.id)
-          setInsights((current) => ({
-            ...current,
-            perf: { ...perf, tabId: tab.id, ranAt, include },
-          }))
-        } else {
-          const stack = await api.detectStack(tab.id)
-          setInsights((current) => ({
-            ...current,
-            stack: { ...stack, tabId: tab.id, ranAt, include },
-          }))
+          focusShownRef.current = next.focus.stops > 0 ? tab.id : null
+          setFocusNumbers(next.focus.stops > 0)
         }
       } catch {
         setSubmitError(api.message("insightFailed"))
@@ -2865,7 +2962,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         setAuditBusy(null)
       }
     },
-    [api, ensureCapture, insights, now, toolTab]
+    [api, ensureCapture, insights, now, stillOn, toolTab]
   )
 
   const onIncludeInsight = useCallback((kind: InsightKind, include: boolean) => {
@@ -3289,7 +3386,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // What is sent is the capture with the picks and the report after its
   // selection; the editor edits the person's own text, the preview counts all.
   const inspection = captured
-    ? inspectionFor(picks, devReport, insights, captured.tabId, {
+    ? inspectionFor(picks, devReport, insights, captured, {
         measurements,
         attachments: hasFeature(captureCapability, "attachments") ? attachments : [],
         textChanges,
@@ -3308,9 +3405,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       extraPages.reduce(
         (sum, page) =>
           sum +
-          contextContentBytes(
-            buildPageContext(withDisplayUrl(page, includeFullUrl), "page", features)
-          ),
+          contextContentBytes(buildPageContext(withDisplayUrl(page, false), "page", features)),
         0
       )
     : 0
@@ -3331,18 +3426,28 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // A template supplies the instruction, so the free-text box is not the ask
   // for one — showing both would invite two instructions in one turn.
   const needsInstruction = selectedTarget?.kind !== "template"
+  // A markup open on a screenshot holds what the person means to send — its
+  // marks and their notes — which the attachment does not carry until they
+  // apply it. Sending meanwhile would upload the clean shot without them.
+  const markupOpen = annotating !== null || annotateBusy
   const canSubmit =
     state.kind === "ready" &&
     !submitting &&
     attachBusy === null &&
     regionSource === null &&
+    !markupOpen &&
     Boolean(workspaceId) &&
     paramsReady &&
     (!needsInstruction || Boolean(instruction.trim()))
   const canEyedrop = typeof (window as { EyeDropper?: unknown }).EyeDropper === "function"
   const clearCapture = () => {
+    // A capture still being read must not land after this.
+    captureSeqRef.current++
     offerCaptureAccess(null)
     setStalled(null)
+    setIncludeFullUrl(false)
+    // What a lost response was for is gone from the screen with the capture.
+    forgetPendingSubmission()
     setExtraPages([])
     setAttachments([])
     setDroppedAttachments(0)
@@ -3370,7 +3475,10 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const pagePicks = pageId === null ? [] : picks.filter((pick) => pick.tabId === pageId)
   const pageMeasurements =
     pageId === null ? [] : measurements.filter((entry) => entry.tabId === pageId)
-  const pageTextChanges = textChanges && textChanges.tabId === pageId ? textChanges.changes : []
+  const pageTextChanges =
+    textChanges && captured && onPage(textChanges, captured.tabId, captured.rawUrl)
+      ? textChanges.changes
+      : []
   const inspectionCount = pagePicks.length + pageMeasurements.length + pageTextChanges.length
   const inspectRunning = pickingTab !== null || textEditingTab !== null || toolbarTab !== null
   const toolsRunning =
@@ -3396,7 +3504,16 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
 
   const status = (
     <>
-      {state.kind === "ready" ? <SiteQuestions api={api} /> : null}
+      {state.kind === "ready" ? (
+        <>
+          <SiteQuestions api={api} conversationTitles={conversationTitles} />
+          <AgentControl
+            api={api}
+            conversationTitles={conversationTitles}
+            onManage={() => setView("settings")}
+          />
+        </>
+      ) : null}
       {pickingTab !== null ? (
         <ActivityStrip
           actions={
@@ -3786,22 +3903,23 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             up, and how they refresh a capture after the page changed under
             them. */}
         {captured ? null : (
-          <CaptureActions
-            api={api}
-            compact={false}
-            article={hasFeature(captureCapability, "article")}
-            onCapture={(scope) => void runCapture(scope)}
-          />
+          <>
+            <CaptureActions
+              api={api}
+              compact={false}
+              article={hasFeature(captureCapability, "article")}
+              onCapture={(scope) => void runCapture(scope)}
+            />
+            {/* The least access first. The toolbar icon, the page's context
+                menu and the shortcut each give this tab for the moment
+                (activeTab); a site is asked for only when a page needs it,
+                below. Access to every website is a standing choice, made in
+                Settings rather than offered beside the first capture. */}
+            <p className="text-[11px] text-muted-foreground" data-testid="capture-access-hint">
+              {api.message("captureActiveTabHint")}
+            </p>
+          </>
         )}
-        <SiteAccess
-          api={api}
-          onGranted={() => {
-            if (captureAccessRef.current) {
-              offerCaptureAccess(null)
-              setSubmitError(null)
-            }
-          }}
-        />
         {submitError && captureAccess ? (
           <Alert variant="destructive" data-testid="submit-error">
             <AlertDescription className="space-y-2">
@@ -3873,9 +3991,49 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         instruction,
         inspection,
         editorMode,
-        extraPages.map((page) => withDisplayUrl(page, includeFullUrl))
+        extraPages.map((page) => withDisplayUrl(page, false))
       )
     )
+  const exportBundle = (chosen: ReadonlySet<string>) => {
+    if (!captured) return
+    const bundle = evidenceBundle({
+      page: captured,
+      instruction,
+      inspection,
+      mode: editorMode,
+      extraPages: extraPages.map((page) => withDisplayUrl(page, false)),
+      attachments,
+      chosen,
+      now: now(),
+    })
+    downloadBlob(bundle.name, new Blob([bundle.bytes as BlobPart], { type: "application/zip" }))
+    setBundling(false)
+  }
+  // Offered once there is a file to carry; the Markdown alone only names them.
+  const bundleButton =
+    attachments.length > 0 ? (
+      <Button
+        variant="outline"
+        size="icon"
+        className={outlineAction}
+        onClick={() => setBundling((current) => !current)}
+        aria-label={api.message("exportBundle")}
+        aria-pressed={bundling}
+        title={api.message("exportBundle")}
+        data-testid="export-bundle"
+      >
+        <ArchiveIcon className="size-3.5" aria-hidden="true" />
+      </Button>
+    ) : null
+  const bundleChooser =
+    bundling && attachments.length > 0 ? (
+      <EvidenceExport
+        api={api}
+        attachments={attachments}
+        onDownload={exportBundle}
+        onCancel={() => setBundling(false)}
+      />
+    ) : null
   const exportContext = () => {
     if (!captured) return
     downloadText(
@@ -3887,7 +4045,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         attachments.map((attachment) => attachment.name),
         now(),
         editorMode,
-        extraPages.map((page) => withDisplayUrl(page, includeFullUrl))
+        extraPages.map((page) => withDisplayUrl(page, false))
       )
     )
   }
@@ -3959,6 +4117,12 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           />
         </>
       ) : null}
+      {bundleChooser}
+      {hostCapability && markupOpen ? (
+        <p className="text-[11px] text-muted-foreground" data-testid="submit-markup-open">
+          {api.message("submitMarkupOpen")}
+        </p>
+      ) : null}
       {hostCapability ? (
         // Sending is the way out; copying and exporting the same reviewed
         // context, for an editor's agent or an issue, sit beside it.
@@ -3985,6 +4149,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           >
             <DownloadIcon className="size-3.5" aria-hidden="true" />
           </Button>
+          {bundleButton}
           {clearButton}
           <Button
             className="h-8 min-w-0 flex-1"
@@ -4019,6 +4184,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             <DownloadIcon className="size-3.5" aria-hidden="true" />
             <span className="truncate">{api.message("exportContext")}</span>
           </Button>
+          {bundleButton}
           {clearButton}
         </div>
       )}
@@ -4146,7 +4312,9 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         <PageAudit
           api={api}
           defaultOpen
-          insights={captured ? insightsForTab(insights, captured.tabId) : NO_INSIGHTS}
+          insights={
+            captured ? insightsForTab(insights, captured.tabId, captured.rawUrl) : NO_INSIGHTS
+          }
           busy={auditBusy}
           issueBusy={issueBusy}
           pickedIds={picks.map((pick) => pick.elementId)}
@@ -4178,7 +4346,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         recordingSince={
           recording && (!captured || recording.tabId === captured.tabId) ? recording.since : null
         }
-        report={devReport && captured && devReport.tabId === captured.tabId ? devReport : null}
+        report={
+          devReport && captured && onPage(devReport, captured.tabId, captured.rawUrl)
+            ? devReport
+            : null
+        }
         overlay={overlay}
         busy={toolBusy}
         onRecord={() => void onRecord()}
@@ -4192,7 +4364,9 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         onOverlayRemove={onOverlayRemove}
         onViewport={(preset) => void onViewport(preset)}
         designDiff={
-          designDiff && (!captured || designDiff.tabId === captured.tabId) ? designDiff : null
+          designDiff && (!captured || onPage(designDiff, captured.tabId, captured.rawUrl))
+            ? designDiff
+            : null
         }
         onCompare={() => void onCompareDesign()}
         onRemoveDiff={removeDesignDiff}
@@ -4223,6 +4397,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         <Recordings
           api={api}
           currentTab={state.captured ? { id: state.captured.tabId, url: state.captured.url } : null}
+          conversationTitles={conversationTitles}
         />
       </PageTools>
     </CollapsibleCard>
@@ -4240,6 +4415,15 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         </p>
       ) : null}
       <ExtensionSettings api={api} />
+      <SiteAccess
+        api={api}
+        onGranted={() => {
+          if (captureAccessRef.current) {
+            offerCaptureAccess(null)
+            setSubmitError(null)
+          }
+        }}
+      />
       {hostCapability && hasFeature(hostCapability, "browser-agent") ? (
         <div className="space-y-1 border-t border-border pt-2">
           <h3 className="text-xs font-semibold">{api.message("agentTitle")}</h3>
@@ -4385,6 +4569,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   return (
     <PanelShell
       api={api}
+      local={state.kind === "local"}
       view={view}
       onView={setView}
       density={density}
@@ -4503,7 +4688,7 @@ function inspectionFor(
   picks: readonly PickedElement[],
   report: DevReport | null,
   insights: PageInsights,
-  tabId: number,
+  page: Pick<CapturedPage, "tabId" | "rawUrl">,
   {
     measurements = [],
     attachments = [],
@@ -4514,14 +4699,17 @@ function inspectionFor(
   }: {
     measurements?: readonly Measurement[]
     attachments?: readonly PendingAttachment[]
-    textChanges?: { tabId: number; changes: TextChange[] } | null
+    textChanges?: { tabId: number; pageUrl?: string; changes: TextChange[] } | null
     mocks?: MocksState | null
     designDiff?: DesignDiff | null
     /** Send how the tab's picks differ, as the person asked. */
     compare?: boolean
   } = {}
 ): string {
-  const { context, reports } = insightSections(insights, tabId)
+  const { tabId, rawUrl } = page
+  // Read from this page — the captured tab at the captured address. A check
+  // run before the tab moved on describes another page and stays out.
+  const { context, reports } = insightSections(insights, tabId, rawUrl)
   const elements = picks.filter((pick) => pick.tabId === tabId)
   const comparison = compare ? comparePicks(elements) : null
   return inspectionMarkdown({
@@ -4530,8 +4718,10 @@ function inspectionFor(
     reports: [
       comparison ? comparisonMarkdown(comparison) : null,
       measurementsMarkdown(measurements.filter((entry) => entry.tabId === tabId)),
-      textChanges?.tabId === tabId ? textChangesMarkdown(textChanges.changes) : null,
-      designDiff?.tabId === tabId ? designDiffMarkdown(designDiff) : null,
+      textChanges && onPage(textChanges, tabId, rawUrl)
+        ? textChangesMarkdown(textChanges.changes)
+        : null,
+      designDiff && onPage(designDiff, tabId, rawUrl) ? designDiffMarkdown(designDiff) : null,
       annotationsMarkdown(
         attachments.map((attachment) => ({
           name: attachment.name,
@@ -4540,7 +4730,7 @@ function inspectionFor(
       ),
       // Before the report, so its staged failures are read as staged.
       mocks?.tabId === tabId ? mocksMarkdown(mocks.rules, mocks.hits) : null,
-      report?.tabId === tabId ? report.text : null,
+      report && onPage(report, tabId, rawUrl) ? report.text : null,
       ...reports,
     ],
   })
@@ -4551,7 +4741,11 @@ function inspectionFor(
  * permission: the person clicked, and the file goes where their downloads go.
  */
 function downloadText(name: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }))
+  downloadBlob(name, new Blob([text], { type: "text/markdown;charset=utf-8" }))
+}
+
+function downloadBlob(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url
   link.download = name

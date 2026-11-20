@@ -11,12 +11,15 @@ import type { StorageArea } from "../agent/storage-area"
 import {
   ACTIVE_RECORDINGS_KEY,
   MAX_RECORDINGS,
+  MAX_SHARED_WITH,
   RECORDINGS_KEY,
   appendStep,
   cleanStep,
   parseRecordings,
+  readableBy,
   summaryOf,
   toPlaywright,
+  type RecordedStep,
   type Recording,
   type RecordingSummary,
 } from "./model"
@@ -25,7 +28,11 @@ export interface RecordingBrowser {
   tabInfo(tabId: number): Promise<{ url: string; title: string } | null>
   /** Put the recorder into the tab's page; `synthetic` also takes events the page did not get from a person. */
   injectRecorder(tabId: number, options: { synthetic: boolean }): Promise<void>
-  removeRecorder(tabId: number): Promise<void>
+  /**
+   * Take the recorder out of the tab's page. Answers the steps it had not
+   * sent yet — typing still settling — for the worker to keep.
+   */
+  removeRecorder(tabId: number): Promise<unknown[] | void>
   /** Whether the extension may run scripts on pages matching `pattern`. */
   hasOrigin(pattern: string): Promise<boolean>
   /**
@@ -46,10 +53,14 @@ export interface RecordingsDeps {
 /** Tab id → recording id. */
 type Active = Record<string, string>
 
+/** How long a stop waits for a page to hand over its last steps. */
+export const STOP_TAIL_MS = 2_000
+
 export type RecordingCommand =
   | { op: "start"; tabId: number }
   | { op: "stop"; recordingId: string }
-  | { op: "share"; recordingId: string; shared: boolean }
+  /** `sessions`: only these conversations; absent, every conversation. */
+  | { op: "share"; recordingId: string; shared: boolean; sessions?: string[] }
   | { op: "rename"; recordingId: string; title: string }
   | { op: "remove"; recordingId: string }
 
@@ -121,10 +132,11 @@ export function createRecordings(deps: RecordingsDeps) {
 
   /** The sites of the recording tabs, per scheme, where the extension may run. */
   let registered = ""
-  async function syncScripts(): Promise<void> {
+  async function syncScripts(starting: readonly number[] = []): Promise<void> {
     const patterns = new Set<string>()
-    for (const tabId of Object.keys(await active())) {
-      const tab = await browser.tabInfo(Number(tabId)).catch(() => null)
+    const tabIds = new Set([...Object.keys(await active()).map(Number), ...starting])
+    for (const tabId of tabIds) {
+      const tab = await browser.tabInfo(tabId).catch(() => null)
       try {
         const url = new URL(tab?.url ?? "")
         if (/^https?:$/.test(url.protocol)) patterns.add(`${url.protocol}//${url.hostname}/*`)
@@ -141,23 +153,45 @@ export function createRecordings(deps: RecordingsDeps) {
     registered = key
   }
 
+  /** The steps a page had not sent yet, or none once it has taken too long to say. */
+  async function tailOf(tabId: number): Promise<RecordedStep[]> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), STOP_TAIL_MS)
+    })
+    try {
+      const left = await Promise.race([browser.removeRecorder(tabId).catch(() => undefined), late])
+      return Array.isArray(left)
+        ? left.map(cleanStep).filter((step): step is RecordedStep => step !== null)
+        : []
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * End a recording. The recorder comes out of its pages first, while the
+   * tab still records: what was typed in the last moment is handed back
+   * rather than sent after the recording is gone, and kept in it.
+   */
   async function finish(recordingId: string): Promise<RecordingSummary | null> {
     const tabs = await active()
     const tabIds = Object.entries(tabs)
       .filter(([, id]) => id === recordingId)
       .map(([tabId]) => Number(tabId))
+    const tail: RecordedStep[] = []
+    for (const tabId of tabIds) tail.push(...(await tailOf(tabId)))
     for (const tabId of tabIds) delete tabs[String(tabId)]
     await session.set(ACTIVE_RECORDINGS_KEY, tabs)
     const recordings = await all()
     const recording = recordings.find((entry) => entry.id === recordingId)
-    if (!recording) return null
-    if (!recording.stoppedAt) {
-      recording.stoppedAt = now()
+    if (recording && (tail.length > 0 || !recording.stoppedAt)) {
+      for (const step of tail) recording.steps = appendStep(recording.steps, step)
+      recording.stoppedAt ??= now()
       await write(recordings)
     }
-    for (const tabId of tabIds) await browser.removeRecorder(tabId).catch(() => undefined)
     await syncScripts().catch(() => undefined)
-    return summaryOf(recording)
+    return recording ? summaryOf(recording) : null
   }
 
   const self = {
@@ -182,7 +216,11 @@ export function createRecordings(deps: RecordingsDeps) {
           startedAt: now(),
           byAgent: options.byAgent,
           ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-          shared: true,
+          // The agent's own recording is for it to read; the person's stays
+          // private until they have seen the steps and share it.
+          shared: options.byAgent,
+          // For the conversation that recorded it; the person may share it wider.
+          ...(options.byAgent && options.sessionId ? { sharedWith: [options.sessionId] } : {}),
           steps: [],
         }
         // The oldest go when there are too many; one still recording stays.
@@ -194,10 +232,25 @@ export function createRecordings(deps: RecordingsDeps) {
           kept.splice(index, 1)
         }
         await write(kept)
+        // The tab is said to be recording — to the panel, which then offers
+        // Stop and so invites the next click or load — only once it is: the
+        // recorder registered for the tab's site at `document_start`, so a load
+        // that starts at once meets it, and put into the page already open.
+        // Published first, the panel showed Stop while neither was in place,
+        // and a page opened in that moment was not recorded at all.
+        await syncScripts([tabId]).catch(() => undefined)
+        let injected: unknown = null
+        await browser
+          .injectRecorder(tabId, { synthetic: options.byAgent })
+          .catch((error: unknown) => {
+            injected = error ?? new Error("the recorder could not be put in")
+          })
+        // Recording either way: a page that could not take the recorder now
+        // gets it at its next load. Steps the recorder sends meanwhile wait in
+        // the queue behind this, so they find the tab recording.
         tabs[String(tabId)] = recording.id
         await session.set(ACTIVE_RECORDINGS_KEY, tabs)
-        await browser.injectRecorder(tabId, { synthetic: options.byAgent })
-        await syncScripts().catch(() => undefined)
+        if (injected) throw injected
         return summaryOf(recording)
       })
     },
@@ -255,7 +308,7 @@ export function createRecordings(deps: RecordingsDeps) {
       await browser
         .injectRecorder(tabId, { synthetic: recording?.byAgent === true })
         .catch(() => undefined)
-      await serialize(syncScripts).catch(() => undefined)
+      await serialize(() => syncScripts()).catch(() => undefined)
     },
 
     /**
@@ -271,23 +324,26 @@ export function createRecordings(deps: RecordingsDeps) {
     },
 
     /** Every wake-up: the registration follows the tabs still recording. */
-    sync: () => serialize(syncScripts),
+    sync: () => serialize(() => syncScripts()),
 
     async isRecording(tabId: number) {
       return (await active())[String(tabId)] !== undefined
     },
 
-    /** What an agent may read: the recordings shared with agents. */
-    async listShared(): Promise<RecordingSummary[]> {
-      return (await all()).filter((entry) => entry.shared).map(summaryOf)
+    /** What the conversation `sessionId` may read: the recordings shared with it. */
+    async listShared(sessionId: string): Promise<RecordingSummary[]> {
+      return (await all()).filter((entry) => readableBy(entry, sessionId)).map(summaryOf)
     },
 
-    async getShared(id: string, format: "steps" | "playwright") {
-      const recording = (await all()).find((entry) => entry.id === id && entry.shared)
+    /** One recording, when shared with `sessionId`; otherwise as if there were none. */
+    async getShared(id: string, format: "steps" | "playwright", sessionId: string) {
+      const recording = (await all()).find(
+        (entry) => entry.id === id && readableBy(entry, sessionId)
+      )
       if (!recording)
         throw new RecordingError(
           "browser_recording_not_found",
-          `no recording ${id} is shared with agents`
+          `no recording ${id} is shared with this conversation`
         )
       return {
         recording: { ...summaryOf(recording), steps: recording.steps },
@@ -307,7 +363,20 @@ export function createRecordings(deps: RecordingsDeps) {
           if (Object.values(await active()).includes(command.recordingId)) return false
           recordings.splice(index, 1)
         } else if (command.op === "share") {
-          recordings[index] = { ...recordings[index]!, shared: command.shared }
+          const { sharedAt: _previous, sharedWith: _before, ...rest } = recordings[index]!
+          const named = [
+            ...new Set(
+              (Array.isArray(command.sessions) ? command.sessions : []).filter(
+                (id): id is string => typeof id === "string" && id.length > 0 && id.length <= 128
+              )
+            ),
+          ].slice(0, MAX_SHARED_WITH)
+          recordings[index] = {
+            ...rest,
+            shared: command.shared,
+            ...(command.shared ? { sharedAt: now() } : {}),
+            ...(command.shared && named.length > 0 ? { sharedWith: named } : {}),
+          }
         } else {
           recordings[index] = {
             ...recordings[index]!,

@@ -455,6 +455,9 @@
   "agentBarResume": {
     "message": "交还"
   },
+  "agentBarStopUnconfirmed": {
+    "message": "浏览器已暂停，但 Cognia 未确认任务已停止，请在 Cognia 中停止。"
+  },
   "agentTitle": {
     "message": "智能体模式"
   },
@@ -502,6 +505,69 @@
   },
   "agentConversationsTitle": {
     "message": "正在此处操作的对话"
+  },
+  "agentControlTitle": {
+    "message": "正在控制此浏览器"
+  },
+  "agentControlManage": {
+    "message": "站点权限"
+  },
+  "agentControlConversation": {
+    "message": "会话 $ID$",
+    "placeholders": {
+      "id": {
+        "content": "$1",
+        "example": "1a2b3c4d"
+      }
+    }
+  },
+  "agentControlActing": {
+    "message": "操作中"
+  },
+  "agentControlPaused": {
+    "message": "已暂停"
+  },
+  "agentControlShowTab": {
+    "message": "查看其标签页"
+  },
+  "agentControlOnceSites": {
+    "message": "仅本会话放行：$SITES$",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "shop.test"
+      }
+    }
+  },
+  "agentControlStopUnconfirmed": {
+    "message": "浏览器已暂停，但 Cognia 未确认任务已停止。"
+  },
+  "agentControlRetryStop": {
+    "message": "在 Cognia 中停止"
+  },
+  "agentControlRetrying": {
+    "message": "正在请求…"
+  },
+  "agentControlRetryFailed": {
+    "message": "无法联系扩展后台。请重试，或在 Cognia 中停止该任务。"
+  },
+  "agentControlStopConfirmed": {
+    "message": "Cognia 已停止其任务。"
+  },
+  "agentControlStopNone": {
+    "message": "Cognia 中没有该会话正在运行的任务。"
+  },
+  "siteQuestionFrom": {
+    "message": "请求来自：$CONVERSATION$",
+    "placeholders": {
+      "conversation": {
+        "content": "$1",
+        "example": "Checkout bug"
+      }
+    }
+  },
+  "siteQuestionScope": {
+    "message": "「本次任务允许」在此会话结束前有效；「始终允许」对所有会话有效，直到你在设置中移除。"
   },
   "agentConversationTabs": {
     "message": "$COUNT$ 个标签页",
@@ -797,6 +863,9 @@
   "submitShortcutHint": {
     "message": "按 Ctrl/⌘ + Enter 发送"
   },
+  "submitMarkupOpen": {
+    "message": "请先应用或取消标注再发送：截图中尚未包含这些标注。"
+  },
   "transcriptAvailable": {
     "message": "已包含字幕文本"
   },
@@ -1068,17 +1137,20 @@
   "insightFailed": {
     "message": "无法在此页面上运行该检查。请在该页面上点击扩展图标后重试。"
   },
+  "insightPageMoved": {
+    "message": "运行期间标签页已切换到其他页面，结果未保留。请重新采集该页面后再运行。"
+  },
   "accessTitle": {
     "message": "无障碍"
   },
   "accessHint": {
-    "message": "初步检查 WCAG 2.2 AA 问题，非合规认证。"
+    "message": "初步检查 WCAG 2.2 AA 问题，结果需人工复核，非合规认证。"
   },
   "accessRun": {
     "message": "检查无障碍"
   },
   "accessClean": {
-    "message": "在 $COUNT$ 个元素中未发现问题。",
+    "message": "在 $COUNT$ 个元素中未发现问题。这只是初步检查，键盘与读屏仍需人工检查。",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -1145,7 +1217,7 @@
     "message": "id 重复使用"
   },
   "accessRuleTargetSize": {
-    "message": "点击区域小于 24×24"
+    "message": "点击区域小于 24×24 且间距不足（需人工复核）"
   },
   "accessRuleHiddenFocus": {
     "message": "可聚焦元素对辅助技术隐藏"
@@ -1414,7 +1486,7 @@
     "message": "首字节时间（TTFB）"
   },
   "perfVitalTbt": {
-    "message": "阻塞时间（TBT）"
+    "message": "本次访问观察到的长任务阻塞时间（非 TBT）"
   },
   "perfGood": {
     "message": "良好"
@@ -1636,6 +1708,27 @@
         "content": "$1"
       }
     }
+  },
+  "exportBundle": {
+    "message": "连同文件导出（.zip）"
+  },
+  "exportBundleTitle": {
+    "message": "要包含的文件"
+  },
+  "exportBundleHint": {
+    "message": "仅打包勾选的文件，与 Markdown 导出放在一起。已标注的截图连同标注一起打包。"
+  },
+  "exportBundleSize": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "12.5"
+      }
+    }
+  },
+  "exportBundleDownload": {
+    "message": "下载 .zip"
   },
   "exportContext": {
     "message": "导出 .md"
@@ -1941,6 +2034,9 @@
   },
   "panelPaired": {
     "message": "已配对"
+  },
+  "captureActiveTabHint": {
+    "message": "无需预先授权：点击 Cognia 图标、在页面上右键或使用快捷键，即可采集当前标签页。只有页面需要时才会请求该站点的权限。"
   },
   "captureSubtitle": {
     "message": "采集页面、选区或正文"
@@ -2270,6 +2366,9 @@
   },
   "adjustActive": {
     "message": "正在调整元素"
+  },
+  "tabCapture": {
+    "message": "采集"
   },
   "tabSend": {
     "message": "发送"
@@ -2621,7 +2720,7 @@
     "message": "停止录制"
   },
   "recordingsPrivacy": {
-    "message": "步骤会记录你输入的内容，密码和其他敏感字段除外。你在 Cognia 会话中的 Agent 可以读取你共享给它们的录制。"
+    "message": "步骤会记录你输入的内容，密码和其他敏感字段除外。你的录制默认只保存在此浏览器，在你共享之前不会公开；可以共享给某一个会话或所有会话。Agent 自己的录制只供它所在的会话读取。"
   },
   "recordingsNoPage": {
     "message": "请在此标签页打开一个网页后再录制。"
@@ -2653,10 +2752,81 @@
     "message": "删除录制"
   },
   "recordingsShared": {
-    "message": "允许 Agent 读取"
+    "message": "可读取的会话"
   },
   "recordingsEmpty": {
     "message": "还没有录制。"
+  },
+  "recordingsSharePrivate": {
+    "message": "不共享"
+  },
+  "recordingsShareAll": {
+    "message": "所有 Cognia 会话"
+  },
+  "recordingsShareConversation": {
+    "message": "会话 $ID$",
+    "placeholders": {
+      "id": {
+        "content": "$1",
+        "example": "1a2b3c4d"
+      }
+    }
+  },
+  "recordingsShareSome": {
+    "message": "$COUNT$ 个会话",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    }
+  },
+  "recordingsShareAfterStop": {
+    "message": "停止录制后可查看步骤并共享"
+  },
+  "recordingsReview": {
+    "message": "查看步骤"
+  },
+  "recordingsReviewHide": {
+    "message": "收起步骤"
+  },
+  "recordingsStepNavigate": {
+    "message": "打开"
+  },
+  "recordingsStepClick": {
+    "message": "点击"
+  },
+  "recordingsStepDoubleClick": {
+    "message": "双击"
+  },
+  "recordingsStepHover": {
+    "message": "悬停"
+  },
+  "recordingsStepFill": {
+    "message": "输入"
+  },
+  "recordingsStepSelect": {
+    "message": "选择"
+  },
+  "recordingsStepPressKey": {
+    "message": "按键"
+  },
+  "recordingsStepScroll": {
+    "message": "滚动"
+  },
+  "recordingsStepAssert": {
+    "message": "检查"
+  },
+  "recordingsStepUrl": {
+    "message": "检查地址"
+  },
+  "recordingsStepSecret": {
+    "message": "未录制，测试从 $NAME$ 读取",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "mockSaveAsRules": {
     "message": "保存为此网站的规则"

@@ -20,7 +20,23 @@ import {
   type TechStack,
 } from "./tech-stack"
 
-export type Included<T> = T & { include: boolean }
+/**
+ * A check as the panel holds it: whether it goes with the task, and the page
+ * address it was read from. The tab alone is not the page — a tab that moved
+ * on is another page — so a check belongs to the capture of the same tab
+ * *and* address. `pageUrl` is absent only in drafts saved before it was kept.
+ */
+export type Included<T> = T & { include: boolean; pageUrl?: string }
+
+/** Whether something read from a tab belongs to the page captured from it. */
+export function onPage(
+  entry: { tabId: number; pageUrl?: string } | null | undefined,
+  tabId: number,
+  pageUrl?: string
+): boolean {
+  if (!entry || entry.tabId !== tabId) return false
+  return pageUrl === undefined || entry.pageUrl === undefined || entry.pageUrl === pageUrl
+}
 
 export interface PageInsights {
   audit: Included<A11yAudit> | null
@@ -44,25 +60,32 @@ export const NO_INSIGHTS: PageInsights = {
   focus: null,
 }
 
-/** Only the insights read from `tabId`. */
-export function insightsForTab(insights: PageInsights, tabId: number): PageInsights {
+/** Only the insights read from `tabId` — and, when given, from the page at `pageUrl`. */
+export function insightsForTab(
+  insights: PageInsights,
+  tabId: number,
+  pageUrl?: string
+): PageInsights {
+  const keep = <T extends { tabId: number; pageUrl?: string }>(entry: T | null) =>
+    onPage(entry, tabId, pageUrl) ? entry : null
   return {
-    audit: insights.audit?.tabId === tabId ? insights.audit : null,
-    tokens: insights.tokens?.tabId === tabId ? insights.tokens : null,
-    stack: insights.stack?.tabId === tabId ? insights.stack : null,
-    perf: insights.perf?.tabId === tabId ? insights.perf : null,
-    seo: insights.seo?.tabId === tabId ? insights.seo : null,
-    layout: insights.layout?.tabId === tabId ? insights.layout : null,
-    focus: insights.focus?.tabId === tabId ? insights.focus : null,
+    audit: keep(insights.audit),
+    tokens: keep(insights.tokens),
+    stack: keep(insights.stack),
+    perf: keep(insights.perf),
+    seo: keep(insights.seo),
+    layout: keep(insights.layout),
+    focus: keep(insights.focus),
   }
 }
 
 /** The Markdown each included insight adds: the stack frames, the rest report. */
 export function insightSections(
   insights: PageInsights,
-  tabId: number
+  tabId: number,
+  pageUrl?: string
 ): { context: string[]; reports: string[] } {
-  const own = insightsForTab(insights, tabId)
+  const own = insightsForTab(insights, tabId, pageUrl)
   return {
     context: own.stack?.include ? [stackMarkdown(own.stack)] : [],
     reports: [
@@ -80,10 +103,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function base(value: unknown): { tabId: number; ranAt: number; include: boolean } | null {
+function base(
+  value: unknown
+): { tabId: number; ranAt: number; include: boolean; pageUrl?: string } | null {
   if (!isRecord(value) || typeof value.tabId !== "number" || typeof value.ranAt !== "number")
     return null
-  return { tabId: value.tabId, ranAt: value.ranAt, include: value.include !== false }
+  return {
+    tabId: value.tabId,
+    ranAt: value.ranAt,
+    include: value.include !== false,
+    ...(typeof value.pageUrl === "string" ? { pageUrl: value.pageUrl } : {}),
+  }
 }
 
 const IMPACTS = ["critical", "serious", "moderate", "minor"]

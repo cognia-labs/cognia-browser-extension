@@ -3,7 +3,7 @@ import { utf8ByteLength } from "@cognia/companion-client"
 import { Badge, Card, CardContent, Checkbox, Label } from "@cognia/plugin-ui"
 
 import type { BrowserApi } from "@ext/src/lib/browser-api"
-import type { CapturedPage } from "@ext/src/lib/panel-state"
+import { selectionTruncated, type CapturedPage } from "@ext/src/lib/panel-state"
 
 export interface CapturePreviewProps {
   api: BrowserApi
@@ -48,7 +48,7 @@ export function CapturePreview({
     (mode === "article" ? utf8ByteLength(page.article?.text ?? "") : 0) +
     utf8ByteLength(transcriptText)
   const truncated = Boolean(
-    (sendsSelection && page.selection?.truncated) ||
+    (sendsSelection && selectionTruncated(page.selection)) ||
     (mode === "readable-page" && page.readableText?.truncated) ||
     (mode === "article" && page.article?.truncated) ||
     (page.transcript?.status === "available" && page.transcript.truncated)

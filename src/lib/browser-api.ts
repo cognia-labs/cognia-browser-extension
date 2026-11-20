@@ -58,6 +58,8 @@ export interface ScrollMetrics {
   viewportHeight: number
   viewportWidth: number
   scrollY: number
+  /** Where the page is sideways; absent from a page measured by an older build. */
+  scrollX?: number
   dpr: number
 }
 
@@ -140,8 +142,11 @@ export interface BrowserApi {
   /** Make a tab the active one in its window. */
   activateTab(tabId: number): Promise<void>
   scrollMetrics(tabId: number): Promise<ScrollMetrics>
-  /** Scroll to `y`; answers where the page actually landed. */
-  scrollTo(tabId: number, y: number): Promise<number>
+  /**
+   * Scroll to `y`, and sideways to `x` when given (else the page keeps its
+   * horizontal position); answers where the page actually landed vertically.
+   */
+  scrollTo(tabId: number, y: number, x?: number): Promise<number>
   /** Crop a capture, in device pixels; base64 PNG without the prefix. */
   cropImage(
     dataUrl: string,
@@ -164,6 +169,11 @@ export interface BrowserApi {
   answerSiteQuestion(questionId: string, answer: SiteAnswer): Promise<void>
   /** Forget a standing site decision. */
   forgetSiteDecision(origin: string): Promise<void>
+  /**
+   * Ask Cognia again to stop a paused conversation's task, after a Stop it
+   * did not confirm. The worker keeps the answer on the session.
+   */
+  retryHostStop(sessionId: string): Promise<void>
 
   // ── Inspecting the page (element picker, bug context, design checks) ──
   //

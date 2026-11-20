@@ -343,10 +343,14 @@ describe("createChromeBrowserApi — ADR-0228 surface", () => {
     expect(await api.scrollMetrics(7)).toMatchObject({ scrollHeight: 10 })
     executeScript.mockResolvedValueOnce([{ result: 4 }])
     expect(await api.scrollTo(7, 9)).toBe(4)
+    // No `x`: `null`, because the arguments travel as JSON.
     expect(executeScript.mock.calls.at(-1)?.[0]).toMatchObject({
       target: { tabId: 7 },
-      args: [9],
+      args: [9, null],
     })
+    executeScript.mockResolvedValueOnce([{ result: 9 }])
+    expect(await api.scrollTo(7, 9, 300)).toBe(9)
+    expect(executeScript.mock.calls.at(-1)?.[0]).toMatchObject({ args: [9, 300] })
   })
 
   it("fetches bytes without credentials and refuses oversized ones", async () => {
