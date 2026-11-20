@@ -1,7 +1,7 @@
 /**
  * What the side panel is showing, as a value rather than a tangle of booleans.
  *
- * There are nine distinguishable situations here and they demand different
+ * The distinguishable situations here demand different
  * copy and different controls. Modelled as a union because the alternative —
  * `loading`, `paired`, `error`, `offline` flags — makes states like "paired,
  * offline, and also revoked" representable, and someone eventually renders one.
@@ -10,6 +10,7 @@
  * component reduces over this; it does not decide.
  */
 import {
+  BROWSER_CONTEXT_LIMITS,
   isTerminalBrowserSubmissionStatus,
   type BrowserCompanionCapabilityV1,
   type BrowserCompanionFeature,
@@ -38,7 +39,17 @@ export interface CapturedPage {
   /** Already normalized: credentials gone, query/fragment gone unless asked. */
   url: string
   rawUrl: string
-  selection: { text: string; truncated: boolean; markdown?: string } | null
+  /**
+   * `truncated` is the plain text's cut; `markdownTruncated` the Markdown's,
+   * which is longer and can be cut where the plain text was not. Whichever
+   * form is shown and sent, its own flag says so ({@link selectionTruncated}).
+   */
+  selection: {
+    text: string
+    truncated: boolean
+    markdown?: string
+    markdownTruncated?: boolean
+  } | null
   readableText: {
     text: string
     truncated: boolean
@@ -69,6 +80,17 @@ export interface CapturedPage {
  */
 export type CaptureScope = "auto" | "page" | "article"
 
+/**
+ * Whether the selection as shown and sent — its Markdown when it has one,
+ * else its plain text — was cut to fit.
+ */
+export function selectionTruncated(selection: CapturedPage["selection"]): boolean {
+  if (!selection) return false
+  return selection.markdown !== undefined
+    ? (selection.markdownTruncated ?? selection.truncated)
+    : selection.truncated
+}
+
 export function hasFeature(
   capability: Pick<BrowserCompanionCapabilityV1, "features"> | undefined,
   feature: BrowserCompanionFeature
@@ -85,6 +107,8 @@ export type PanelState =
   | { kind: "unpaired"; failure?: PairFailure }
   /** A code is being redeemed. */
   | { kind: "pairing" }
+  /** Local tools are available without a paired or running Host. */
+  | { kind: "local"; captured: CapturedPage | null }
   /** Paired, and the Host answered. */
   | {
       kind: "ready"
@@ -107,6 +131,20 @@ export type PanelState =
   | { kind: "revoked" }
   /** The Host speaks a schema this build does not. */
   | { kind: "incompatible"; hostSchemaVersion: number }
+
+/** Local capture formats and limits; these grant no Host or agent capability. */
+export const LOCAL_CAPTURE_CAPABILITY: Pick<BrowserCompanionCapabilityV1, "features" | "limits"> = {
+  features: [
+    "article",
+    "markdown-selection",
+    "metadata",
+    "transcript",
+    "link-image",
+    "multi-page",
+    "attachments",
+  ],
+  limits: BROWSER_CONTEXT_LIMITS,
+}
 
 /** The schema version this build of the extension implements. */
 export const SUPPORTED_SCHEMA_VERSION = 1

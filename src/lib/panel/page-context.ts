@@ -21,7 +21,12 @@ import {
 } from "@cognia/companion-client"
 
 import type { PageCapture } from "../capture/page-capture"
-import { captureModeFor, type CapturedPage, type CaptureScope } from "../panel-state"
+import {
+  captureModeFor,
+  selectionTruncated,
+  type CapturedPage,
+  type CaptureScope,
+} from "../panel-state"
 
 type Limits = Required<BrowserContextLimits>
 
@@ -70,7 +75,9 @@ export function toCapturedPage(input: CaptureInput, limits: Limits): CapturedPag
     selection: selection
       ? {
           ...selection,
-          ...(selectionMarkdown ? { markdown: selectionMarkdown.text } : {}),
+          ...(selectionMarkdown
+            ? { markdown: selectionMarkdown.text, markdownTruncated: selectionMarkdown.truncated }
+            : {}),
         }
       : null,
     readableText: readable
@@ -102,7 +109,7 @@ export function withoutUnsupported(
 ): CapturedPage {
   const next: CapturedPage = { ...page }
   if (!features.includes("markdown-selection") && next.selection?.markdown !== undefined) {
-    const { markdown: _markdown, ...plain } = next.selection
+    const { markdown: _markdown, markdownTruncated: _cut, ...plain } = next.selection
     next.selection = plain
   }
   if (!features.includes("article")) next.article = null
@@ -187,7 +194,7 @@ export function buildPageContext(
     context.selection = markdownSelection
       ? {
           text: page.selection.markdown!,
-          truncated: page.selection.truncated,
+          truncated: selectionTruncated(page.selection),
           format: "markdown",
         }
       : { text: page.selection.text, truncated: page.selection.truncated }

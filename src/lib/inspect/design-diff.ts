@@ -18,6 +18,8 @@ export interface DiffBox {
 
 export interface DesignDiff {
   tabId: number
+  /** The page compared; a recapture of another page in the tab does not take it. */
+  pageUrl?: string
   ranAt: number
   /** The mock's file name, as the person chose it. */
   mock: string

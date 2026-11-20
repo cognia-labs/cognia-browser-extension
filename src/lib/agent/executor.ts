@@ -31,6 +31,8 @@ import {
   pageStorage,
 } from "./page-functions"
 import { MAX_CANVAS_SIDE } from "./image-ops"
+import type { NetworkRules } from "../network-rules/controller"
+import { RecordingError, type Recordings } from "../recordings/controller"
 import { AgentOperationError, OVERLAY_ABI, type AgentOperation } from "./protocol"
 import { withTab, withoutTab, type AgentSession, type SessionStore } from "./sessions"
 import { originOf, type SitePermissions } from "./site-permissions"
@@ -131,6 +133,10 @@ export interface ExecutorDeps {
   sleep: (ms: number) => Promise<void>
   signal?: AbortSignal
   checkActive?: () => void
+  /** Request rules (`network-rules-v1`); absent, its operations are unknown. */
+  networkRules?: NetworkRules
+  /** Recordings (`recording-v1`); absent, its operations are unknown. */
+  recordings?: Recordings
 }
 
 /** The overlay bundle and the main-world hooks, as WXT emits them. */
@@ -441,27 +447,41 @@ export function createAgentExecutor(deps: ExecutorDeps) {
       )
       const shots: string[] = []
       const heights: number[] = []
-      for (let step = 0; step < steps; step++) {
-        const target = step * metrics.viewportHeight
-        const landed = await browser.run(tab.id, "ISOLATED", pageScrollTo, [target])
-        await sleep(step === 0 ? 150 : CAPTURE_SPACING_MS)
-        shots.push(await browser.captureVisible(tab.windowId))
-        // The last step may overlap the previous one; keep only the new rows.
-        const previousBottom =
-          step === 0 ? 0 : (step - 1) * metrics.viewportHeight + metrics.viewportHeight
-        const fresh =
-          step === 0 ? metrics.viewportHeight : landed + metrics.viewportHeight - previousBottom
-        heights.push(Math.round(Math.max(0, Math.min(metrics.viewportHeight, fresh)) * metrics.dpr))
+      let previous = 0
+      let last = 0
+      try {
+        for (let step = 0; step < steps; step++) {
+          // Sideways the page stays where it is: every segment is one slice.
+          const landed = await browser.run(tab.id, "ISOLATED", pageScrollTo, [
+            step * metrics.viewportHeight,
+            null,
+          ])
+          await sleep(step === 0 ? 150 : CAPTURE_SPACING_MS)
+          shots.push(await browser.captureVisible(tab.windowId))
+          // From where each segment actually landed, not where it was asked to
+          // go: one that scrolled less than asked overlaps the one before it,
+          // and only the rows below that one's bottom are new.
+          const fresh = step === 0 ? metrics.viewportHeight : landed - previous
+          heights.push(
+            Math.round(Math.max(0, Math.min(metrics.viewportHeight, fresh)) * metrics.dpr)
+          )
+          previous = landed
+          last = landed
+        }
+      } finally {
+        // Both axes back, also when a capture failed part way.
+        await browser
+          .run(tab.id, "ISOLATED", pageScrollTo, [metrics.scrollY, metrics.scrollX])
+          .catch(() => undefined)
       }
-      await browser.run(tab.id, "ISOLATED", pageScrollTo, [metrics.scrollY])
       const width = Math.min(MAX_CANVAS_SIDE, Math.round(metrics.viewportWidth * metrics.dpr))
       const rows = heights.reduce((sum, value) => sum + value, 0)
       // The canvas the segments are stacked on stops at MAX_CANVAS_SIDE; a
-      // page taller than that, or than the segment budget, is cut and says so.
+      // page taller than that, or than the segment budget, or one that would
+      // not scroll as far as its height says, is cut and says so.
       const height = Math.min(MAX_CANVAS_SIDE, rows)
       const truncated =
-        rows > MAX_CANVAS_SIDE ||
-        (steps === MAX_FULL_PAGE_SEGMENTS && metrics.scrollHeight > steps * metrics.viewportHeight)
+        rows > MAX_CANVAS_SIDE || last + metrics.viewportHeight < metrics.scrollHeight - 1
       return {
         bytes: await browser.image.stitch(shots, width, heights),
         width,
@@ -539,7 +559,49 @@ export function createAgentExecutor(deps: ExecutorDeps) {
     const kept = current.tabIds.filter((id) => !current.ownedTabIds.includes(id))
     if (kept.length > 0) await browser.ungroup(kept).catch(() => undefined)
     await permissions.dropQuestions(current.id, checkActive)
+    await deps.recordings?.stopSession(current.id).catch(() => undefined)
+    if (deps.networkRules && (await deps.networkRules.agentSets())[current.id])
+      await deps.networkRules
+        .clearAgent(current.id, await sessionTabs(current))
+        .catch(() => undefined)
     await sessions.remove(current.id, checkActive)
+  }
+
+  async function sessionTabs(current: AgentSession) {
+    const tabs: { id: number; url: string }[] = []
+    for (const tabId of current.tabIds) {
+      const tab = await browser.getTab(tabId).catch(() => null)
+      if (tab) tabs.push({ id: tab.id, url: tab.url })
+    }
+    return tabs
+  }
+
+  function requireRecordings(): Recordings {
+    if (!deps.recordings)
+      throw new AgentOperationError(
+        "browser_operation_unknown",
+        "this extension does not implement recordings"
+      )
+    return deps.recordings
+  }
+
+  /** A recording's own refusals keep their codes for the Host. */
+  async function recordingCall<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work()
+    } catch (error) {
+      if (error instanceof RecordingError) throw new AgentOperationError(error.code, error.message)
+      throw error
+    }
+  }
+
+  function requireRules(): NetworkRules {
+    if (!deps.networkRules)
+      throw new AgentOperationError(
+        "browser_operation_unknown",
+        "this extension does not implement request rules"
+      )
+    return deps.networkRules
   }
 
   async function execute(
@@ -586,6 +648,7 @@ export function createAgentExecutor(deps: ExecutorDeps) {
         const url = stringArg(args, "url")
         originOf(url)
         await permissions.ensureAllowed(sessionId, url, operation, deadline, signal)
+        await deps.networkRules?.beforeNavigate(sessionId, url).catch(() => undefined)
         let tab: AgentTab
         if (current.activeTabId === null) {
           tab = await openTab(current, url)
@@ -604,6 +667,7 @@ export function createAgentExecutor(deps: ExecutorDeps) {
         if (url !== "about:blank") {
           originOf(url)
           await permissions.ensureAllowed(sessionId, url, operation, deadline, signal)
+          await deps.networkRules?.beforeNavigate(sessionId, url).catch(() => undefined)
         }
         const tab = await openTab(current, url)
         const landed = (await waitForComplete(tab.id, deadline)) ?? tab
@@ -920,6 +984,55 @@ export function createAgentExecutor(deps: ExecutorDeps) {
         const item = await sessionDownload(current, stringArg(args, "downloadId"))
         await browser.deleteDownload(item.id, checkActive)
         return { deleted: true, id: String(item.id) }
+      }
+      case "set_network_rules": {
+        const rules = requireRules()
+        // Rigging a page's requests changes what the person's page shows: the
+        // same decision as acting on it. With no page yet, the rules wait for
+        // one, and every navigation asks on its own.
+        if (current.activeTabId !== null) await pageFor(current, operation, deadline)
+        const result = await rules.setAgentRules(sessionId, args.rules, await sessionTabs(current))
+        if (!result.ok)
+          throw new AgentOperationError(
+            "malformed",
+            `rules[${result.index}] is not a rule this browser can apply: check its match, action and that action's fields`
+          )
+        return { rules: result.rules }
+      }
+      case "start_recording": {
+        const recordings = requireRecordings()
+        // Recording reads what happens on the page: the decision acting needs.
+        const tab = await pageFor(current, operation, deadline)
+        return {
+          recording: await recordingCall(() =>
+            recordings.start(tab.id, { byAgent: true, sessionId })
+          ),
+        }
+      }
+      case "stop_recording": {
+        const [recording] = await requireRecordings().stopSession(sessionId)
+        if (!recording)
+          throw new AgentOperationError(
+            "browser_recording_not_found",
+            "this conversation is not recording"
+          )
+        return { recording }
+      }
+      case "list_recordings": {
+        // Only what is shared with the conversation asking.
+        return { recordings: await requireRecordings().listShared(sessionId) }
+      }
+      case "get_recording": {
+        const recordings = requireRecordings()
+        const format = args.format === "playwright" ? "playwright" : "steps"
+        return recordingCall(() => recordings.getShared(stringArg(args, "id"), format, sessionId))
+      }
+      case "clear_network_rules": {
+        await requireRules().clearAgent(sessionId, await sessionTabs(current))
+        return { rules: [] }
+      }
+      case "list_network_rules": {
+        return { rules: await requireRules().listAgent(sessionId, current.tabIds) }
       }
       default: {
         throw new AgentOperationError(

@@ -1,6 +1,6 @@
 import { BROWSER_CONTEXT_LIMITS, utf8ByteLength } from "@cognia/companion-client"
 
-import type { CapturedPage } from "../panel-state"
+import { selectionTruncated, type CapturedPage } from "../panel-state"
 import type { PickedElement } from "./element-context"
 import {
   elementMarkdown,
@@ -225,7 +225,12 @@ describe("contrast and export", () => {
 describe("withInspection", () => {
   it("makes a selection of an otherwise metadata-only capture", () => {
     const page = withInspection(PAGE, "## Picked", ["markdown-selection"], LIMITS)
-    expect(page.selection).toEqual({ text: "## Picked", markdown: "## Picked", truncated: false })
+    expect(page.selection).toEqual({
+      text: "## Picked",
+      markdown: "## Picked",
+      truncated: false,
+      markdownTruncated: false,
+    })
     expect(withInspection(PAGE, "", ["markdown-selection"], LIMITS)).toBe(PAGE)
   })
 
@@ -239,12 +244,29 @@ describe("withInspection", () => {
         text: "chosen\n\n## Picked",
         markdown: "**chosen**\n\n## Picked",
         truncated: false,
+        markdownTruncated: false,
       }
     )
     expect(withInspection(selected, "## Picked", [], LIMITS).selection).toEqual({
       text: "chosen\n\n## Picked",
       truncated: false,
     })
+  })
+
+  it("says the Markdown was cut even when the plain text still fits", () => {
+    const limits = { ...LIMITS, selectionBytes: 20 }
+    const selected: CapturedPage = {
+      ...PAGE,
+      selection: { text: "plain", markdown: "**plain**", truncated: false },
+    }
+    // 17 bytes as plain text fit in 20; the 21 bytes of Markdown do not.
+    const page = withInspection(selected, "## Picks!!", ["markdown-selection"], limits)
+    expect(page.selection?.truncated).toBe(false)
+    expect(page.selection?.markdownTruncated).toBe(true)
+    expect(selectionTruncated(page.selection)).toBe(true)
+    // A Host without Markdown is sent the plain text, which was not cut.
+    const plain = withInspection(selected, "## Picks!!", [], limits)
+    expect(selectionTruncated(plain.selection)).toBe(false)
   })
 
   it("cuts to the selection ceiling and says so", () => {

@@ -10,7 +10,15 @@
  * gives: the shipped build reaches the same `chrome.scripting` calls through
  * `activeTab`, which only browser chrome can grant.
  */
-import { expect, pairThroughPanel, requestCapture, tabIdOf, test, type Page } from "./fixtures"
+import {
+  expect,
+  openView,
+  pairThroughPanel,
+  requestCapture,
+  tabIdOf,
+  test,
+  type Page,
+} from "./fixtures"
 import type { MockHost } from "./mock-host"
 
 test.use({ extensionProfile: "granted" })
@@ -44,14 +52,17 @@ async function capturedFixture({
   serviceWorker,
   context,
   html = INSPECT_FIXTURE_HTML,
+  local = false,
 }: {
   html?: string
+  local?: boolean
   panel: Page
   mockHost: MockHost
   serviceWorker: import("@playwright/test").Worker
   context: import("@playwright/test").BrowserContext
 }): Promise<Page> {
-  await pairThroughPanel(panel, mockHost.issueEnrollment())
+  if (local) await panel.getByRole("button", { name: "Use local mode", exact: true }).click()
+  else await pairThroughPanel(panel, mockHost.issueEnrollment())
   await expect(panel.getByTestId("capture-empty")).toBeVisible()
   const pageUrl = mockHost.servePage("settings", html)
   const content = await context.newPage()
@@ -69,6 +80,8 @@ test.describe("picking an element", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+
+    await openView(panel, "inspect")
 
     await panel.getByTestId("pick-element").click()
     await expect(panel.getByTestId("pick-waiting")).toBeVisible()
@@ -95,6 +108,7 @@ test.describe("picking an element", () => {
       .toBe("20px")
 
     await panel.getByTestId("pick-note-0").fill("Make it the primary action")
+    await openView(panel, "send")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("pick-0")).toHaveCount(0)
 
@@ -130,6 +144,7 @@ test.describe("picking an element", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await openView(panel, "inspect")
     await panel.getByTestId("pick-element").click()
     await expect(content.locator("#__cognia-element-picker")).toHaveCount(1)
     await content.keyboard.press("Escape")
@@ -187,7 +202,7 @@ test.describe("checking the page", () => {
     context,
   }) => {
     await capturedFixture({ panel, mockHost, serviceWorker, context, html: STACK_FIXTURE_HTML })
-    await panel.getByTestId("page-audit-toggle").click()
+    await openView(panel, "inspect")
     await panel.getByTestId("insight-run-stack").click()
     await expect(panel.getByTestId("stack-group-cms")).toContainText("Hugo0.125.4")
     await expect(panel.getByTestId("stack-group-framework")).toContainText("Vue3.4.21")
@@ -199,6 +214,8 @@ test.describe("checking the page", () => {
     await expect(panel.getByTestId("stack-fact-scripts")).toBeVisible()
     await panel.getByTestId("stack-evidence-toggle").click()
     await expect(panel.getByTestId("stack-evidence")).toContainText("esm.sh: vue@3.4.21")
+
+    await openView(panel, "send")
 
     await panel.getByTestId("instruction").fill("Upgrade the widget")
     await panel.getByTestId("submit").click()
@@ -216,7 +233,7 @@ test.describe("checking the page", () => {
     context,
   }) => {
     await capturedFixture({ panel, mockHost, serviceWorker, context, html: AUDIT_FIXTURE_HTML })
-    await panel.getByTestId("page-audit-toggle").click()
+    await openView(panel, "inspect")
 
     await panel.getByTestId("insight-run-stack").click()
     // Read in the MAIN world: the fiber key is invisible to the isolated one.
@@ -226,6 +243,8 @@ test.describe("checking the page", () => {
     await expect(panel.getByTestId("a11y-issue-0")).toContainText("#hero")
     await panel.getByTestId("a11y-pick-0").click()
     await expect(panel.getByTestId("pick-0")).toContainText("img#hero")
+
+    await openView(panel, "send")
 
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("pick-0")).toHaveCount(0)
@@ -251,6 +270,7 @@ test.describe("checking the page", () => {
       context,
       html: AUDIT_FIXTURE_HTML,
     })
+    await openView(panel, "inspect")
     await panel.getByTestId("pick-element").click()
     await expect(content.locator("#__cognia-element-picker[data-cognia-pointing]")).toHaveCount(1)
     await content.locator("#one").click({ modifiers: ["Shift"] })
@@ -274,6 +294,7 @@ test.describe("checking the page", () => {
       '<!doctype html><title>Long</title><body style="margin:0;padding:24px">' +
       `<main id="long" style="padding:8px"><h1>Pricing plans</h1><p>${words}</p></main><p id="short">Short</p></body>`
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context, html })
+    await openView(panel, "inspect")
     await panel.getByTestId("pick-element").click()
     await expect(content.locator("#__cognia-element-picker[data-cognia-pointing]")).toHaveCount(1)
     await content.locator("#long").click({ position: { x: 4, y: 4 }, modifiers: ["Shift"] })
@@ -299,6 +320,7 @@ test.describe("checking the page", () => {
       '<button id="c" class="btn" style="font-size:14px;padding:8px 16px">Three</button>' +
       "</div><p style='margin-top:200px'>Elsewhere</p></body>"
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context, html })
+    await openView(panel, "inspect")
     await panel.getByTestId("pick-element").click()
     await expect(content.locator("#__cognia-element-picker[data-cognia-pointing]")).toHaveCount(1)
     await content.bringToFront()
@@ -320,6 +342,7 @@ test.describe("checking the page", () => {
     // Two buttons that should match, and do not.
     await expect(panel.getByTestId("pick-compare")).toContainText("font-size")
     await panel.getByTestId("pick-compare-include").click()
+    await openView(panel, "send")
     await panel.getByTestId("instruction").fill("Make the buttons match")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("recent-list")).toBeVisible()
@@ -339,6 +362,7 @@ test.describe("checking the page", () => {
       '<span class="chip">a</span> <span class="chip">b</span> <span class="chip">c</span>' +
       ' <span class="tag">d</span></body>'
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context, html })
+    await openView(panel, "inspect")
     await panel.getByTestId("pick-element").click()
     await expect(content.locator("#__cognia-element-picker[data-cognia-pointing]")).toHaveCount(1)
     await content
@@ -359,6 +383,7 @@ test.describe("measuring between elements", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await openView(panel, "inspect")
     await panel.getByTestId("measure-element").click()
     await expect(panel.getByTestId("pick-waiting")).toBeVisible()
     await expect(content.locator("#__cognia-element-picker")).toHaveCount(1)
@@ -384,6 +409,7 @@ test.describe("measuring between elements", () => {
     await expect(panel.getByTestId("measure-distances-0")).toContainText("↔ 16px")
 
     await panel.getByTestId("measure-note-0").fill("Should be 24px")
+    await openView(panel, "send")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("measure-0")).toHaveCount(0)
     const sent = mockHost.submissions()[0]?.selectionText ?? ""
@@ -429,7 +455,7 @@ test.describe("steps to reproduce", () => {
       context,
       html: STEPS_FIXTURE_HTML,
     })
-    await panel.getByTestId("page-tools-toggle").click()
+    await openView(panel, "tools")
     await panel.getByTestId("dev-record").click()
     await expect(panel.getByTestId("dev-recording")).toBeVisible()
 
@@ -440,6 +466,7 @@ test.describe("steps to reproduce", () => {
 
     await panel.getByTestId("dev-attach").click()
     await expect(panel.getByTestId("dev-report-steps")).toBeVisible()
+    await openView(panel, "send")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("recent-list")).toBeVisible()
 
@@ -464,11 +491,12 @@ test.describe("performance of the visit", () => {
     context,
   }) => {
     await capturedFixture({ panel, mockHost, serviceWorker, context })
-    await panel.getByTestId("page-audit-toggle").click()
+    await openView(panel, "inspect")
     await panel.getByTestId("insight-run-perf").click()
     await expect(panel.getByTestId("perf-result")).toBeVisible()
     await expect(panel.getByTestId("perf-vital-fcp")).toBeVisible()
     await expect(panel.getByTestId("perf-vital-ttfb")).toBeVisible()
+    await openView(panel, "send")
     await panel.getByTestId("instruction").fill("Make it faster")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("recent-list")).toBeVisible()
@@ -487,6 +515,7 @@ test.describe("editing the page's words", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await openView(panel, "inspect")
     await panel.getByTestId("text-edit-start").click()
     await expect(panel.getByTestId("text-editing")).toBeVisible()
     await expect.poll(() => content.evaluate(() => document.designMode)).toBe("on")
@@ -499,6 +528,7 @@ test.describe("editing the page's words", () => {
     await panel.getByTestId("text-edit-done").click()
     await expect(panel.getByTestId("text-change-0")).toContainText("Settings and privacy")
     expect(await content.evaluate(() => document.designMode)).toBe("off")
+    await openView(panel, "send")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("recent-list")).toBeVisible()
     const sent = mockHost.submissions()[0]?.selectionText ?? ""
@@ -513,6 +543,7 @@ test.describe("editing the page's words", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await openView(panel, "inspect")
     await panel.getByTestId("text-edit-start").click()
     await expect.poll(() => content.evaluate(() => document.designMode)).toBe("on")
     await content.locator("h1").click()
@@ -534,12 +565,13 @@ test.describe("SEO and link previews", () => {
     context,
   }) => {
     await capturedFixture({ panel, mockHost, serviceWorker, context })
-    await panel.getByTestId("page-audit-toggle").click()
+    await openView(panel, "inspect")
     await panel.getByTestId("insight-run-seo").click()
     await expect(panel.getByTestId("seo-result")).toBeVisible()
     await expect(panel.getByTestId("seo-card-title")).toHaveText("Settings — Example")
     await panel.getByTestId("seo-outline-toggle").click()
     await expect(panel.getByTestId("seo-outline")).toContainText("Settings")
+    await openView(panel, "send")
     await panel.getByTestId("instruction").fill("Improve the SEO")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("recent-list")).toBeVisible()
@@ -569,7 +601,7 @@ test.describe("layout and contrast", () => {
     context,
   }) => {
     await capturedFixture({ panel, mockHost, serviceWorker, context, html: LAYOUT_FIXTURE_HTML })
-    await panel.getByTestId("page-audit-toggle").click()
+    await openView(panel, "inspect")
     await panel.getByTestId("insight-run-layout").click()
     await expect(panel.getByTestId("layout-result")).toBeVisible()
     // Laid out by Chromium itself: the widths are the browser's, not a stub's.
@@ -582,6 +614,8 @@ test.describe("layout and contrast", () => {
     await expect(panel.getByTestId("pick-contrast-0")).toContainText("2.32:1")
     await expect(panel.getByTestId("pick-contrast-0")).toContainText("AA ✗")
     await panel.getByTestId("pick-contrast-fix-0").click()
+
+    await openView(panel, "send")
 
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("recent-list")).toBeVisible()
@@ -601,7 +635,7 @@ test.describe("console and network for a bug report", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
-    await panel.getByTestId("page-tools-toggle").click()
+    await openView(panel, "tools")
     await panel.getByTestId("dev-record").click()
     await expect(panel.getByTestId("dev-recording")).toBeVisible()
 
@@ -616,6 +650,7 @@ test.describe("console and network for a bug report", () => {
 
     await panel.getByTestId("dev-attach").click()
     await expect(panel.getByTestId("dev-report-text")).toContainText("E2E-BOOM")
+    await openView(panel, "send")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("recent-list")).toBeVisible()
 
@@ -635,6 +670,7 @@ test.describe("adjusting a pick by hand", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await openView(panel, "inspect")
     await panel.getByTestId("pick-element").click()
     await expect(content.locator("#__cognia-element-picker")).toHaveCount(1)
     await content.locator("#save").click()
@@ -667,6 +703,8 @@ test.describe("adjusting a pick by hand", () => {
         content.evaluate(() => getComputedStyle(document.getElementById("save")!).marginLeft)
       )
       .toBe("10px")
+
+    await openView(panel, "send")
 
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("pick-0")).toHaveCount(0)
@@ -719,7 +757,8 @@ test.describe("simulating requests", () => {
       context,
       html: REQUESTS_FIXTURE_HTML,
     })
-    await panel.getByTestId("page-tools-toggle").click()
+    await openView(panel, "tools")
+    await panel.getByRole("button", { name: "Simulate requests", exact: true }).click()
     await panel.getByTestId("mock-match").fill("/api/orders*")
     await panel.getByTestId("mock-action").click()
     await panel.getByRole("option", { name: "Respond with" }).click()
@@ -746,6 +785,8 @@ test.describe("simulating requests", () => {
     await content.locator("#load").click()
     await expect(content.locator("#result")).toHaveText("fetch failed: Failed to fetch")
 
+    await openView(panel, "send")
+
     await panel.getByTestId("instruction").fill("Show a friendly error when orders fail")
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("recent-list")).toBeVisible()
@@ -755,6 +796,7 @@ test.describe("simulating requests", () => {
 
     // A reload takes the rules away, and the panel says so.
     await content.reload()
+    await openView(panel, "tools")
     await panel.getByTestId("mock-refresh").click()
     await expect(panel.getByTestId("mock-lost")).toBeVisible()
     await panel.getByTestId("mock-clear").click()
@@ -812,7 +854,8 @@ test.describe("simulating requests across reloads", () => {
       html: KEPT_REQUESTS_FIXTURE_HTML,
     })
     await expect(content.locator("#result")).toHaveText(/^load \d+$/)
-    await panel.getByTestId("page-tools-toggle").click()
+    await openView(panel, "tools")
+    await panel.getByRole("button", { name: "Simulate requests", exact: true }).click()
     await panel.getByTestId("mock-match").fill("/api/orders*")
     await panel.getByTestId("mock-preset-offline").click()
     await panel.getByTestId("mock-add").click()
@@ -893,7 +936,7 @@ test.describe("keyboard focus", () => {
       context,
       html: FOCUS_FIXTURE_HTML,
     })
-    await panel.getByTestId("page-audit-toggle").click()
+    await openView(panel, "inspect")
     await panel.getByTestId("insight-run-focus").click()
     await expect(panel.getByTestId("focus-summary")).toHaveText("3 Tab stops")
     await expect(content.locator("#__cognia-focus-order")).toHaveCount(1)
@@ -903,6 +946,8 @@ test.describe("keyboard focus", () => {
     await expect(content.locator("#__cognia-focus-order")).toHaveCount(0)
     await panel.getByTestId("focus-numbers").click()
     await expect(content.locator("#__cognia-focus-order")).toHaveCount(1)
+
+    await openView(panel, "send")
 
     await panel.getByTestId("instruction").fill("Fix the keyboard order")
     await panel.getByTestId("submit").click()
@@ -941,6 +986,7 @@ test.describe("the floating toolbar", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await openView(panel, "inspect")
     await panel.getByTestId("toolbar-toggle").click()
     await expect(content.locator("#__cognia-toolbar")).toHaveCount(1)
     await content.bringToFront()
@@ -972,7 +1018,9 @@ test.describe("the floating toolbar", () => {
     // Close from the page.
     await content.mouse.click(33, buttons.top + 4 + 18 + 2 + 5 * 36 + 7 + 2 + 2 * 36 + 17)
     await expect(content.locator("#__cognia-toolbar")).toHaveCount(0)
-    await expect(panel.getByTestId("toolbar-toggle")).toHaveText("Floating toolbar")
+    await expect(panel.getByTestId("toolbar-toggle")).toHaveText("Toolbar")
+
+    await openView(panel, "send")
 
     await panel.getByTestId("submit").click()
     await expect(panel.getByTestId("pick-0")).toHaveCount(0)
@@ -982,6 +1030,78 @@ test.describe("the floating toolbar", () => {
     expect(sent).not.toContain("cognia-toolbar")
   })
 
+  test("exits text editing by pressing the toolbar's Text button again", async ({
+    panel,
+    mockHost,
+    serviceWorker,
+    context,
+  }) => {
+    const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await openView(panel, "inspect")
+    await panel.getByTestId("toolbar-toggle").click()
+    await expect(content.locator("#__cognia-toolbar")).toHaveCount(1)
+    await expect(panel.getByTestId("toolbar-toggle")).toHaveText("Hide toolbar")
+    await content.bringToFront()
+    const { text } = await toolbarButtons(content)
+    await content.mouse.click(text.x, text.y)
+    await expect(panel.getByTestId("text-editing")).toBeVisible()
+    await expect.poll(() => content.evaluate(() => document.designMode)).toBe("on")
+    await content.locator("h1").click()
+    await content.keyboard.press("End")
+    await content.keyboard.type(" draft")
+    await content.bringToFront()
+
+    await content.mouse.click(text.x, text.y)
+    await expect(panel.getByTestId("text-editing")).toHaveCount(0)
+    await expect.poll(() => content.evaluate(() => document.designMode)).toBe("off")
+    await expect(panel.getByTestId("text-change-0")).toContainText("Settings draft")
+  })
+
+  for (const next of ["pick", "measure", "close"] as const) {
+    test(`leaves text editing when the toolbar switches to ${next}`, async ({
+      panel,
+      mockHost,
+      serviceWorker,
+      context,
+    }) => {
+      const content = await capturedFixture({
+        panel,
+        mockHost,
+        serviceWorker,
+        context,
+        local: true,
+      })
+      await openView(panel, "inspect")
+      await panel.getByTestId("toolbar-toggle").click()
+      await expect(content.locator("#__cognia-toolbar")).toHaveCount(1)
+      await openView(panel, "inspect")
+      await panel.getByTestId("text-edit-start").click()
+      await expect(panel.getByTestId("text-editing")).toBeVisible()
+      await expect.poll(() => content.evaluate(() => document.designMode)).toBe("on")
+      await content.locator("h1").click()
+      await content.keyboard.press("End")
+      await content.keyboard.type(" draft")
+      await content.bringToFront()
+      const buttons = await toolbarButtons(content)
+      const button =
+        next === "close"
+          ? { x: 33, y: buttons.top + 4 + 18 + 2 + 5 * 36 + 7 + 2 + 2 * 36 + 17 }
+          : buttons[next]
+      await content.mouse.click(button.x, button.y)
+      await expect(panel.getByTestId("text-editing")).toHaveCount(0)
+      await expect.poll(() => content.evaluate(() => document.designMode)).toBe("off")
+      await expect(panel.getByTestId("text-change-0")).toContainText("Settings draft")
+      if (next === "close") {
+        await expect(content.locator("#__cognia-toolbar")).toHaveCount(0)
+      } else {
+        await expect(panel.getByTestId("pick-waiting")).toBeVisible()
+        await content.locator("h1").click()
+        if (next === "measure") await content.locator("#save").click()
+        await expect(panel.getByTestId(next === "pick" ? "pick-0" : "measurements")).toBeVisible()
+      }
+    })
+  }
+
   test("snaps to the window's edge it is let go near, when asked to", async ({
     panel,
     mockHost,
@@ -989,6 +1109,7 @@ test.describe("the floating toolbar", () => {
     context,
   }) => {
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context })
+    await openView(panel, "inspect")
     await panel.getByTestId("toolbar-toggle").click()
     const host = content.locator("#__cognia-toolbar")
     await expect(host).toHaveCount(1)
@@ -1033,6 +1154,7 @@ test.describe("the floating toolbar", () => {
       ).join("") +
       "</body>"
     const content = await capturedFixture({ panel, mockHost, serviceWorker, context, html })
+    await openView(panel, "inspect")
     await panel.getByTestId("toolbar-toggle").click()
     await expect(content.locator("#__cognia-toolbar")).toHaveAttribute(
       "data-orientation",

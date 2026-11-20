@@ -1,18 +1,21 @@
-import type {
-  BrowserContextSubmissionSummaryV1,
-  BrowserSubmissionStatus,
+import {
+  CompanionApiError,
+  type BrowserContextSubmissionStatusV1,
+  type BrowserContextSubmissionSummaryV1,
+  type BrowserSubmissionStatus,
 } from "@cognia/companion-client"
 
 import type { AgentBrowser } from "../agent/executor"
-import { pageAct, pageOverlayAbi } from "../agent/page-functions"
+import { pageAct, pageActingBar, pageOverlayAbi } from "../agent/page-functions"
 import { PENDING_SITE_QUESTIONS_KEY } from "../agent/site-permissions"
 import { AGENT_SESSIONS_KEY } from "../agent/sessions"
 import type { SocketLike } from "../agent/socket-client"
 import { memoryStorageArea } from "../agent/storage-area"
 import { SESSION_KEYS, STORAGE_KEYS } from "../browser-api"
 import type { HostClient } from "../client"
-import { STATUS_SNAPSHOT_KEY } from "./status-tracker"
+import { STATUS_SNAPSHOT_KEY, type StatusSnapshot } from "./status-tracker"
 import { STATUS_ALARM, createWorker } from "./worker"
+import { fakeNetworkRulesBrowser } from "../network-rules/fake-browser"
 
 const pairing = {
   baseUrl: "http://127.0.0.1:27891",
@@ -88,6 +91,27 @@ describe("worker-owned permission mutations", () => {
       "https://b.test": "never",
     })
   })
+  it("asks Cognia again to stop a paused conversation, from the panel only", async () => {
+    const h = harness()
+    await h.worker.runtime.sessions.updateSession("s1", 5_000, (s) => ({
+      ...s,
+      tabIds: [5],
+      takeover: true,
+    }))
+    const message = {
+      kind: "cognia-agent-permission",
+      action: "stop-host-task",
+      session: "s1",
+    } as const
+    await expect(h.worker.onPermissionMessage(message, "https://a.test/")).resolves.toBe(false)
+    expect((await h.worker.runtime.sessions.get("s1"))?.hostStop).toBeUndefined()
+    // Not paired: no Host to ask, so the answer kept is that nothing confirmed it.
+    await expect(
+      h.worker.onPermissionMessage(message, "chrome-extension://x/sidepanel.html")
+    ).resolves.toBe(true)
+    expect((await h.worker.runtime.sessions.get("s1"))?.hostStop?.outcome).toBe("failed")
+  })
+
   it("rejects web content and uses the same session queue as Takeover", async () => {
     const h = harness()
     await h.worker.runtime.sessions.updateSession("s1", 5_000, (s) => ({
@@ -151,16 +175,24 @@ function harness(
     paired?: boolean
     canNotify?: boolean
     browser?: AgentBrowser
+    /** Storage of a worker that ran before: a restart keeps both areas. */
+    local?: ReturnType<typeof memoryStorageArea>
+    session?: ReturnType<typeof memoryStorageArea>
   } = {}
 ) {
-  const local = memoryStorageArea()
-  const session = memoryStorageArea()
+  const local = options.local ?? memoryStorageArea()
+  const session = options.session ?? memoryStorageArea()
   let items: BrowserContextSubmissionSummaryV1[] = []
   let listFails = false
   const pages: Record<
     string,
     { items: BrowserContextSubmissionSummaryV1[]; nextPageToken?: string }
   > = {}
+  /** What `get` answers per id: a status, or what it throws. Unknown ids are refused. */
+  const details: Record<string, BrowserSubmissionStatus | Error> = {}
+  /** What `cancel` throws per id, when it does not succeed. */
+  const cancelErrors: Record<string, Error> = {}
+  const bars: unknown[] = []
   const cancelled: string[] = []
   const badges: { text: string; tone: string }[] = []
   const notifications: { id: string; title: string; message: string }[] = []
@@ -173,7 +205,15 @@ function harness(
       if (options.pageToken) return pages[options.pageToken] ?? { items: [] }
       return pages.first ?? { items }
     }),
+    get: jest.fn(async (id: string): Promise<BrowserContextSubmissionStatusV1> => {
+      const detail = details[id]
+      if (detail instanceof Error) throw detail
+      if (!detail) throw new CompanionApiError("no such submission", "not_found", 404)
+      return { submissionId: id, status: detail, updatedAt: 2, deepLink: "" }
+    }),
     cancel: jest.fn(async (id: string) => {
+      const error = cancelErrors[id]
+      if (error) throw error
       cancelled.push(id)
       return {}
     }),
@@ -189,8 +229,19 @@ function harness(
       options.browser ??
       ({
         message: (key: string) => key,
-        run: async () => true,
+        run: async (_tab: number, _world: string, fn: unknown, args: unknown[]) => {
+          if (fn === pageActingBar) bars.push(args[0])
+          return true
+        },
       } as unknown as AgentBrowser),
+    networkRulesBrowser: fakeNetworkRulesBrowser().browser,
+    recordingBrowser: {
+      tabInfo: async () => null,
+      injectRecorder: async () => undefined,
+      removeRecorder: async () => undefined,
+      hasOrigin: async () => true,
+      setRecorderScripts: async () => undefined,
+    },
     createSocket: (url) => {
       sockets.push(url)
       const wire = {
@@ -245,6 +296,10 @@ function harness(
     sockets,
     wires,
     pages,
+    details,
+    cancelErrors,
+    bars,
+    snapshot: async () => (await session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY)) ?? null,
     setItems: (next: BrowserContextSubmissionSummaryV1[]) => {
       items = next
     },
@@ -253,6 +308,108 @@ function harness(
     },
   }
 }
+
+/** `count` finished tasks, newer than anything a test started with. */
+function finished(count: number, prefix = "new"): BrowserContextSubmissionSummaryV1[] {
+  return Array.from({ length: count }, (_, index) => item(`${prefix}-${index}`, "completed"))
+}
+
+describe("tasks past the newest page", () => {
+  it("follows a running task pushed off the first page to its end, announcing it once", async () => {
+    const h = harness()
+    await h.local.set(STORAGE_KEYS.preferences, { notifications: true })
+    h.setItems([item("a", "running", { title: "Long task", sessionId: "s1" })])
+    await h.worker.start()
+
+    // Fifty newer tasks finished; "a" is on the second page, still running.
+    h.setItems(finished(50))
+    h.details.a = "running"
+    await h.worker.onAlarm(STATUS_ALARM)
+    expect(h.client.get).toHaveBeenCalledWith("a")
+    expect(h.badges.at(-1)).toEqual({ text: "1", tone: "busy" })
+    expect(h.alarms.has(STATUS_ALARM)).toBe(true)
+    expect((await h.snapshot())?.tracked).toEqual({
+      a: { label: "Long task", sessionId: "s1" },
+    })
+
+    h.details.a = "completed"
+    await h.worker.onAlarm(STATUS_ALARM)
+    expect(h.notifications).toEqual([
+      { id: "cognia:submission:a", title: "notifyCompleted", message: "Long task" },
+    ])
+    expect(h.badges.at(-1)).toEqual({ text: "", tone: "none" })
+    expect(h.alarms.has(STATUS_ALARM)).toBe(false)
+
+    // Finished is final: it is not asked about again, nor announced again.
+    jest.mocked(h.client.get).mockClear()
+    await h.worker.onAlarm(STATUS_ALARM)
+    expect(h.client.get).not.toHaveBeenCalled()
+    expect(h.notifications).toHaveLength(1)
+  })
+
+  it("stops following a task the Host refuses to answer for", async () => {
+    const h = harness()
+    h.setItems([item("a", "running")])
+    await h.worker.start()
+    h.setItems(finished(50))
+    await h.worker.onAlarm(STATUS_ALARM)
+    expect(h.client.get).toHaveBeenCalledWith("a")
+    expect(h.badges.at(-1)).toEqual({ text: "", tone: "none" })
+    expect(h.alarms.has(STATUS_ALARM)).toBe(false)
+    expect((await h.snapshot())?.statuses).not.toHaveProperty("a")
+  })
+
+  it("keeps a followed task as last seen while the Host cannot be asked about it", async () => {
+    const h = harness()
+    h.setItems([item("a", "needs_input")])
+    await h.worker.start()
+    h.setItems(finished(50))
+    h.details.a = new TypeError("Failed to fetch")
+    await h.worker.onAlarm(STATUS_ALARM)
+    expect(h.badges.at(-1)).toEqual({ text: "1", tone: "attention" })
+    expect(h.alarms.has(STATUS_ALARM)).toBe(true)
+    expect((await h.snapshot())?.statuses.a).toBe("needs_input")
+  })
+
+  it("follows at most a bounded number of tasks per read", async () => {
+    const h = harness()
+    h.setItems(Array.from({ length: 30 }, (_, index) => item(`r-${index}`, "running")))
+    await h.worker.start()
+    h.setItems(finished(50))
+    for (let index = 0; index < 30; index++) h.details[`r-${index}`] = "running"
+    await h.worker.onAlarm(STATUS_ALARM)
+    expect(h.client.get).toHaveBeenCalledTimes(20)
+    expect(h.badges.at(-1)).toEqual({ text: "20", tone: "busy" })
+  })
+
+  it("keeps following after the worker restarts", async () => {
+    const before = harness()
+    before.setItems([item("a", "running")])
+    await before.worker.start()
+
+    const after = harness({ local: before.local, session: before.session })
+    after.setItems(finished(50))
+    after.details.a = "running"
+    await after.worker.start()
+    expect(after.client.get).toHaveBeenCalledWith("a")
+    expect(after.badges.at(-1)).toEqual({ text: "1", tone: "busy" })
+    expect(after.alarms.has(STATUS_ALARM)).toBe(true)
+  })
+
+  it("announces what finished while the worker slept", async () => {
+    const before = harness()
+    await before.local.set(STORAGE_KEYS.preferences, { notifications: true })
+    before.setItems([item("a", "running")])
+    await before.worker.start()
+
+    const after = harness({ local: before.local, session: before.session })
+    after.setItems([item("a", "completed")])
+    await after.worker.start()
+    expect(after.notifications).toEqual([
+      { id: "cognia:submission:a", title: "notifyCompleted", message: "Task a" },
+    ])
+  })
+})
 
 describe("createWorker", () => {
   it.each(["revoke", "disconnect", "disable"])(
@@ -448,6 +605,7 @@ describe("createWorker", () => {
     expect(await h.session.get(STATUS_SNAPSHOT_KEY)).toEqual({
       primed: true,
       statuses: {},
+      owner: "http://127.0.0.1:27891#d2",
     })
     await h.local.remove(STORAGE_KEYS.pairing)
     await h.worker.onLocalChange(STORAGE_KEYS.pairing, null)
@@ -471,6 +629,90 @@ describe("createWorker", () => {
       3
     )
     expect(h.cancelled).toEqual(["live"])
+  })
+
+  it("asks for the conversation's live task first among the ones it already follows", async () => {
+    const h = harness()
+    h.setItems([item("live", "running", { sessionId: "s1" })])
+    await h.worker.start()
+    h.setItems(finished(50))
+    h.details.live = "running"
+    await h.worker.onAlarm(STATUS_ALARM)
+    await h.worker.runtime.sessions.updateSession("s1", 5_000, (s) => ({ ...s, tabIds: [3] }))
+    const listed = jest.mocked(h.client.list).mock.calls.length
+    await h.worker.runtime.control(
+      { kind: "cognia-agent-control", session: "s1", action: "stop" },
+      3
+    )
+    expect(h.cancelled).toEqual(["live"])
+    // Found without paging through the list for it.
+    expect(jest.mocked(h.client.list).mock.calls.slice(listed)).toEqual(
+      expect.not.arrayContaining([[expect.objectContaining({ pageToken: expect.anything() })]])
+    )
+    expect(h.bars.at(-1)).not.toHaveProperty("notice")
+  })
+
+  it("pages past the second page to the conversation's task", async () => {
+    const h = harness()
+    h.pages.first = { items: finished(50), nextPageToken: "p2" }
+    h.pages.p2 = { items: finished(50, "older"), nextPageToken: "p3" }
+    h.pages.p3 = { items: [item("live", "running", { sessionId: "s1" })] }
+    await h.worker.start()
+    await h.worker.runtime.sessions.updateSession("s1", 5_000, (s) => ({ ...s, tabIds: [3] }))
+    await h.worker.runtime.control(
+      { kind: "cognia-agent-control", session: "s1", action: "stop" },
+      3
+    )
+    expect(h.cancelled).toEqual(["live"])
+    expect(h.bars.at(-1)).toEqual(expect.objectContaining({ takenOver: true }))
+    expect(h.bars.at(-1)).not.toHaveProperty("notice")
+  })
+
+  it("looks further when a followed task finished since, and says nothing when none is left", async () => {
+    const h = harness()
+    h.setItems([item("done", "running", { sessionId: "s1" })])
+    await h.worker.start()
+    await h.worker.runtime.sessions.updateSession("s1", 5_000, (s) => ({ ...s, tabIds: [3] }))
+    h.cancelErrors.done = new CompanionApiError("already finished", "not_cancellable", 409)
+    h.setItems([item("done", "completed", { sessionId: "s1" })])
+    await h.worker.runtime.control(
+      { kind: "cognia-agent-control", session: "s1", action: "stop" },
+      3
+    )
+    expect(h.cancelled).toEqual([])
+    expect(h.bars.at(-1)).not.toHaveProperty("notice")
+    expect(await h.worker.runtime.sessions.get("s1")).toMatchObject({ takeover: true })
+  })
+
+  it.each([
+    ["the list cannot be read", (h: ReturnType<typeof harness>) => h.failList(true)],
+    [
+      "the cancel does not reach the Host",
+      (h: ReturnType<typeof harness>) => {
+        h.cancelErrors.live = new TypeError("Failed to fetch")
+      },
+    ],
+    [
+      "another device is driving it",
+      (h: ReturnType<typeof harness>) => {
+        h.cancelErrors.live = new CompanionApiError("driven", "session_driven_elsewhere", 409)
+      },
+    ],
+  ])("pauses the browser but says Cognia did not confirm Stop when %s", async (_case, fail) => {
+    const h = harness()
+    h.pages.first = { items: finished(50), nextPageToken: "p2" }
+    h.pages.p2 = { items: [item("live", "running", { sessionId: "s1" })] }
+    await h.worker.start()
+    await h.worker.runtime.sessions.updateSession("s1", 5_000, (s) => ({ ...s, tabIds: [3] }))
+    fail(h)
+    await expect(
+      h.worker.runtime.control({ kind: "cognia-agent-control", session: "s1", action: "stop" }, 3)
+    ).resolves.toBe(true)
+    expect(h.cancelled).toEqual([])
+    expect(await h.worker.runtime.sessions.get("s1")).toMatchObject({ takeover: true })
+    expect(h.bars.at(-1)).toEqual(
+      expect.objectContaining({ takenOver: true, notice: "agentBarStopUnconfirmed" })
+    )
   })
 
   it("reads notification ids back", () => {

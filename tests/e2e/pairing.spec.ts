@@ -15,7 +15,7 @@
 // aliases into the root program.
 import { STORAGE_KEYS } from "../../src/lib/browser-api"
 
-import { expect, pairThroughPanel, test } from "./fixtures"
+import { expect, openView, pairThroughPanel, test } from "./fixtures"
 
 test.use({ extensionProfile: "granted" })
 
@@ -82,6 +82,7 @@ test.describe("pairing a browser", () => {
     // A second browser profile cannot exist inside one persistent context, so
     // the second attempt is this panel disconnecting and redeeming the same
     // code again — which is exactly what a user pasting a copy would do.
+    await openView(panel, "settings")
     await panel.getByTestId("disconnect").click()
     await panel
       .getByRole("alertdialog")

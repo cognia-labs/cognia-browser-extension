@@ -12,17 +12,30 @@ export interface ExtensionPreferences {
   notifications: boolean
   /** Agents may act in this browser; keeps the device socket open. */
   agentMode: boolean
+  /** Keep the optional all-sites grant for local tools, independently of agents. */
+  allSitesAccess: boolean
   /** Hosts the panel refuses to capture, e.g. a bank. Lower-case. */
   blockedHosts: string[]
   /** The floating toolbar snaps to the window's edges when let go (opt-in). */
   toolbarSnap: boolean
+  /** How tightly the side panel is laid out. Compact suits a narrow panel. */
+  density: PanelDensity
+}
+
+export const PANEL_DENSITIES = ["compact", "comfortable"] as const
+export type PanelDensity = (typeof PANEL_DENSITIES)[number]
+
+export function isPanelDensity(value: unknown): value is PanelDensity {
+  return typeof value === "string" && (PANEL_DENSITIES as readonly string[]).includes(value)
 }
 
 export const DEFAULT_PREFERENCES: ExtensionPreferences = Object.freeze({
   notifications: false,
   agentMode: false,
+  allSitesAccess: false,
   blockedHosts: [],
   toolbarSnap: false,
+  density: "compact",
 }) as ExtensionPreferences
 
 export const MAX_BLOCKED_HOSTS = 200
@@ -58,8 +71,10 @@ export function parsePreferences(value: unknown): ExtensionPreferences {
   return {
     notifications: record.notifications === true,
     agentMode: record.agentMode === true,
+    allSitesAccess: record.allSitesAccess === true,
     blockedHosts,
     toolbarSnap: record.toolbarSnap === true,
+    density: isPanelDensity(record.density) ? record.density : DEFAULT_PREFERENCES.density,
   }
 }
 

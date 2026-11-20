@@ -32,6 +32,7 @@ import {
   useCopy,
 } from "@cognia/plugin-ui"
 import {
+  ArchiveIcon,
   CameraIcon,
   CheckIcon,
   CopyIcon,
@@ -39,7 +40,6 @@ import {
   FileTextIcon,
   HistoryIcon,
   MousePointer2Icon,
-  MousePointerClickIcon,
   PanelLeftIcon,
   PencilLineIcon,
   RefreshCwIcon,
@@ -48,7 +48,6 @@ import {
   ScanTextIcon,
   Settings2Icon,
   SendIcon,
-  SparklesIcon,
   SquareMousePointerIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -113,6 +112,7 @@ import {
   NO_INSIGHTS,
   insightSections,
   insightsForTab,
+  onPage,
   type InsightKind,
   type PageInsights,
 } from "@ext/src/lib/inspect/insights"
@@ -133,7 +133,13 @@ import {
   toCapturedPage,
   withoutUnsupported,
 } from "@ext/src/lib/panel/page-context"
+import { evidenceBundle } from "@ext/src/lib/panel/evidence-bundle"
 import { quickActionInstruction } from "@ext/src/lib/panel/quick-actions"
+import {
+  parsePendingSubmission,
+  submissionDigest,
+  type PendingSubmission,
+} from "@ext/src/lib/panel/submission-identity"
 import {
   captureFullPage,
   captureVisible,
@@ -143,8 +149,9 @@ import {
   sniffMediaType,
   type PendingAttachment,
 } from "@ext/src/lib/panel/screenshots"
+import { usePanelView } from "@ext/src/lib/panel/panel-view"
 import { usePreferences } from "@ext/src/lib/panel/use-stored-value"
-import { isBlockedUrl } from "@ext/src/lib/preferences"
+import { PANEL_DENSITIES, isBlockedUrl, isPanelDensity } from "@ext/src/lib/preferences"
 import {
   createHostClient,
   pairWithHost,
@@ -154,6 +161,7 @@ import {
 } from "@ext/src/lib/client"
 import {
   APPEARANCE_OVERRIDES,
+  LOCAL_CAPTURE_CAPABILITY,
   STALE_CATALOGUE_CODES,
   STATUSES_WITH_A_REASON,
   appearanceOverrideMessage,
@@ -176,17 +184,24 @@ import {
   type CaptureScope,
   type PanelState,
 } from "@ext/src/lib/panel-state"
+import { AgentControl } from "./agent-control"
 import { AgentSettings } from "./agent-settings"
 import { AttachmentsBar, type AttachAction } from "./attachments-bar"
 import { CaptureEditor } from "./capture-editor"
 import { CapturePreview } from "./capture-preview"
 import { ExtensionSettings } from "./extension-settings"
+import { PanelShell } from "./panel-shell"
+import { SiteAccess } from "./site-access"
+import { EvidenceExport } from "./evidence-export"
 import { ExtraPages } from "./extra-pages"
 import { ImageAnnotator } from "./image-annotator"
 import { Measurements } from "./measurements"
 import { PageAudit, ruleTitle, type AuditAction } from "./page-audit"
 import { layoutRuleTitle } from "./layout-result"
 import { focusRuleTitle } from "./focus-result"
+import { rulesFromMocks } from "@ext/src/lib/network-rules/rules"
+import { NetworkRules } from "./network-rules"
+import { Recordings } from "./recordings"
 import { RequestMocks } from "./request-mocks"
 import { PageTools, type OverlaySettings, type PageToolAction } from "./page-tools"
 import { PairScreen } from "./pair-screen"
@@ -203,6 +218,12 @@ export interface SidePanelProps {
   makeClient?: typeof createHostClient
   now?: () => number
 }
+
+type CaptureAccessRequest = {
+  scope: CaptureScope
+  link?: BrowserLinkContextV1
+  image?: BrowserImageContextV1
+} & ({ kind: "identify"; tabId?: number } | { kind: "site"; tabId: number; origin: string })
 
 /**
  * The default clock, defined once.
@@ -241,8 +262,19 @@ type PendingConfirmation = "disconnect" | "clear-local" | null
  * instruction live in React state and die with the panel; what persists is the
  * public pairing record, the Host's appearance, and the last workspace choice.
  */
+/** A web page's host, to offer as a request-rule site; null for anything else. */
+function hostOf(url: string | undefined): string | null {
+  try {
+    const parsed = new URL(url ?? "")
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.hostname : null
+  } catch {
+    return null
+  }
+}
+
 export function SidePanel({ api, makeClient = createHostClient, now = systemNow }: SidePanelProps) {
   const [state, setState] = useState<PanelState>({ kind: "loading" })
+  const captureCapability = state.kind === "ready" ? state.capability : LOCAL_CAPTURE_CAPABILITY
   const [instruction, setInstruction] = useState("")
   const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const [preferredTargetId, setPreferredTargetId] = useState<string | null>(null)
@@ -262,6 +294,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     shapes: Shape[]
   } | null>(null)
   const [annotateBusy, setAnnotateBusy] = useState(false)
+  /** Choosing the files for an evidence bundle. */
+  const [bundling, setBundling] = useState(false)
   // The recent list's search and the pages loaded past the polled first one.
   const [query, setQuery] = useState("")
   const [olderItems, setOlderItems] = useState<BrowserContextSubmissionSummaryV1[]>([])
@@ -273,9 +307,23 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // A restored draft that had attachments the draft could not keep.
   const [droppedAttachments, setDroppedAttachments] = useState(0)
   const [preferences, updatePreferences] = usePreferences(api)
+  const [view, setView] = usePanelView(api)
   const [includeFullUrl, setIncludeFullUrl] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [captureAccess, setCaptureAccess] = useState<CaptureAccessRequest | null>(null)
+  const [grantingCaptureAccess, setGrantingCaptureAccess] = useState(false)
+  const captureAccessRef = useRef<CaptureAccessRequest | null>(null)
+  const offerCaptureAccess = useCallback((request: CaptureAccessRequest | null) => {
+    captureAccessRef.current = request
+    setCaptureAccess(request)
+  }, [])
+  useEffect(
+    () => () => {
+      captureAccessRef.current = null
+    },
+    []
+  )
   // Assumed absent until proven otherwise. Over-explaining a prompt that does
   // not appear is a smaller failure than a system dialog nobody was warned
   // about.
@@ -307,10 +355,15 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // Words edited on the page itself (Design Mode): the tab being edited, and
   // what changed once the person was done.
   const [textEditingTab, setTextEditingTab] = useState<number | null>(null)
-  const [textChanges, setTextChanges] = useState<{ tabId: number; changes: TextChange[] } | null>(
-    null
-  )
+  const [textChanges, setTextChanges] = useState<{
+    tabId: number
+    pageUrl?: string
+    changes: TextChange[]
+  } | null>(null)
   const textEditingTabRef = useRef<number | null>(null)
+  /** The page the tab showed when editing began, which the edits belong to. */
+  const textEditingUrlRef = useRef<string | null>(null)
+  const stoppingTextRef = useRef<Promise<boolean> | null>(null)
   const [pickBusy, setPickBusy] = useState<{ elementId: string; action: PickAction } | null>(null)
   // The console and network report, the recorder behind it, the design mock.
   const [devReport, setDevReport] = useState<DevReport | null>(null)
@@ -354,6 +407,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const readingMocksRef = useRef(false)
   const startPickRef = useRef<((tabId?: number) => Promise<void>) | null>(null)
   const clientRef = useRef<HostClient | null>(null)
+  const retainedCaptureRef = useRef<CapturedPage | null>(null)
+  /** Bumped by every capture and clear: a capture lands only if still the newest. */
+  const captureSeqRef = useRef(0)
+  /** The capture on screen now, for a late answer to compare against what it sent. */
+  const capturedRef = useRef<CapturedPage | null>(null)
   const portRef = useRef<PanelPort | null>(null)
   const queryRef = useRef("")
   const instructionRef = useRef<HTMLTextAreaElement | null>(null)
@@ -363,10 +421,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // Earliest time the next poll may run, when the Host asked for a pause.
   const pollNotBeforeRef = useRef(0)
   const draftRestoredRef = useRef(false)
-  const pendingSubmissionRef = useRef<{
-    fingerprint: string
-    submissionId: string
-  } | null>(null)
+  const pendingSubmissionRef = useRef<PendingSubmission | null>(null)
   // Ids already asked about, so an answered row is not re-fetched every poll —
   // held in a ref rather than derived from `failureCodes` so this effect does
   // not depend on the state it writes.
@@ -514,18 +569,6 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     [api]
   )
 
-  // Paint before anything else. The stored appearance is the Host's last
-  // answer, so a panel reopened offline still looks like the app rather than
-  // flashing the fallback palette and then correcting itself.
-  useEffect(() => {
-    void api
-      .read<unknown>(STORAGE_KEYS.appearance)
-      .then((stored) => {
-        if (isAppliedAppearance(stored)) applyAppearance(document.documentElement, stored)
-      })
-      .catch(() => undefined)
-  }, [api])
-
   useEffect(() => {
     void api.hasLoopbackPermission().then(setHasPermission)
   }, [api])
@@ -535,15 +578,25 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // This used to live only in the ref, which dies with the panel — so the one
   // case it existed for (the panel closing mid-submit) was exactly the case it
   // could not cover, and reopening minted a fresh id for the same capture. The
-  // id is not content: it is a UUID and a fingerprint of the choices, so it is
-  // safe in `chrome.storage.local` alongside the pairing record.
+  // record is not content: a UUID, a digest of the request and when it was
+  // written. A record in any other shape — the earlier one kept the
+  // instruction, title and address in plain text — or past its age is removed.
   useEffect(() => {
     void api
-      .read<{ fingerprint: string; submissionId: string }>(STORAGE_KEYS.pendingSubmission)
+      .read<unknown>(STORAGE_KEYS.pendingSubmission)
       .then((stored) => {
-        if (stored?.fingerprint && stored.submissionId) pendingSubmissionRef.current = stored
+        if (stored === null || stored === undefined) return
+        const pending = parsePendingSubmission(stored, now())
+        if (pending) pendingSubmissionRef.current = pending
+        else void api.remove([STORAGE_KEYS.pendingSubmission]).catch(() => undefined)
       })
       .catch(() => undefined)
+  }, [api, now])
+
+  /** Forget a lost response's id: what it was for is no longer on screen. */
+  const forgetPendingSubmission = useCallback(() => {
+    pendingSubmissionRef.current = null
+    void api.remove([STORAGE_KEYS.pendingSubmission]).catch(() => undefined)
   }, [api])
 
   /**
@@ -575,6 +628,14 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       signer: NonNullable<Awaited<ReturnType<typeof restoreSigner>>>
     }
     try {
+      if ((await api.read<unknown>(STORAGE_KEYS.localMode)) === true) {
+        clientRef.current = null
+        return { state: { kind: "local", captured: null }, override }
+      }
+      // Resolve the cached Host palette before exposing mode controls, so a
+      // delayed storage read cannot repaint a newly entered local mode.
+      const appearance = await api.read<unknown>(STORAGE_KEYS.appearance).catch(() => null)
+      if (isAppliedAppearance(appearance)) applyAppearance(document.documentElement, appearance)
       const pairing = await api.read<PairingRecord>(STORAGE_KEYS.pairing)
       if (!pairing) return { state: { kind: "unpaired" }, override }
       const signer = await restoreSigner(pairing)
@@ -647,11 +708,43 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
 
   const connect = useCallback(async () => {
     const next = await resolveConnection()
-    setState(next.state)
+    setState(
+      next.state.kind === "ready"
+        ? { ...next.state, captured: retainedCaptureRef.current }
+        : next.state
+    )
     if (next.workspaceId !== undefined) setWorkspaceId(next.workspaceId)
     if (next.override) setOverride(next.override)
     setNextPageToken(next.nextPageToken)
   }, [resolveConnection])
+
+  const enterLocalMode = useCallback(async () => {
+    offerCaptureAccess(null)
+    clientRef.current?.invalidate()
+    clientRef.current = null
+    try {
+      await api.write(STORAGE_KEYS.localMode, true)
+      await updatePreferences({ agentMode: false })
+      setStalled(null)
+      setSubmitError(null)
+      setState({ kind: "local", captured: retainedCaptureRef.current })
+      // Back to Send, where local mode says how to reconnect.
+      setView("send")
+    } catch {
+      setState({ kind: "storage-error" })
+    }
+  }, [api, updatePreferences, offerCaptureAccess, setView])
+
+  const connectHost = useCallback(async () => {
+    offerCaptureAccess(null)
+    try {
+      await api.remove([STORAGE_KEYS.localMode])
+      setState({ kind: "loading" })
+      await connect()
+    } catch {
+      setState({ kind: "storage-error" })
+    }
+  }, [api, connect, offerCaptureAccess])
 
   useEffect(() => {
     let cancelled = false
@@ -670,14 +763,14 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // Follow the Host's ceilings once they are known. Written from an effect so
   // the capture callbacks can read the current value without being rebuilt
   // every time the capability object is replaced by a poll.
-  const hostLimits = state.kind === "ready" ? state.capability.limits : undefined
+  const hostLimits = captureCapability.limits
   useEffect(() => {
     limitsRef.current = hostLimits ?? BROWSER_CONTEXT_LIMITS
   }, [hostLimits])
 
   // The Host's feature list, read by the capture callbacks through a ref for
   // the same reason the limits are.
-  const hostFeatures = state.kind === "ready" ? state.capability.features : undefined
+  const hostFeatures = captureCapability.features
   const featuresRef = useRef(hostFeatures ?? [])
   useEffect(() => {
     featuresRef.current = hostFeatures ?? []
@@ -698,8 +791,15 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         link?: BrowserLinkContextV1
         image?: BrowserImageContextV1
       } = {}
-    ): Promise<{ ok: true; page: CapturedPage } | { ok: false; message: string }> => {
-      const decision = normalizeCaptureUrl(tab.url, includeFullUrl)
+    ): Promise<
+      | { ok: true; page: CapturedPage }
+      | { ok: false; message: string; access?: CaptureAccessRequest }
+    > => {
+      // Always the cleaned address. Whether the full one goes is a choice made
+      // for one capture, on its preview — not a panel setting the next page
+      // inherits — and `strippedQuery` must say what the cleaning removed, or
+      // the preview cannot offer the choice back.
+      const decision = normalizeCaptureUrl(tab.url, false)
       if (!decision.ok) return { ok: false, message: api.message("captureRestricted") }
       if (isBlockedUrl(tab.url, preferences.blockedHosts)) {
         return { ok: false, message: api.message("captureBlocked") }
@@ -711,12 +811,30 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           wholePage: requested !== "auto",
           article: requested === "article" && features.includes("article"),
         })
-      } catch {
+      } catch (error) {
         // `activeTab` is granted to the gesture that invoked the extension, on
         // the tab it was invoked from — and it lapses on navigation. Switching
         // tabs with the panel open is the ordinary way to arrive here, so this
         // is an instruction rather than an error.
-        return { ok: false, message: api.message("captureNoGrant") }
+        const detail = error instanceof Error ? error.message : String(error)
+        if (/extensions gallery cannot be scripted/i.test(detail))
+          return { ok: false, message: api.message("captureRestricted") }
+        if (/cannot access contents|host permission|permission denied/i.test(detail)) {
+          // Answered, not offered here: only the capture still wanted may put
+          // a permission prompt on screen.
+          return {
+            ok: false,
+            message: api.message("captureNoGrant"),
+            access: {
+              kind: "site",
+              tabId: tab.id,
+              origin: new URL(decision.url).origin,
+              scope: requested,
+              ...extras,
+            },
+          }
+        }
+        return { ok: false, message: api.message("captureReadFailed") }
       }
       const transcript =
         features.includes("transcript") && isYouTubeWatchUrl(tab.url)
@@ -740,9 +858,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         },
         resolveBrowserContextLimits(limitsRef.current)
       )
-      return { ok: true, page: withoutUnsupported(page, features) }
+      // The whole page or its article is what was asked for. A selection left
+      // on the page from before is neither shown in the editor nor copied or
+      // exported for those modes, so it is not sent either.
+      const asked = requested === "auto" ? page : { ...page, selection: null }
+      return { ok: true, page: withoutUnsupported(asked, features) }
     },
-    [api, includeFullUrl, now, preferences.blockedHosts]
+    [api, now, preferences.blockedHosts]
   )
 
   /**
@@ -765,17 +887,28 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         image?: BrowserImageContextV1
       } = {}
     ): Promise<CapturedPage | null> => {
+      // Only the newest capture lands. A slow read of A finishing after B was
+      // shown — or after the capture was cleared — must not replace B, nor
+      // put A's error or permission prompt over it.
+      const seq = ++captureSeqRef.current
+      const current = () => seq === captureSeqRef.current
+      offerCaptureAccess(null)
       const wanted: CaptureScope =
         requested === true ? "page" : requested === false ? "auto" : requested
       const tab = tabId === undefined ? await api.activeTab() : await api.tabById(tabId)
+      if (!current()) return null
       if (!tab) {
-        // A recorded request whose tab has since closed. Saying so beats
-        // silently doing nothing, which reads as the extension being broken.
-        if (tabId !== undefined) setSubmitError(api.message("captureNoGrant"))
+        // Without activeTab or a host grant Chrome may omit the tab's URL.
+        // Keep the capture intent so its permission action can identify the
+        // site with the optional tabs permission, then ask for that site only.
+        offerCaptureAccess({ kind: "identify", tabId, scope: wanted, ...extras })
+        setSubmitError(api.message("captureNoGrant"))
         return null
       }
       const outcome = await readPage(tab, wanted, extras)
+      if (!current()) return null
       if (!outcome.ok) {
+        if (outcome.access) offerCaptureAccess(outcome.access)
         setSubmitError(outcome.message)
         return null
       }
@@ -785,6 +918,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setStalled(null)
       setStaleTab(false)
       setScope(wanted)
+      // The full address was the person's choice for the page they saw then.
+      setIncludeFullUrl(false)
       // Picks and a report describe one page; a capture of another drops them.
       const elsewhere = picksRef.current.filter(
         (pick) => pick.tabId !== outcome.page.tabId || pick.pageUrl !== outcome.page.rawUrl
@@ -800,18 +935,84 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         releaseMeasurements(measuredElsewhere, [])
         setMeasurements((current) => current.filter((entry) => !measuredElsewhere.includes(entry)))
       }
-      setDevReport((current) => (current && current.tabId !== outcome.page.tabId ? null : current))
-      setTextChanges((current) =>
-        current && current.tabId !== outcome.page.tabId ? null : current
-      )
-      setInsights((current) => insightsForTab(current, outcome.page.tabId))
+      // So do the checks and reports: each belongs to the page it was read
+      // from — the tab and its address — not to whatever the tab shows now.
+      const { tabId: pageTab, rawUrl: pageUrl } = outcome.page
+      setDevReport((current) => (current && !onPage(current, pageTab, pageUrl) ? null : current))
+      setTextChanges((current) => (current && !onPage(current, pageTab, pageUrl) ? null : current))
+      setInsights((current) => insightsForTab(current, pageTab, pageUrl))
       setState((current) =>
-        current.kind === "ready" ? { ...current, captured: outcome.page } : current
+        current.kind === "ready" || current.kind === "local"
+          ? { ...current, captured: outcome.page }
+          : current
       )
       return outcome.page
     },
-    [api, readPage, releasePicks, releaseMeasurements]
+    [api, readPage, releasePicks, releaseMeasurements, offerCaptureAccess]
   )
+
+  const grantCaptureAccess = useCallback(async () => {
+    const request = captureAccessRef.current
+    if (!request || grantingCaptureAccess) return
+    setGrantingCaptureAccess(true)
+    try {
+      // Called directly from the button's gesture, before any asynchronous read.
+      const granted = await api.requestPermissions(
+        request.kind === "identify"
+          ? { permissions: ["tabs"] }
+          : { origins: [`${request.origin}/*`] }
+      )
+      if (captureAccessRef.current !== request) return
+      if (!granted) {
+        setSubmitError(
+          request.kind === "identify"
+            ? api.message("captureIdentifyDenied")
+            : api.message("captureAccessDenied")
+        )
+        return
+      }
+      const tab =
+        request.tabId === undefined ? await api.activeTab() : await api.tabById(request.tabId)
+      if (captureAccessRef.current !== request) return
+      if (!tab) {
+        offerCaptureAccess(null)
+        setSubmitError(api.message("captureAccessChanged"))
+        return
+      }
+      const decision = normalizeCaptureUrl(tab.url)
+      if (!decision.ok || isBlockedUrl(tab.url, preferences.blockedHosts)) {
+        offerCaptureAccess(null)
+        setSubmitError(api.message(decision.ok ? "captureBlocked" : "captureRestricted"))
+        return
+      }
+      const origin = new URL(decision.url).origin
+      if (request.kind === "identify") {
+        // A second explicit click authorizes the now-visible site. Never ask
+        // for all sites or chain a second permission prompt after an await.
+        offerCaptureAccess({ ...request, kind: "site", tabId: tab.id, origin })
+        setSubmitError(api.message("captureSiteIdentified"))
+        return
+      }
+      if (origin !== request.origin) {
+        offerCaptureAccess(null)
+        setSubmitError(api.message("captureAccessChanged"))
+        return
+      }
+      await runCapture(request.scope, request.tabId, {
+        ...(request.link ? { link: request.link } : {}),
+        ...(request.image ? { image: request.image } : {}),
+      })
+    } catch {
+      if (captureAccessRef.current === request)
+        setSubmitError(
+          request.kind === "identify"
+            ? api.message("captureIdentifyDenied")
+            : api.message("captureAccessDenied")
+        )
+    } finally {
+      setGrantingCaptureAccess(false)
+    }
+  }, [api, grantingCaptureAccess, offerCaptureAccess, runCapture, preferences.blockedHosts])
 
   /**
    * Fetch a right-clicked image's bytes as an attachment, when the Host takes
@@ -896,6 +1097,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         ...(request.srcUrl ? { image: { url: request.srcUrl } } : {}),
       })
       if (!captured) return
+      // Show what the gesture asked for, whichever tab was open.
+      setView(request.mode === "inspect" ? "inspect" : "send")
       // The picker starts on the page the gesture named, under its grant.
       if (request.mode === "inspect") await startPickRef.current?.(request.tabId)
       if (request.quickAction)
@@ -903,14 +1106,14 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       else if (request.instruction) setInstruction(request.instruction)
       if (request.srcUrl) await attachImageFromUrl(request.srcUrl)
     },
-    [api, now, runCapture, attachImageFromUrl]
+    [api, now, runCapture, attachImageFromUrl, setView]
   )
 
   // Pick up a recorded capture once the panel is connected — and keep picking
   // them up while it stays open. Reading only on mount meant a context-menu
   // click made while the panel was already showing did nothing until the
   // panel was closed and opened again.
-  const ready = state.kind === "ready"
+  const ready = state.kind === "ready" || state.kind === "local"
   useEffect(() => {
     if (!ready) return
     let cancelled = false
@@ -1237,6 +1440,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         return
       }
       await api.write(STORAGE_KEYS.pairing, outcome.pairing)
+      await api.remove([STORAGE_KEYS.localMode])
       await connect()
     },
     [api, connect]
@@ -1244,6 +1448,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
 
   const onSubmit = useCallback(async () => {
     if (state.kind !== "ready" || !state.captured || !workspaceId) return
+    // A markup being drawn, or being burnt in, is not what would be sent: the
+    // attachment still holds the shot without it, and its notes are not in
+    // the report yet. The send button says so; this covers every other way
+    // in — the keyboard shortcut, Try again.
+    if (annotating !== null || annotateBusy) return
     const features = state.capability.features ?? []
     const limits = resolveBrowserContextLimits(state.capability.limits)
     // How often each simulated response matched, as of sending: the page
@@ -1266,9 +1475,21 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     }
     // The picks and the report ride in the page's selection, exactly as the
     // preview counted them.
+    // What this press sends, kept to settle exactly that once the Host has it:
+    // anything captured, typed or attached meanwhile is a newer draft.
+    const sentCapture = state.captured
+    const sentInstruction = instruction
+    const sentExtraPages = extraPages
+    const sentAttachments = features.includes("attachments") ? attachments : []
+    const sentPicks = picks
+    const sentMeasurements = measurements
+    const sentTextChanges = textChanges
+    const sentDevReport = devReport
+    const sentInsights = insights
+    const sentDesignDiff = designDiff
     const captured = withInspection(
       withDisplayUrl(state.captured, includeFullUrl),
-      inspectionFor(picks, devReport, insights, state.captured.tabId, {
+      inspectionFor(picks, devReport, insights, state.captured, {
         measurements,
         attachments: features.includes("attachments") ? attachments : [],
         textChanges,
@@ -1282,10 +1503,10 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     const mode: BrowserCaptureMode = captureModeFor(captured, scope, features)
     // Every page the person added, each sent in the mode it was captured for
     // (ADR-0228 §2); the Host fences each one separately.
+    // Each with its own cleaned address: the full-address choice on the
+    // preview is for the first page only, never carried to the others.
     const extraContexts: BrowserPageContextV1[] = features.includes("multi-page")
-      ? extraPages.map((page) =>
-          buildPageContext(withDisplayUrl(page, includeFullUrl), "page", features)
-        )
+      ? extraPages.map((page) => buildPageContext(withDisplayUrl(page, false), "page", features))
       : []
     const primaryContext = buildPageContext(captured, scope, features)
     const pagesCheck = checkPages([primaryContext, ...extraContexts], limits)
@@ -1349,43 +1570,19 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       // capture came from (ADR-0228 §6).
       ...(chosen?.kind === "browser-agent" ? { browserAgent: { tabId: captured.tabId } } : {}),
     }
-    // Cheap discriminators, not the payload. `readableText` runs to the
-    // whole-page ceiling, so hashing the draft serialized hundreds of KB on the
-    // main thread on every press — and then `submit` serialized the same object
-    // again for the request body, a visible hitch on the click for nothing.
-    // What decides "same capture" is the page, the moment it was taken, the
-    // mode, the ask and the target; the two content lengths catch a
-    // re-extraction of the same URL.
-    const fingerprint = JSON.stringify([
-      workspaceId,
-      // Where it goes is part of what makes this the same submission. Leaving
-      // it out would let a retry that changed the destination reuse the first
-      // one's id, which the Host refuses — as a mismatch the user cannot see
-      // the cause of.
-      chosenTarget,
-      draft.instruction,
-      // The values are part of what makes this the same submission: a retry
-      // that changed one and reused the id would ask a different question of
-      // the page the first attempt captured.
-      JSON.stringify(draft.targetParams ?? {}),
-      mode,
-      captured.url,
-      captured.capturedAt,
-      captured.title,
-      contextContentBytes(primaryContext),
-      extraContexts.map((context) => [
-        context.url,
-        context.capturedAt,
-        contextContentBytes(context),
-      ]),
-      sendsAttachments
-        ? attachments.map((attachment) => [attachment.id, attachment.bytes.byteLength])
-        : [],
-    ])
-    const reuse = pendingSubmissionRef.current?.fingerprint === fingerprint
-    const submissionId = reuse
-      ? (pendingSubmissionRef.current?.submissionId ?? crypto.randomUUID())
-      : crypto.randomUUID()
+    // Same request, same id; any change to what is sent, a new one. Decided by
+    // a digest of the request body and every attachment's bytes — an edit that
+    // keeps the length, `Alpha` to `Bravo`, is a different request — and only
+    // the digest is kept, never the text it was taken of
+    // (`lib/panel/submission-identity.ts`). The mode and the destination are
+    // in the body, so a retry to another target is a new submission too.
+    const digest = await submissionDigest(
+      { ...draft, mode },
+      sendsAttachments ? attachments : []
+    ).catch(() => null)
+    const pending = pendingSubmissionRef.current
+    const reuse = digest !== null && pending?.digest === digest
+    const submissionId = reuse ? pending.submissionId : crypto.randomUUID()
     // Re-driving a stalled submission. Same submission id, so the Host finds
     // its own row and finishes it in the conversation it already created — but
     // a FRESH idempotency key, because the Host's operation ledger holds a
@@ -1393,11 +1590,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     // there" back at us. The lost-response retry above is the opposite case:
     // no answer ever arrived, so the old key is exactly what should replay.
     const redrive = reuse && stalled?.submissionId === submissionId
-    pendingSubmissionRef.current = { fingerprint, submissionId }
-    await api.write(STORAGE_KEYS.pendingSubmission, {
-      fingerprint,
-      submissionId,
-    })
+    if (digest !== null) {
+      const record: PendingSubmission = { digest, submissionId, savedAt: now() }
+      pendingSubmissionRef.current = record
+      await api.write(STORAGE_KEYS.pendingSubmission, record)
+    } else {
+      forgetPendingSubmission()
+    }
     try {
       // Staged first, under this submission id: the Host binds them to the
       // conversation only when the submission lands, and an upload that fails
@@ -1443,26 +1642,52 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       pendingSubmissionRef.current = null
       await api.remove([STORAGE_KEYS.pendingSubmission])
       void api.write(STORAGE_KEYS.lastWorkspaceId, workspaceId)
-      setInstruction("")
-      setExtraPages([])
-      setAttachments([])
-      setAnnotating(null)
-      setDroppedAttachments(0)
-      // Sent: the request now lives in the conversation, and the page goes
-      // back to what its source says until the agent changes that.
-      releasePicks(picks)
-      setPicks([])
-      setDetachedPicks([])
-      releaseMeasurements(measurements, [])
-      setMeasurements([])
-      setDetachedMeasures([])
-      setTextChanges(null)
-      setDevReport(null)
-      setInsights(NO_INSIGHTS)
-      setDesignDiff(null)
-      void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
+      // Sent: the request now lives in the conversation. What it carried
+      // leaves the panel — and only that. The answer can arrive after the
+      // person captured another page, typed a new ask or attached something
+      // new; those are the next submission's, so each piece is settled
+      // against what this one sent rather than cleared wholesale.
+      const settled = capturedRef.current === sentCapture
+      const sentIds = new Set(sentAttachments.map((attachment) => attachment.id))
+      const pickKey = (pick: Pick<PickedElement, "tabId" | "elementId">) =>
+        `${pick.tabId}:${pick.elementId}`
+      const sentPickKeys = new Set(sentPicks.map(pickKey))
+      const sentMeasureIds = new Set(sentMeasurements.map((entry) => entry.id))
+      setInstruction((current) => (current === sentInstruction ? "" : current))
+      setExtraPages((current) => current.filter((page) => !sentExtraPages.includes(page)))
+      setAttachments((current) => current.filter((attachment) => !sentIds.has(attachment.id)))
+      setAnnotating((current) => (current && sentIds.has(current.id) ? null : current))
+      if (settled) setDroppedAttachments(0)
+      // The page goes back to what its source says until the agent changes that.
+      const releasedPicks = picksRef.current.filter((pick) => sentPickKeys.has(pickKey(pick)))
+      releasePicks(releasedPicks)
+      setPicks((current) => current.filter((pick) => !sentPickKeys.has(pickKey(pick))))
+      setDetachedPicks((current) =>
+        current.filter((id) => !releasedPicks.some((pick) => pick.elementId === id))
+      )
+      const releasedMeasures = measurementsRef.current.filter((entry) =>
+        sentMeasureIds.has(entry.id)
+      )
+      releaseMeasurements(releasedMeasures, [])
+      setMeasurements((current) => current.filter((entry) => !sentMeasureIds.has(entry.id)))
+      setDetachedMeasures((current) => current.filter((id) => !sentMeasureIds.has(id)))
+      setTextChanges((current) => (current === sentTextChanges ? null : current))
+      setDevReport((current) => (current === sentDevReport ? null : current))
+      setInsights((current) => {
+        const next = { ...current }
+        for (const kind of Object.keys(next) as InsightKind[])
+          if (next[kind] !== null && next[kind] === sentInsights[kind])
+            (next as Record<InsightKind, unknown>)[kind] = null
+        return next
+      })
+      setDesignDiff((current) => (current === sentDesignDiff ? null : current))
+      if (settled) void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
       portRef.current?.post({ kind: "refresh-status" })
-      setState((current) => (current.kind === "ready" ? { ...current, captured: null } : current))
+      setState((current) =>
+        current.kind === "ready" && current.captured === sentCapture
+          ? { ...current, captured: null }
+          : current
+      )
       // Both, because a submission changes both: the recent list gains a row,
       // and the target catalogue gains the conversation it just started. The
       // catalogue is only re-read here and on connect — it is a small list that
@@ -1516,17 +1741,21 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setSubmitting(false)
     }
   }, [
+    annotateBusy,
+    annotating,
     api,
     attachments,
     compareIncluded,
     devReport,
     extraPages,
+    forgetPendingSubmission,
     includeFullUrl,
     insights,
     instruction,
     listFirstPage,
     measurements,
     mocks,
+    now,
     designDiff,
     picks,
     textChanges,
@@ -1542,9 +1771,23 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   ])
 
   // Restore the unsent draft once, when the panel first connects (ADR-0228 §8).
-  const captured0 = state.kind === "ready" ? state.captured : null
+  const captured0 = ready ? state.captured : null
   useEffect(() => {
-    if (!isReady || draftRestoredRef.current) return
+    if (ready) retainedCaptureRef.current = captured0
+    capturedRef.current = captured0
+  }, [ready, captured0])
+
+  useEffect(() => {
+    if (state.kind !== "local") return
+    const root = document.documentElement
+    // Drop the Host's inline palette so the bundled local theme can take over.
+    for (const name of Array.from(root.style)) root.style.removeProperty(name)
+    root.classList.toggle("light", override === "light")
+    root.classList.toggle("dark", override === "dark")
+    delete root.dataset.density
+  }, [state.kind, override])
+  useEffect(() => {
+    if (!ready || draftRestoredRef.current) return
     draftRestoredRef.current = true
     let cancelled = false
     void api
@@ -1553,7 +1796,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         const draft = parseDraft(stored, now())
         if (cancelled || !draft || isEmptyDraft(draft)) return
         setState((current) =>
-          current.kind === "ready" && !current.captured
+          (current.kind === "ready" || current.kind === "local") && !current.captured
             ? { ...current, captured: draft.captured }
             : current
         )
@@ -1575,11 +1818,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     return () => {
       cancelled = true
     }
-  }, [api, isReady, now])
+  }, [api, ready, now])
 
   // Keep the draft as it changes, a moment after the last keystroke.
   useEffect(() => {
-    if (!isReady || !draftRestoredRef.current) return
+    if (!ready || !draftRestoredRef.current) return
     const timer = setTimeout(() => {
       const draft: PanelDraft = {
         v: 1,
@@ -1612,7 +1855,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     includeFullUrl,
     insights,
     instruction,
-    isReady,
+    ready,
     measurements,
     now,
     picks,
@@ -1647,9 +1890,31 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     return capturedTabId !== undefined ? api.tabById(capturedTabId) : api.activeTab()
   }, [api, capturedTabId])
 
-  const addAttachment = useCallback((attachment: PendingAttachment) => {
-    setAttachments((current) => [...current, attachment])
-  }, [])
+  /**
+   * Put an attachment on the capture if the Host would take it, else say why.
+   *
+   * Every way in — a screenshot, a region, a marked-up shot, a PDF, an image —
+   * passes the same check here, when it is made, rather than finding out at
+   * Send, after the person has written around a file the Host refuses.
+   */
+  const addAttachment = useCallback(
+    (attachment: PendingAttachment): boolean => {
+      const limits = resolveBrowserContextLimits(limitsRef.current)
+      if (attachment.bytes.byteLength > limits.attachmentBytes) {
+        setSubmitError(api.message("attachTooLarge"))
+        return false
+      }
+      if (attachmentsRef.current.length >= limits.maxAttachments) {
+        setSubmitError(api.message("attachFull"))
+        return false
+      }
+      // Counted at once, so two shots landing together cannot both pass.
+      attachmentsRef.current = [...attachmentsRef.current, attachment]
+      setAttachments((current) => [...current, attachment])
+      return true
+    },
+    [api]
+  )
 
   const sleep = useCallback(
     (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
@@ -1703,12 +1968,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             now(),
             "full-page"
           )
-          if (attachment.bytes.byteLength > limits.attachmentBytes) {
-            setSubmitError(api.message("attachTooLarge"))
-            return
-          }
-          addAttachment(attachment)
-          if (shot.truncated) setSubmitError(api.message("attachFullPageCut"))
+          if (addAttachment(attachment) && shot.truncated)
+            setSubmitError(api.message("attachFullPageCut"))
           return
         }
         const visible = await captureVisible(api, tab, sleep)
@@ -1722,7 +1983,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           now(),
           "visible"
         )
-        addAttachment(shot)
+        if (!addAttachment(shot)) return
         // Mark up the screen: the shot, straight into the markup.
         if (action === "markup") setAnnotating({ id: shot.id, src: visible, shapes: [] })
       } catch (error) {
@@ -1845,9 +2106,9 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         const visible = await captureVisible(api, tab, sleep)
         const base64 = await api.cropImage(visible, elementCrop(box, dpr))
         const attachment = screenshotAttachment(crypto.randomUUID(), base64, now(), "element")
+        // A pick is still a pick without its shot: no error for a quiet skip.
         if (attachment.bytes.byteLength > limits.attachmentBytes) return undefined
-        addAttachment(attachment)
-        return attachment.id
+        return addAttachment(attachment) ? attachment.id : undefined
       } catch {
         return undefined
       }
@@ -1868,12 +2129,18 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
    * shows this tab as it is now, otherwise a fresh one of it.
    */
   const ensureCapture = useCallback(
-    async (tab: TabRef): Promise<boolean> =>
-      Boolean(
-        (captured0 && captured0.tabId === tab.id && captured0.rawUrl === tab.url) ||
-        (await runCapture("auto", tab.id))
-      ),
+    async (tab: TabRef): Promise<CapturedPage | null> =>
+      captured0 && captured0.tabId === tab.id && captured0.rawUrl === tab.url
+        ? captured0
+        : runCapture("auto", tab.id),
     [captured0, runCapture]
+  )
+
+  /** Whether the tab still shows the page a result was read for. */
+  const stillOn = useCallback(
+    async (tabId: number, pageUrl: string): Promise<boolean> =>
+      (await api.tabById(tabId).catch(() => null))?.url === pageUrl,
+    [api]
   )
 
   /**
@@ -2103,10 +2370,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setSubmitError(api.message("captureNoGrant"))
       return
     }
-    if (!(await ensureCapture(tab))) return
+    const page = await ensureCapture(tab)
+    if (!page) return
     try {
       await api.activateTab(tab.id).catch(() => undefined)
       await api.editPageText(tab.id, api.message("textEditHint"))
+      textEditingTabRef.current = tab.id
+      textEditingUrlRef.current = page.rawUrl
       setTextEditingTab(tab.id)
     } catch {
       setSubmitError(api.message("textEditFailed"))
@@ -2115,22 +2385,36 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
 
   /** Leave editing: keep the edits and read them back, or unwind them all. */
   const stopTextEditing = useCallback(
-    async (keep: boolean) => {
-      const tabId = textEditingTab
-      if (tabId === null) return
-      setTextEditingTab(null)
-      try {
-        const changes = await api.stopEditingPageText(tabId, keep)
-        if (!keep || changes.length === 0) return
-        setTextChanges({ tabId, changes })
-        setInstruction((current) =>
-          current.trim() ? current : api.message("textEditDefaultInstruction")
-        )
-      } catch {
-        setSubmitError(api.message("textEditFailed"))
-      }
+    (keep: boolean): Promise<boolean> => {
+      if (stoppingTextRef.current) return stoppingTextRef.current
+      const tabId = textEditingTabRef.current
+      if (tabId === null) return Promise.resolve(true)
+      setSubmitError(null)
+      stoppingTextRef.current = (async () => {
+        try {
+          const changes = await api.stopEditingPageText(tabId, keep)
+          const pageUrl = textEditingUrlRef.current
+          textEditingTabRef.current = null
+          textEditingUrlRef.current = null
+          setTextEditingTab(null)
+          if (keep && changes.length > 0) {
+            setTextChanges({ tabId, ...(pageUrl ? { pageUrl } : {}), changes })
+            setInstruction((current) =>
+              current.trim() ? current : api.message("textEditDefaultInstruction")
+            )
+          }
+          return true
+        } catch {
+          // Keep the exit controls available until the page actually leaves editing.
+          setSubmitError(api.message("textEditFailed"))
+          return false
+        }
+      })().finally(() => {
+        stoppingTextRef.current = null
+      })
+      return stoppingTextRef.current
     },
-    [api, textEditingTab]
+    [api]
   )
 
   /**
@@ -2291,6 +2575,11 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   const toggleToolbar = useCallback(async () => {
     setSubmitError(null)
     if (toolbarTab !== null) {
+      if (!(await stopTextEditing(true))) return
+      if (pickingTab !== null) {
+        if (pointing === "adjust") finishAdjust()
+        else cancelPick()
+      }
       void api.setPageToolbar(toolbarTab, null).catch(() => undefined)
       setToolbarTab(null)
       return
@@ -2305,7 +2594,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     } catch {
       setSubmitError(api.message("toolbarFailed"))
     }
-  }, [api, toolTab, toolbarTab])
+  }, [api, cancelPick, finishAdjust, pickingTab, pointing, stopTextEditing, toolTab, toolbarTab])
 
   /** Start listening to the tab's console and requests, for a bug report (Jam). */
   const onRecord = useCallback(async () => {
@@ -2329,29 +2618,35 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     setToolBusy("report")
     try {
       const tab = await toolTab()
-      if (!tab || !(await ensureCapture(tab))) return
+      const page = tab ? await ensureCapture(tab) : null
+      if (!tab || !page) return
       const snapshot = await api.readDevSnapshot(tab.id)
+      if (!(await stillOn(tab.id, page.rawUrl))) {
+        setSubmitError(api.message("insightPageMoved"))
+        return
+      }
       const since = recording?.tabId === tab.id ? recording.since : null
       if (since !== null && !snapshot.recording) {
         // The page reloaded and took the recorder with it.
         setRecording(null)
         setSubmitError(api.message("devRecordingLost"))
       }
-      setDevReport(
-        buildDevReport(snapshot, {
+      setDevReport({
+        ...buildDevReport(snapshot, {
           tabId: tab.id,
           now: now(),
           includeFullUrl,
           recordingSince: since,
-        })
-      )
+        }),
+        pageUrl: page.rawUrl,
+      })
       setInstruction((current) => (current.trim() ? current : api.message("devDefaultInstruction")))
     } catch {
       setSubmitError(api.message("devReportFailed"))
     } finally {
       setToolBusy(null)
     }
-  }, [api, ensureCapture, includeFullUrl, now, recording, toolTab])
+  }, [api, ensureCapture, includeFullUrl, now, recording, stillOn, toolTab])
 
   /** Lay a design mock over the tab (PerfectPixel). */
   const onOverlayFile = useCallback(
@@ -2441,7 +2736,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         setSubmitError(api.message("overlayFailed"))
         return
       }
-      if (!(await ensureCapture(tab))) return
+      const page = await ensureCapture(tab)
+      if (!page) return
       await api.activateTab(tab.id).catch(() => undefined)
       await api.setDesignOverlay(tab.id, { ...settings, image: null, visible: false })
       hidden = true
@@ -2477,6 +2773,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setDesignDiff({
         ...diff.result,
         tabId: tab.id,
+        pageUrl: page.rawUrl,
         ranAt: now(),
         mock: name,
         ...(attach ? { attachmentId: attachment.id } : {}),
@@ -2552,6 +2849,23 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
    * Keep the rules across reloads of the tab, or stop: the site's permission
    * is asked for first, while the click still counts as the person's.
    */
+  /** The tab's simulated requests, kept for its site in the saved request rules. */
+  const saveMocksAsRules = useCallback(async () => {
+    const host = hostOf(mocks?.url)
+    if (!mocks || !host) return null
+    const { rules, skipped } = rulesFromMocks(mocks.rules, mocks.url)
+    if (rules.length === 0) return { saved: 0, skipped }
+    const result = await api.networkRuleCommand({
+      op: "add-group",
+      name: host,
+      sites: [host],
+      rules,
+    })
+    if (!result.ok) return null
+    const lost = result.skipped ?? 0
+    return { saved: rules.length - lost, skipped: skipped + lost }
+  }, [api, mocks])
+
   const keepMocks = useCallback(
     async (keep: boolean) => {
       if (!mocks) return
@@ -2609,57 +2923,38 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       setAuditBusy(kind)
       try {
         const tab = await toolTab()
-        if (!tab || !(await ensureCapture(tab))) return
+        const page = tab ? await ensureCapture(tab) : null
+        if (!tab || !page) return
         const ranAt = now()
         // Included the first time — running it was the person asking — and
-        // left as the person set it when run again.
+        // left as the person set it when run again on the same page.
         const previous = insights[kind]
-        const include = previous?.tabId === tab.id ? previous.include : true
-        if (kind === "audit") {
-          const audit = await api.auditAccessibility(tab.id)
-          setInsights((current) => ({
-            ...current,
-            audit: { ...audit, tabId: tab.id, ranAt, include },
-          }))
-        } else if (kind === "tokens") {
-          const tokens = await api.readDesignTokens(tab.id)
-          setInsights((current) => ({
-            ...current,
-            tokens: { ...tokens, tabId: tab.id, ranAt, include },
-          }))
-        } else if (kind === "focus") {
-          const focus = await api.checkFocus(tab.id)
-          setInsights((current) => ({
-            ...current,
-            focus: { ...focus, tabId: tab.id, ranAt, include },
-          }))
+        const include = onPage(previous, tab.id, page.rawUrl) ? previous!.include : true
+        // Which page it describes: the capture it was run for.
+        const owner = { tabId: tab.id, pageUrl: page.rawUrl, ranAt, include }
+        let next: Partial<PageInsights>
+        if (kind === "audit")
+          next = { audit: { ...(await api.auditAccessibility(tab.id)), ...owner } }
+        else if (kind === "tokens")
+          next = { tokens: { ...(await api.readDesignTokens(tab.id)), ...owner } }
+        else if (kind === "focus") next = { focus: { ...(await api.checkFocus(tab.id)), ...owner } }
+        else if (kind === "layout")
+          next = { layout: { ...(await api.checkLayout(tab.id)), ...owner } }
+        else if (kind === "seo") next = { seo: { ...(await api.readSeo(tab.id)), ...owner } }
+        else if (kind === "perf")
+          next = { perf: { ...(await api.readPerformance(tab.id)), ...owner } }
+        else next = { stack: { ...(await api.detectStack(tab.id)), ...owner } }
+        // The tab may have moved on while the check ran; then what it read is
+        // some other page's, and is not filed under this one.
+        if (!(await stillOn(tab.id, page.rawUrl))) {
+          setSubmitError(api.message("insightPageMoved"))
+          return
+        }
+        setInsights((current) => ({ ...current, ...next }))
+        if (next.focus) {
           // The check numbers the stops on the page as it runs.
-          focusShownRef.current = focus.stops > 0 ? tab.id : null
-          setFocusNumbers(focus.stops > 0)
-        } else if (kind === "layout") {
-          const layout = await api.checkLayout(tab.id)
-          setInsights((current) => ({
-            ...current,
-            layout: { ...layout, tabId: tab.id, ranAt, include },
-          }))
-        } else if (kind === "seo") {
-          const seo = await api.readSeo(tab.id)
-          setInsights((current) => ({
-            ...current,
-            seo: { ...seo, tabId: tab.id, ranAt, include },
-          }))
-        } else if (kind === "perf") {
-          const perf = await api.readPerformance(tab.id)
-          setInsights((current) => ({
-            ...current,
-            perf: { ...perf, tabId: tab.id, ranAt, include },
-          }))
-        } else {
-          const stack = await api.detectStack(tab.id)
-          setInsights((current) => ({
-            ...current,
-            stack: { ...stack, tabId: tab.id, ranAt, include },
-          }))
+          focusShownRef.current = next.focus.stops > 0 ? tab.id : null
+          setFocusNumbers(next.focus.stops > 0)
         }
       } catch {
         setSubmitError(api.message("insightFailed"))
@@ -2667,7 +2962,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         setAuditBusy(null)
       }
     },
-    [api, ensureCapture, insights, now, toolTab]
+    [api, ensureCapture, insights, now, stillOn, toolTab]
   )
 
   const onIncludeInsight = useCallback((kind: InsightKind, include: boolean) => {
@@ -2844,11 +3139,13 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
    * an orphaned key that nothing can ever use or delete.
    */
   const disconnect = useCallback(async () => {
+    offerCaptureAccess(null)
     setConfirming(null)
     await clearDeviceKey()
     await api.remove(Object.values(STORAGE_KEYS))
     await api.removeSession(Object.values(SESSION_KEYS)).catch(() => undefined)
     clientRef.current = null
+    retainedCaptureRef.current = null
     pendingSubmissionRef.current = null
     setStalled(null)
     releasePicks(picksRef.current)
@@ -2865,7 +3162,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     // unreachable Host must not be able to stop a user forgetting it locally.
     setDisconnected(true)
     setState({ kind: "unpaired" })
-  }, [api, releasePicks, releaseMeasurements])
+  }, [api, releasePicks, releaseMeasurements, offerCaptureAccess])
 
   /**
    * Forget the local conveniences but stay paired.
@@ -2900,7 +3197,12 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           preferredModeFor(next, followsSystem, prefersDark())
         )
         // A second choice made while this one was in flight wins.
-        if (!isCompatible(refreshed) || overrideRef.current !== next) return
+        if (
+          !isCompatible(refreshed) ||
+          overrideRef.current !== next ||
+          clientRef.current !== client
+        )
+          return
         applyAppearance(document.documentElement, refreshed.appearance)
         void api.write(STORAGE_KEYS.appearance, refreshed.appearance)
         setState((current) =>
@@ -2918,10 +3220,9 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // what there is to act on, and how many picks and measurements it has.
   const toolbarPicks = picks.filter((pick) => pick.tabId === toolbarTab)
   const canShot =
-    state.kind === "ready" &&
-    state.captured !== null &&
-    hasFeature(state.capability, "attachments") &&
-    attachments.length < resolveBrowserContextLimits(state.capability.limits).maxAttachments
+    captured0 !== null &&
+    hasFeature(captureCapability, "attachments") &&
+    attachments.length < resolveBrowserContextLimits(captureCapability.limits).maxAttachments
   const toolbarState: ToolbarState = {
     labels: {
       title: api.message("toolbarTitle"),
@@ -2961,13 +3262,22 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       .setPageToolbar(toolbarTab, JSON.parse(toolbarKey) as ToolbarState)
       .catch(() => setToolbarTab(null))
   }, [api, toolbarKey, toolbarTab])
-  // A button on the page runs the tool as the panel's own button would. A
-  // tool already running ends instead (an adjustment kept), so two passes
-  // never compete for the page; a second press starts the next one.
+  // A button on the page runs the tool as the panel's own button would.
+  // Text editing must finish before another tool takes over. A pointing
+  // pass ends on a second press, keeping an adjustment's changes.
   useEffect(() => {
-    toolbarActionRef.current = (action, tabId) => {
+    toolbarActionRef.current = async (action, tabId) => {
       if (tabId !== toolbarTabRef.current) return
+      if (stoppingTextRef.current) return
+      if (textEditingTabRef.current !== null) {
+        if (!(await stopTextEditing(true))) return
+        if (tabId !== toolbarTabRef.current || action === "text") return
+      }
       if (action === "close") {
+        if (pickingTab !== null) {
+          if (pointing === "adjust") finishAdjust()
+          else cancelPick()
+        }
         void api.setPageToolbar(tabId, null).catch(() => undefined)
         setToolbarTab(null)
         return
@@ -2990,7 +3300,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           return
         }
         case "text":
-          void (textEditingTab !== null ? stopTextEditing(true) : startTextEditing())
+          void startTextEditing()
           return
         case "shot":
           void onAttach("markup")
@@ -3022,6 +3332,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         failure={state.kind === "unpaired" ? state.failure : undefined}
         disconnected={disconnected}
         onSubmit={(code) => void onPair(code)}
+        onLocalMode={() => void enterLocalMode()}
       />
     )
   }
@@ -3033,12 +3344,21 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         title={api.message("revoked")}
         action={api.message("reconnect")}
         onAction={() => setState({ kind: "unpaired" })}
+        onLocalMode={() => void enterLocalMode()}
+        localModeLabel={api.message("useLocalMode")}
       />
     )
   }
 
   if (state.kind === "incompatible") {
-    return <Notice testId="panel-incompatible" title={api.message("incompatible")} />
+    return (
+      <Notice
+        testId="panel-incompatible"
+        title={api.message("incompatible")}
+        onLocalMode={() => void enterLocalMode()}
+        localModeLabel={api.message("useLocalMode")}
+      />
+    )
   }
 
   if (state.kind === "host-offline") {
@@ -3049,6 +3369,8 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
         detail={api.message("hostOfflineHint")}
         action={api.message("retry")}
         onAction={() => void connect()}
+        onLocalMode={() => void enterLocalMode()}
+        localModeLabel={api.message("useLocalMode")}
       />
     )
   }
@@ -3058,14 +3380,15 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // re-deriving it beats re-extracting the page, which could silently hand
   // back different text than the one they reviewed.
   const captured = state.captured ? withDisplayUrl(state.captured, includeFullUrl) : null
-  const features = state.capability.features ?? []
-  const limits = resolveBrowserContextLimits(state.capability.limits)
+  const hostCapability = state.kind === "ready" ? state.capability : undefined
+  const features = captureCapability.features ?? []
+  const limits = resolveBrowserContextLimits(captureCapability.limits)
   // What is sent is the capture with the picks and the report after its
   // selection; the editor edits the person's own text, the preview counts all.
   const inspection = captured
-    ? inspectionFor(picks, devReport, insights, captured.tabId, {
+    ? inspectionFor(picks, devReport, insights, captured, {
         measurements,
-        attachments: hasFeature(state.capability, "attachments") ? attachments : [],
+        attachments: hasFeature(captureCapability, "attachments") ? attachments : [],
         textChanges,
         mocks,
         designDiff,
@@ -3082,9 +3405,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
       extraPages.reduce(
         (sum, page) =>
           sum +
-          contextContentBytes(
-            buildPageContext(withDisplayUrl(page, includeFullUrl), "page", features)
-          ),
+          contextContentBytes(buildPageContext(withDisplayUrl(page, false), "page", features)),
         0
       )
     : 0
@@ -3098,23 +3419,35 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
   // Derived at render rather than held in state, so changing the workspace can
   // never leave a target selected that the new workspace does not offer — the
   // Host would refuse that submission, correctly and inexplicably.
-  const offeredTargets = targetsForWorkspace(state.capability.deliveryTargets, workspaceId)
+  const offeredTargets = targetsForWorkspace(hostCapability?.deliveryTargets, workspaceId)
   const targetId = selectedTargetId(offeredTargets, preferredTargetId)
   const selectedTarget = offeredTargets.find((target) => target.id === targetId)
   const paramsReady = targetParamsSatisfied(selectedTarget, targetParams)
   // A template supplies the instruction, so the free-text box is not the ask
   // for one — showing both would invite two instructions in one turn.
   const needsInstruction = selectedTarget?.kind !== "template"
+  // A markup open on a screenshot holds what the person means to send — its
+  // marks and their notes — which the attachment does not carry until they
+  // apply it. Sending meanwhile would upload the clean shot without them.
+  const markupOpen = annotating !== null || annotateBusy
   const canSubmit =
+    state.kind === "ready" &&
     !submitting &&
     attachBusy === null &&
     regionSource === null &&
+    !markupOpen &&
     Boolean(workspaceId) &&
     paramsReady &&
     (!needsInstruction || Boolean(instruction.trim()))
   const canEyedrop = typeof (window as { EyeDropper?: unknown }).EyeDropper === "function"
   const clearCapture = () => {
+    // A capture still being read must not land after this.
+    captureSeqRef.current++
+    offerCaptureAccess(null)
     setStalled(null)
+    setIncludeFullUrl(false)
+    // What a lost response was for is gone from the screen with the capture.
+    forgetPendingSubmission()
     setExtraPages([])
     setAttachments([])
     setDroppedAttachments(0)
@@ -3131,31 +3464,169 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
     setInsights(NO_INSIGHTS)
     setDesignDiff(null)
     void api.removeSession([SESSION_KEYS.draft]).catch(() => undefined)
-    setState((current) => (current.kind === "ready" ? { ...current, captured: null } : current))
+    setState((current) =>
+      current.kind === "ready" || current.kind === "local"
+        ? { ...current, captured: null }
+        : current
+    )
   }
 
-  return (
-    <div className="flex min-h-screen flex-col gap-3 bg-muted/40 p-3">
-      <header className="flex items-center gap-2.5 px-0.5">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-          <SparklesIcon className="size-4" aria-hidden="true" />
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-sm leading-tight font-semibold">{api.message("panelBrand")}</span>
-          <span className="truncate text-[11px] text-muted-foreground">
-            {api.message("panelTagline")}
-          </span>
-        </span>
-        <span
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground"
-          title={state.pairing.baseUrl}
-          data-testid="panel-paired"
+  const pageId = captured?.tabId ?? null
+  const pagePicks = pageId === null ? [] : picks.filter((pick) => pick.tabId === pageId)
+  const pageMeasurements =
+    pageId === null ? [] : measurements.filter((entry) => entry.tabId === pageId)
+  const pageTextChanges =
+    textChanges && captured && onPage(textChanges, captured.tabId, captured.rawUrl)
+      ? textChanges.changes
+      : []
+  const inspectionCount = pagePicks.length + pageMeasurements.length + pageTextChanges.length
+  const inspectRunning = pickingTab !== null || textEditingTab !== null || toolbarTab !== null
+  const toolsRunning =
+    recording !== null ||
+    overlay !== null ||
+    designDiff !== null ||
+    (mocks?.rules.some((rule) => rule.enabled) ?? false)
+  const density = preferences.density
+  const outlineAction = "size-8 shrink-0"
+
+  const connection = (
+    <span
+      className="flex min-w-0 shrink items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground"
+      title={state.kind === "ready" ? state.pairing.baseUrl : api.message("localModeHint")}
+      data-testid={state.kind === "ready" ? "panel-paired" : "panel-local"}
+    >
+      <span className="size-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
+      <span className="truncate">
+        {state.kind === "ready" ? api.message("panelPaired") : api.message("localModeTitle")}
+      </span>
+    </span>
+  )
+
+  const status = (
+    <>
+      {state.kind === "ready" ? (
+        <>
+          <SiteQuestions api={api} conversationTitles={conversationTitles} />
+          <AgentControl
+            api={api}
+            conversationTitles={conversationTitles}
+            onManage={() => setView("settings")}
+          />
+        </>
+      ) : null}
+      {pickingTab !== null ? (
+        <ActivityStrip
+          actions={
+            <>
+              {pointing === "adjust" ? (
+                <Button size="sm" onClick={finishAdjust} data-testid="adjust-done">
+                  {api.message("adjustDone")}
+                </Button>
+              ) : null}
+              <Button variant="outline" size="sm" onClick={cancelPick} data-testid="pick-cancel">
+                {pointing === "measure"
+                  ? api.message("measureCancel")
+                  : pointing === "adjust"
+                    ? api.message("adjustCancel")
+                    : api.message("inspectPickCancel")}
+              </Button>
+            </>
+          }
         >
-          <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
-          {api.message("panelPaired")}
-        </span>
-      </header>
-      <SiteQuestions api={api} />
+          <p
+            role="status"
+            className="min-w-0 flex-1 text-[11px] leading-snug"
+            data-testid="pick-waiting"
+          >
+            {pointing === "measure"
+              ? api.message("measureWaiting")
+              : pointing === "adjust"
+                ? api.message("adjustActive")
+                : api.message("inspectPicking")}
+          </p>
+        </ActivityStrip>
+      ) : null}
+      {textEditingTab !== null ? (
+        <ActivityStrip
+          testId="text-editing"
+          actions={
+            <>
+              <Button
+                size="sm"
+                onClick={() => void stopTextEditing(true)}
+                data-testid="text-edit-done"
+              >
+                {api.message("textEditDone")}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void stopTextEditing(false)}
+                data-testid="text-edit-undo"
+              >
+                {api.message("textEditUndo")}
+              </Button>
+            </>
+          }
+        >
+          <p role="status" className="min-w-0 flex-1 text-[11px] leading-snug">
+            {api.message("textEditing")}
+          </p>
+        </ActivityStrip>
+      ) : null}
+      {recording !== null && view !== "tools" ? (
+        <ActivityStrip
+          testId="status-recording"
+          actions={
+            <Button size="sm" variant="outline" onClick={() => setView("tools")}>
+              {api.message("statusShow")}
+            </Button>
+          }
+        >
+          <p role="status" className="min-w-0 flex-1 text-[11px] leading-snug">
+            {api.message("devRecordingSince", [
+              new Date(recording.since).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            ])}
+          </p>
+        </ActivityStrip>
+      ) : null}
+      {submitError && !captureAccess ? (
+        <Alert variant="destructive" data-testid="submit-error">
+          <AlertDescription>{submitError}</AlertDescription>
+        </Alert>
+      ) : null}
+    </>
+  )
+  const hasStatus =
+    state.kind === "ready" ||
+    pickingTab !== null ||
+    textEditingTab !== null ||
+    (recording !== null && view !== "tools") ||
+    Boolean(submitError && !captureAccess)
+
+  const sendPanel = (
+    <>
+      {state.kind === "local" ? (
+        <div className="flex min-w-0 items-center gap-2 rounded-panel border border-border bg-card px-3 py-2">
+          <p
+            className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground"
+            title={api.message("localModeHint")}
+          >
+            {api.message("localModeHint")}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 px-2 text-[11px]"
+            onClick={() => void connectHost()}
+          >
+            {api.message("connectHost")}
+          </Button>
+        </div>
+      ) : null}
       <PanelSection
         icon={ScanTextIcon}
         tone="info"
@@ -3169,7 +3640,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 <CaptureActions
                   api={api}
                   compact
-                  article={hasFeature(state.capability, "article")}
+                  article={hasFeature(captureCapability, "article")}
                   onCapture={(scope) => void runCapture(scope)}
                 />
               ),
@@ -3182,7 +3653,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
               api={api}
               page={sendable ?? captured}
               mode={mode}
-              limits={state.capability.limits}
+              limits={captureCapability.limits}
               includeFullUrl={includeFullUrl}
               onToggleFullUrl={setIncludeFullUrl}
             />
@@ -3215,7 +3686,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
               mode={editorMode}
               onChange={(next) =>
                 setState((current) =>
-                  current.kind === "ready" && current.captured
+                  (current.kind === "ready" || current.kind === "local") && current.captured
                     ? {
                         ...current,
                         captured: { ...next, url: current.captured.url },
@@ -3224,54 +3695,34 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 )
               }
             />
-            <PickedElements
-              api={api}
-              elements={picks.filter((pick) => pick.tabId === captured.tabId)}
-              detached={detachedPicks}
-              busy={pickBusy}
-              canShoot={
-                hasFeature(state.capability, "attachments") &&
-                attachments.length < limits.maxAttachments
-              }
-              preview={inspection}
-              onChange={updatePick}
-              onRemove={removePick}
-              onLocate={(elementId) => void locatePick(elementId, false)}
-              onShoot={(elementId) => void locatePick(elementId, true)}
-              onAdjust={(elementId) => void adjustPick(elementId)}
-              {...(canEyedrop ? { onEyedrop: eyedrop } : {})}
-            />
-            <PickComparisonCard
-              api={api}
-              picks={picks.filter((pick) => pick.tabId === captured.tabId)}
-              included={compareIncluded}
-              onInclude={setCompareIncluded}
-            />
-            <Measurements
-              api={api}
-              measurements={measurements.filter((entry) => entry.tabId === captured.tabId)}
-              detached={detachedMeasures}
-              busy={measureBusy}
-              onNote={(id, note) =>
-                setMeasurements((current) =>
-                  current.map((entry) => (entry.id === id ? { ...entry, note } : entry))
-                )
-              }
-              onShow={(id) => void showMeasurement(id)}
-              onRemove={removeMeasurement}
-            />
-            <TextChanges
-              api={api}
-              changes={textChanges?.tabId === captured.tabId ? textChanges.changes : []}
-              onRemove={(index) =>
-                setTextChanges((current) =>
-                  current
-                    ? { ...current, changes: current.changes.filter((_, at) => at !== index) }
-                    : current
-                )
-              }
-            />
-            {hasFeature(state.capability, "multi-page") && limits.maxPages > 1 ? (
+            {inspectionCount > 0 ? (
+              // What the Inspect tab adds to this capture, one click from it.
+              <button
+                type="button"
+                className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-muted"
+                onClick={() => setView("inspect")}
+                data-testid="inspection-summary"
+              >
+                <SquareMousePointerIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">
+                  {[
+                    pagePicks.length
+                      ? api.message("inspectionPicks", [String(pagePicks.length)])
+                      : null,
+                    pageMeasurements.length
+                      ? api.message("inspectionMeasures", [String(pageMeasurements.length)])
+                      : null,
+                    pageTextChanges.length
+                      ? api.message("inspectionEdits", [String(pageTextChanges.length)])
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                <span className="shrink-0 text-foreground">{api.message("statusShow")}</span>
+              </button>
+            ) : null}
+            {hasFeature(captureCapability, "multi-page") && limits.maxPages > 1 ? (
               <ExtraPages
                 api={api}
                 pages={extraPages}
@@ -3285,7 +3736,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 }
               />
             ) : null}
-            {hasFeature(state.capability, "attachments") ? (
+            {hasFeature(captureCapability, "attachments") ? (
               regionSource ? (
                 <RegionCropper
                   api={api}
@@ -3320,30 +3771,6 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 />
               )
             ) : null}
-            <div className="space-y-1.5">
-              <Label htmlFor="cognia-workspace" className="text-xs text-muted-foreground">
-                {api.message("workspaceLabel")}
-              </Label>
-              <Select value={workspaceId ?? undefined} onValueChange={setWorkspaceId}>
-                <SelectTrigger
-                  id="cognia-workspace"
-                  className="w-full"
-                  data-testid="workspace-select"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {state.capability.workspaces.map((workspace) => (
-                    // The label is the item's only child on purpose: a nested
-                    // element leaves the option with no accessible name, and a
-                    // listbox of unnamed options is unusable by keyboard.
-                    <SelectItem key={workspace.id} value={workspace.id}>
-                      {workspace.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             {/* Only when there is a choice. A Host that offers one target — an
                 older one, or a browser that has started nothing yet — would
                 otherwise get a dropdown whose every state is the same. */}
@@ -3440,103 +3867,6 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
                 ))}
               </div>
             ) : null}
-            {needsInstruction ? (
-              <>
-                <PromptTools
-                  api={api}
-                  instruction={instruction}
-                  onUse={(text) => setInstruction(text)}
-                />
-                <Textarea
-                  ref={instructionRef}
-                  rows={3}
-                  className="max-h-48 overflow-y-auto"
-                  value={instruction}
-                  onChange={(event) => setInstruction(event.target.value)}
-                  onKeyDown={(event) => {
-                    // Ctrl/⌘+Enter sends, as in every chat box; Enter alone is a line.
-                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canSubmit) {
-                      event.preventDefault()
-                      void onSubmit()
-                    }
-                  }}
-                  placeholder={api.message("instructionPlaceholder")}
-                  aria-label={api.message("instructionPlaceholder")}
-                  data-testid="instruction"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  {api.message("submitShortcutHint")}
-                </p>
-              </>
-            ) : null}
-            <div className="space-y-1.5">
-              <Button
-                className="w-full"
-                onClick={() => void onSubmit()}
-                disabled={!canSubmit}
-                data-testid="submit"
-              >
-                <SendIcon className="size-4" aria-hidden="true" />
-                {submitting ? api.message("submitting") : api.message("submit")}
-              </Button>
-              {/* The other ways out, side by side under the main one. */}
-              <div className="grid grid-cols-3 gap-1.5">
-                {/* For a coding agent in the editor, or an issue: the same
-                  reviewed context, on the person's own clipboard. */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal"
-                  onClick={() =>
-                    void copyText(promptForClipboard(sendable ?? captured, instruction, inspection))
-                  }
-                  data-testid="copy-context"
-                >
-                  {contextCopied ? (
-                    <CheckIcon className="size-3.5 text-success" aria-hidden="true" />
-                  ) : (
-                    <CopyIcon className="size-3.5" aria-hidden="true" />
-                  )}
-                  <span>
-                    {contextCopied ? api.message("copyContextDone") : api.message("copyContext")}
-                  </span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal"
-                  onClick={() =>
-                    downloadText(
-                      exportFileName(captured.title, now()),
-                      exportMarkdown(
-                        sendable ?? captured,
-                        instruction,
-                        inspection,
-                        attachments.map((attachment) => attachment.name),
-                        now()
-                      )
-                    )
-                  }
-                  data-testid="export-context"
-                >
-                  <DownloadIcon className="size-3.5" aria-hidden="true" />
-                  <span>{api.message("exportContext")}</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    "h-auto min-h-12 flex-col gap-1 px-1.5 py-1.5 text-[11px] leading-tight font-normal whitespace-normal",
-                    "hover:border-destructive/40 hover:text-destructive"
-                  )}
-                  onClick={clearCapture}
-                  data-testid="clear-capture"
-                >
-                  <Trash2Icon className="size-3.5" aria-hidden="true" />
-                  <span>{api.message("clearCapture")}</span>
-                </Button>
-              </div>
-            </div>
             {stalled ? (
               // Not the error alert: nothing failed. The Host has the capture
               // and is waiting for its runtime, and the remedy is this button.
@@ -3558,11 +3888,12 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             ) : null}
           </>
         ) : (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted/40 px-4 py-5 text-center">
-            <span className="flex size-10 items-center justify-center rounded-full bg-info/12 text-info">
-              <MousePointerClickIcon className="size-5" aria-hidden="true" />
-            </span>
-            <p className="text-xs text-muted-foreground" data-testid="capture-empty">
+          <div className="rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2.5">
+            <p
+              className="truncate text-xs text-muted-foreground"
+              title={api.message("captureEmpty")}
+              data-testid="capture-empty"
+            >
               {api.message("captureEmpty")}
             </p>
           </div>
@@ -3572,15 +3903,296 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             up, and how they refresh a capture after the page changed under
             them. */}
         {captured ? null : (
-          <CaptureActions
-            api={api}
-            compact={false}
-            article={hasFeature(state.capability, "article")}
-            onCapture={(scope) => void runCapture(scope)}
-          />
+          <>
+            <CaptureActions
+              api={api}
+              compact={false}
+              article={hasFeature(captureCapability, "article")}
+              onCapture={(scope) => void runCapture(scope)}
+            />
+            {/* The least access first. The toolbar icon, the page's context
+                menu and the shortcut each give this tab for the moment
+                (activeTab); a site is asked for only when a page needs it,
+                below. Access to every website is a standing choice, made in
+                Settings rather than offered beside the first capture. */}
+            <p className="text-[11px] text-muted-foreground" data-testid="capture-access-hint">
+              {api.message("captureActiveTabHint")}
+            </p>
+          </>
         )}
+        {submitError && captureAccess ? (
+          <Alert variant="destructive" data-testid="submit-error">
+            <AlertDescription className="space-y-2">
+              <p>{submitError}</p>
+              <p className="break-words [overflow-wrap:anywhere]">
+                {captureAccess.kind === "site"
+                  ? api.message("captureAccessHint", [captureAccess.origin])
+                  : api.message("captureIdentifyHint")}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-auto min-h-8 max-w-full whitespace-normal py-2"
+                disabled={grantingCaptureAccess}
+                onClick={() => void grantCaptureAccess()}
+              >
+                {grantingCaptureAccess
+                  ? api.message("attachWorking")
+                  : api.message("captureAllowSite")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </PanelSection>
 
+      {hostCapability ? (
+        <PanelSection
+          icon={HistoryIcon}
+          title={api.message("recentTitle")}
+          subtitle={api.message("recentSubtitle")}
+          collapsible
+        >
+          <RecentList
+            api={api}
+            items={recent}
+            failureCodes={failureCodes}
+            answers={answers}
+            expanded={expanded}
+            onToggleAnswer={toggleAnswer}
+            onStop={(submissionId) => void stopTask(submissionId)}
+            stopping={stopping}
+            {...(hasFeature(hostCapability, "list-paging")
+              ? {
+                  query,
+                  onQueryChange: setQuery,
+                  hasMore: Boolean(nextPageToken),
+                  onLoadMore: () => void loadMore(),
+                  loadingMore,
+                }
+              : {})}
+            followUpIds={followUpIds}
+            onFollowUp={(item) => void onFollowUp(item)}
+          />
+        </PanelSection>
+      ) : null}
+    </>
+  )
+
+  const copyLabel = contextCopied ? api.message("copyContextDone") : api.message("copyContext")
+  const copyIcon = contextCopied ? (
+    <CheckIcon className="size-3.5 text-success" aria-hidden="true" />
+  ) : (
+    <CopyIcon className="size-3.5" aria-hidden="true" />
+  )
+  const copyContext = () =>
+    void copyText(
+      promptForClipboard(
+        captured ?? { title: "", url: "" },
+        instruction,
+        inspection,
+        editorMode,
+        extraPages.map((page) => withDisplayUrl(page, false))
+      )
+    )
+  const exportBundle = (chosen: ReadonlySet<string>) => {
+    if (!captured) return
+    const bundle = evidenceBundle({
+      page: captured,
+      instruction,
+      inspection,
+      mode: editorMode,
+      extraPages: extraPages.map((page) => withDisplayUrl(page, false)),
+      attachments,
+      chosen,
+      now: now(),
+    })
+    downloadBlob(bundle.name, new Blob([bundle.bytes as BlobPart], { type: "application/zip" }))
+    setBundling(false)
+  }
+  // Offered once there is a file to carry; the Markdown alone only names them.
+  const bundleButton =
+    attachments.length > 0 ? (
+      <Button
+        variant="outline"
+        size="icon"
+        className={outlineAction}
+        onClick={() => setBundling((current) => !current)}
+        aria-label={api.message("exportBundle")}
+        aria-pressed={bundling}
+        title={api.message("exportBundle")}
+        data-testid="export-bundle"
+      >
+        <ArchiveIcon className="size-3.5" aria-hidden="true" />
+      </Button>
+    ) : null
+  const bundleChooser =
+    bundling && attachments.length > 0 ? (
+      <EvidenceExport
+        api={api}
+        attachments={attachments}
+        onDownload={exportBundle}
+        onCancel={() => setBundling(false)}
+      />
+    ) : null
+  const exportContext = () => {
+    if (!captured) return
+    downloadText(
+      exportFileName(captured.title, now()),
+      exportMarkdown(
+        captured,
+        instruction,
+        inspection,
+        attachments.map((attachment) => attachment.name),
+        now(),
+        editorMode,
+        extraPages.map((page) => withDisplayUrl(page, false))
+      )
+    )
+  }
+  const clearButton = (
+    <Button
+      variant="outline"
+      size="icon"
+      className={cn(outlineAction, "hover:border-destructive/40 hover:text-destructive")}
+      onClick={clearCapture}
+      aria-label={api.message("clearCapture")}
+      title={api.message("clearCapture")}
+      data-testid="clear-capture"
+    >
+      <Trash2Icon className="size-3.5" aria-hidden="true" />
+    </Button>
+  )
+
+  const composer = captured ? (
+    <div className="space-y-1.5">
+      {hostCapability ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <Label
+            htmlFor="cognia-workspace"
+            className="shrink-0 text-[11px] font-normal text-muted-foreground"
+          >
+            {api.message("workspaceLabel")}
+          </Label>
+          <Select value={workspaceId ?? undefined} onValueChange={setWorkspaceId}>
+            <SelectTrigger
+              id="cognia-workspace"
+              size="sm"
+              className="h-7 min-w-0 flex-1 text-xs"
+              data-testid="workspace-select"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {hostCapability.workspaces.map((workspace) => (
+                // The label is the item's only child on purpose: a nested
+                // element leaves the option with no accessible name, and a
+                // listbox of unnamed options is unusable by keyboard.
+                <SelectItem key={workspace.id} value={workspace.id}>
+                  {workspace.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+      {needsInstruction ? (
+        <>
+          <PromptTools api={api} instruction={instruction} onUse={(text) => setInstruction(text)} />
+          <Textarea
+            ref={instructionRef}
+            rows={density === "comfortable" ? 3 : 2}
+            className="max-h-40 min-h-0 overflow-y-auto"
+            value={instruction}
+            onChange={(event) => setInstruction(event.target.value)}
+            onKeyDown={(event) => {
+              // Ctrl/⌘+Enter sends, as in every chat box; Enter alone is a line.
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && canSubmit) {
+                event.preventDefault()
+                void onSubmit()
+              }
+            }}
+            placeholder={api.message("instructionPlaceholder")}
+            aria-label={api.message("instructionPlaceholder")}
+            data-testid="instruction"
+          />
+        </>
+      ) : null}
+      {bundleChooser}
+      {hostCapability && markupOpen ? (
+        <p className="text-[11px] text-muted-foreground" data-testid="submit-markup-open">
+          {api.message("submitMarkupOpen")}
+        </p>
+      ) : null}
+      {hostCapability ? (
+        // Sending is the way out; copying and exporting the same reviewed
+        // context, for an editor's agent or an issue, sit beside it.
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="icon"
+            className={outlineAction}
+            onClick={copyContext}
+            aria-label={copyLabel}
+            title={copyLabel}
+            data-testid="copy-context"
+          >
+            {copyIcon}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className={outlineAction}
+            onClick={exportContext}
+            aria-label={api.message("exportContext")}
+            title={api.message("exportContext")}
+            data-testid="export-context"
+          >
+            <DownloadIcon className="size-3.5" aria-hidden="true" />
+          </Button>
+          {bundleButton}
+          {clearButton}
+          <Button
+            className="h-8 min-w-0 flex-1"
+            onClick={() => void onSubmit()}
+            disabled={!canSubmit}
+            title={api.message("submitShortcutHint")}
+            data-testid="submit"
+          >
+            <SendIcon className="size-4" aria-hidden="true" />
+            <span className="truncate">
+              {submitting ? api.message("submitting") : api.message("submit")}
+            </span>
+          </Button>
+        </div>
+      ) : (
+        // Without a Host, copying and exporting are the ways out.
+        <div className="flex items-center gap-1.5">
+          <Button
+            className="h-8 min-w-0 flex-1 px-2 text-xs"
+            onClick={copyContext}
+            data-testid="copy-context"
+          >
+            {copyIcon}
+            <span className="truncate">{copyLabel}</span>
+          </Button>
+          <Button
+            variant="outline"
+            className="h-8 min-w-0 flex-1 px-2 text-xs"
+            onClick={exportContext}
+            data-testid="export-context"
+          >
+            <DownloadIcon className="size-3.5" aria-hidden="true" />
+            <span className="truncate">{api.message("exportContext")}</span>
+          </Button>
+          {bundleButton}
+          {clearButton}
+        </div>
+      )}
+    </div>
+  ) : null
+
+  const inspectPanel = (
+    <>
       <PanelSection
         icon={SquareMousePointerIcon}
         tone="success"
@@ -3643,116 +4255,66 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             />
           </div>
         ) : null}
-        {pickingTab !== null ? (
-          <ActivityStrip>
-            <p
-              role="status"
-              className="min-w-0 flex-1 text-[11px] leading-snug"
-              data-testid="pick-waiting"
-            >
-              {pointing === "measure"
-                ? api.message("measureWaiting")
-                : api.message("inspectPicking")}
-            </p>
-            {pointing === "adjust" ? (
-              <Button size="sm" onClick={finishAdjust} data-testid="adjust-done">
-                {api.message("adjustDone")}
-              </Button>
-            ) : null}
-            <Button variant="outline" size="sm" onClick={cancelPick} data-testid="pick-cancel">
-              {pointing === "measure"
-                ? api.message("measureCancel")
-                : pointing === "adjust"
-                  ? api.message("adjustCancel")
-                  : api.message("inspectPickCancel")}
-            </Button>
-          </ActivityStrip>
-        ) : null}
-        {textEditingTab !== null ? (
-          <ActivityStrip testId="text-editing">
-            <p role="status" className="min-w-0 flex-1 text-[11px] leading-snug">
-              {api.message("textEditing")}
-            </p>
-            <Button
-              size="sm"
-              onClick={() => void stopTextEditing(true)}
-              data-testid="text-edit-done"
-            >
-              {api.message("textEditDone")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void stopTextEditing(false)}
-              data-testid="text-edit-undo"
-            >
-              {api.message("textEditUndo")}
-            </Button>
-          </ActivityStrip>
+        {captured ? (
+          <>
+            <PickedElements
+              api={api}
+              elements={pagePicks}
+              detached={detachedPicks}
+              busy={pickBusy}
+              canShoot={
+                hasFeature(captureCapability, "attachments") &&
+                attachments.length < limits.maxAttachments
+              }
+              preview={inspection}
+              onChange={updatePick}
+              onRemove={removePick}
+              onLocate={(elementId) => void locatePick(elementId, false)}
+              onShoot={(elementId) => void locatePick(elementId, true)}
+              onAdjust={(elementId) => void adjustPick(elementId)}
+              {...(canEyedrop ? { onEyedrop: eyedrop } : {})}
+            />
+            <PickComparisonCard
+              api={api}
+              picks={pagePicks}
+              included={compareIncluded}
+              onInclude={setCompareIncluded}
+            />
+            <Measurements
+              api={api}
+              measurements={pageMeasurements}
+              detached={detachedMeasures}
+              busy={measureBusy}
+              onNote={(id, note) =>
+                setMeasurements((current) =>
+                  current.map((entry) => (entry.id === id ? { ...entry, note } : entry))
+                )
+              }
+              onShow={(id) => void showMeasurement(id)}
+              onRemove={removeMeasurement}
+            />
+            <TextChanges
+              api={api}
+              changes={pageTextChanges}
+              onRemove={(index) =>
+                setTextChanges((current) =>
+                  current
+                    ? { ...current, changes: current.changes.filter((_, at) => at !== index) }
+                    : current
+                )
+              }
+            />
+          </>
         ) : null}
       </PanelSection>
-      {submitError ? (
-        <Alert variant="destructive" data-testid="submit-error">
-          <AlertDescription>{submitError}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      <CollapsibleCard>
-        <PageTools
-          api={api}
-          // Shown while it is about the page in the panel, or before any capture.
-          recordingSince={
-            recording && (!captured || recording.tabId === captured.tabId) ? recording.since : null
-          }
-          report={devReport && captured && devReport.tabId === captured.tabId ? devReport : null}
-          overlay={overlay}
-          busy={toolBusy}
-          onRecord={() => void onRecord()}
-          onAttachReport={() => void onAttachReport()}
-          onReportChange={(text) =>
-            setDevReport((current) => (current ? { ...current, text } : current))
-          }
-          onRemoveReport={() => setDevReport(null)}
-          onOverlayFile={(file) => void onOverlayFile(file)}
-          onOverlayChange={onOverlayChange}
-          onOverlayRemove={onOverlayRemove}
-          onViewport={(preset) => void onViewport(preset)}
-          designDiff={
-            designDiff && (!captured || designDiff.tabId === captured.tabId) ? designDiff : null
-          }
-          onCompare={() => void onCompareDesign()}
-          onRemoveDiff={removeDesignDiff}
-          childrenActive={mocks !== null || designDiff !== null}
-        >
-          <RequestMocks
-            api={api}
-            rules={mocks?.rules ?? []}
-            hits={mocks?.hits ?? null}
-            busy={toolBusy !== null}
-            onAdd={(rule) => void applyMocks([...(mocks?.rules ?? []), rule])}
-            onRemove={(id) =>
-              void applyMocks((mocks?.rules ?? []).filter((rule) => rule.id !== id))
-            }
-            onToggle={(id, enabled) =>
-              void applyMocks(
-                (mocks?.rules ?? []).map((rule) => (rule.id === id ? { ...rule, enabled } : rule))
-              )
-            }
-            onClear={() => void applyMocks([])}
-            onRefresh={() =>
-              void (mocks?.hits && !mocks.hits.installed ? applyMocks(mocks.rules) : refreshMocks())
-            }
-            onPoll={pollMocks}
-            canKeep={/^https?:/.test(mocks?.url ?? "")}
-            onKeep={(keep) => void keepMocks(keep)}
-          />
-        </PageTools>
-      </CollapsibleCard>
 
       <CollapsibleCard>
         <PageAudit
           api={api}
-          insights={captured ? insightsForTab(insights, captured.tabId) : NO_INSIGHTS}
+          defaultOpen
+          insights={
+            captured ? insightsForTab(insights, captured.tabId, captured.rawUrl) : NO_INSIGHTS
+          }
           busy={auditBusy}
           issueBusy={issueBusy}
           pickedIds={picks.map((pick) => pick.elementId)}
@@ -3772,55 +4334,108 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           onEyedropper={() => void onEyedropper()}
         />
       </CollapsibleCard>
+    </>
+  )
 
-      <PanelSection
-        icon={HistoryIcon}
-        title={api.message("recentTitle")}
-        subtitle={api.message("recentSubtitle")}
+  const toolsPanel = (
+    <CollapsibleCard>
+      <PageTools
+        api={api}
+        defaultOpen
+        // Shown while it is about the page in the panel, or before any capture.
+        recordingSince={
+          recording && (!captured || recording.tabId === captured.tabId) ? recording.since : null
+        }
+        report={
+          devReport && captured && onPage(devReport, captured.tabId, captured.rawUrl)
+            ? devReport
+            : null
+        }
+        overlay={overlay}
+        busy={toolBusy}
+        onRecord={() => void onRecord()}
+        onAttachReport={() => void onAttachReport()}
+        onReportChange={(text) =>
+          setDevReport((current) => (current ? { ...current, text } : current))
+        }
+        onRemoveReport={() => setDevReport(null)}
+        onOverlayFile={(file) => void onOverlayFile(file)}
+        onOverlayChange={onOverlayChange}
+        onOverlayRemove={onOverlayRemove}
+        onViewport={(preset) => void onViewport(preset)}
+        designDiff={
+          designDiff && (!captured || onPage(designDiff, captured.tabId, captured.rawUrl))
+            ? designDiff
+            : null
+        }
+        onCompare={() => void onCompareDesign()}
+        onRemoveDiff={removeDesignDiff}
+        childrenActive={mocks !== null || designDiff !== null}
       >
-        <RecentList
+        <RequestMocks
           api={api}
-          items={recent}
-          failureCodes={failureCodes}
-          answers={answers}
-          expanded={expanded}
-          onToggleAnswer={toggleAnswer}
-          onStop={(submissionId) => void stopTask(submissionId)}
-          stopping={stopping}
-          {...(hasFeature(state.capability, "list-paging")
-            ? {
-                query,
-                onQueryChange: setQuery,
-                hasMore: Boolean(nextPageToken),
-                onLoadMore: () => void loadMore(),
-                loadingMore,
-              }
-            : {})}
-          followUpIds={followUpIds}
-          onFollowUp={(item) => void onFollowUp(item)}
+          rules={mocks?.rules ?? []}
+          hits={mocks?.hits ?? null}
+          busy={toolBusy !== null}
+          onAdd={(rule) => void applyMocks([...(mocks?.rules ?? []), rule])}
+          onRemove={(id) => void applyMocks((mocks?.rules ?? []).filter((rule) => rule.id !== id))}
+          onToggle={(id, enabled) =>
+            void applyMocks(
+              (mocks?.rules ?? []).map((rule) => (rule.id === id ? { ...rule, enabled } : rule))
+            )
+          }
+          onClear={() => void applyMocks([])}
+          onRefresh={() =>
+            void (mocks?.hits && !mocks.hits.installed ? applyMocks(mocks.rules) : refreshMocks())
+          }
+          onPoll={pollMocks}
+          canKeep={/^https?:/.test(mocks?.url ?? "")}
+          onKeep={(keep) => void keepMocks(keep)}
+          onSaveAsRules={saveMocksAsRules}
         />
-      </PanelSection>
+        <NetworkRules api={api} currentHost={hostOf(state.captured?.url)} />
+        <Recordings
+          api={api}
+          currentTab={state.captured ? { id: state.captured.tabId, url: state.captured.url } : null}
+          conversationTitles={conversationTitles}
+        />
+      </PageTools>
+    </CollapsibleCard>
+  )
 
-      <PanelSection
-        icon={Settings2Icon}
-        title={api.message("settingsTitle")}
-        subtitle={api.message("settingsSubtitle")}
-      >
+  const settingsPanel = (
+    <PanelSection
+      icon={Settings2Icon}
+      title={api.message("settingsTitle")}
+      subtitle={api.message("settingsSubtitle")}
+    >
+      {state.kind === "ready" ? (
         <p className="font-mono text-[11px] text-muted-foreground" data-testid="diagnostics">
           {api.message("diagnostics")}: {state.pairing.baseUrl}
         </p>
-        <ExtensionSettings api={api} />
-        {hasFeature(state.capability, "browser-agent") ? (
-          <div className="space-y-1 border-t border-border pt-2">
-            <h3 className="text-xs font-semibold">{api.message("agentTitle")}</h3>
-            <AgentSettings
-              api={api}
-              driveAllowed={state.capability.driveAllowed === true}
-              conversationTitles={conversationTitles}
-            />
-          </div>
-        ) : null}
-        <div className="space-y-1.5">
+      ) : null}
+      <ExtensionSettings api={api} />
+      <SiteAccess
+        api={api}
+        onGranted={() => {
+          if (captureAccessRef.current) {
+            offerCaptureAccess(null)
+            setSubmitError(null)
+          }
+        }}
+      />
+      {hostCapability && hasFeature(hostCapability, "browser-agent") ? (
+        <div className="space-y-1 border-t border-border pt-2">
+          <h3 className="text-xs font-semibold">{api.message("agentTitle")}</h3>
+          <AgentSettings
+            api={api}
+            driveAllowed={hostCapability.driveAllowed === true}
+            conversationTitles={conversationTitles}
+          />
+        </div>
+      ) : null}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="min-w-0 space-y-1.5">
           <Label htmlFor="cognia-appearance" className="text-xs text-muted-foreground">
             {api.message("appearanceLabel")}
           </Label>
@@ -3828,7 +4443,7 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             value={override}
             onValueChange={(next) => {
               if (!isAppearanceOverride(next)) return
-              void chooseAppearance(next, state.capability.followsSystem)
+              void chooseAppearance(next, hostCapability?.followsSystem)
             }}
           >
             <SelectTrigger
@@ -3841,13 +4456,41 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
             <SelectContent>
               {APPEARANCE_OVERRIDES.map((option) => (
                 <SelectItem key={option} value={option}>
-                  {appearanceOverrideMessage(option, api.message)}
+                  {state.kind === "local" && option === "follow-host"
+                    ? api.message("appearanceSystem")
+                    : appearanceOverrideMessage(option, api.message)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="min-w-0 space-y-1.5">
+          <Label htmlFor="cognia-density" className="text-xs text-muted-foreground">
+            {api.message("densityLabel")}
+          </Label>
+          <Select
+            value={density}
+            onValueChange={(next) => {
+              if (isPanelDensity(next)) void updatePreferences({ density: next })
+            }}
+          >
+            <SelectTrigger id="cognia-density" className="w-full" data-testid="density-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PANEL_DENSITIES.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option === "compact"
+                    ? api.message("densityCompact")
+                    : api.message("densityComfortable")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {hostCapability ? (
           <Button
             variant="ghost"
             size="sm"
@@ -3860,57 +4503,90 @@ export function SidePanel({ api, makeClient = createHostClient, now = systemNow 
           >
             {api.message("disconnect")}
           </Button>
+        ) : null}
+        {hostCapability ? (
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            onClick={() => {
-              setLocalCleared(false)
-              setConfirming("clear-local")
-            }}
-            aria-expanded={confirming === "clear-local"}
-            data-testid="clear-local"
+            disabled={submitting}
+            onClick={() => void enterLocalMode()}
           >
-            {api.message("clearLocal")}
+            {api.message("useLocalMode")}
           </Button>
-        </div>
-        {/* Inline rather than a modal: the panel is 320px wide, and a dialog
-            over it would cover the very settings the question is about. Both
-            actions are one click from irreversible — disconnecting destroys the
-            only copy of this browser's key — so each asks once, in words that
-            say what will and will not go. */}
-        {confirming === "disconnect" ? (
-          <ConfirmAction
-            testId="confirm-disconnect"
-            title={api.message("disconnectConfirmTitle")}
-            detail={api.message("disconnectConfirmDetail")}
-            confirmLabel={api.message("disconnect")}
-            cancelLabel={api.message("cancel")}
-            onConfirm={() => void disconnect()}
-            onCancel={() => setConfirming(null)}
-          />
         ) : null}
-        {confirming === "clear-local" ? (
-          <ConfirmAction
-            testId="confirm-clear-local"
-            title={api.message("clearLocalConfirmTitle")}
-            detail={api.message("clearLocalConfirmDetail")}
-            confirmLabel={api.message("clearLocal")}
-            cancelLabel={api.message("cancel")}
-            onConfirm={() => void clearLocal()}
-            onCancel={() => setConfirming(null)}
-          />
-        ) : null}
-        {localCleared ? (
-          <p
-            role="status"
-            className="text-[11px] text-muted-foreground"
-            data-testid="clear-local-done"
-          >
-            {api.message("clearLocalDone")}
-          </p>
-        ) : null}
-      </PanelSection>
-    </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setLocalCleared(false)
+            setConfirming("clear-local")
+          }}
+          aria-expanded={confirming === "clear-local"}
+          data-testid="clear-local"
+        >
+          {api.message("clearLocal")}
+        </Button>
+      </div>
+      {/* Inline rather than a modal: the panel is 320px wide, and a dialog
+          over it would cover the very settings the question is about. Both
+          actions are one click from irreversible — disconnecting destroys the
+          only copy of this browser's key — so each asks once, in words that
+          say what will and will not go. */}
+      {confirming === "disconnect" ? (
+        <ConfirmAction
+          testId="confirm-disconnect"
+          title={api.message("disconnectConfirmTitle")}
+          detail={api.message("disconnectConfirmDetail")}
+          confirmLabel={api.message("disconnect")}
+          cancelLabel={api.message("cancel")}
+          onConfirm={() => void disconnect()}
+          onCancel={() => setConfirming(null)}
+        />
+      ) : null}
+      {confirming === "clear-local" ? (
+        <ConfirmAction
+          testId="confirm-clear-local"
+          title={api.message("clearLocalConfirmTitle")}
+          detail={api.message("clearLocalConfirmDetail")}
+          confirmLabel={api.message("clearLocal")}
+          cancelLabel={api.message("cancel")}
+          onConfirm={() => void clearLocal()}
+          onCancel={() => setConfirming(null)}
+        />
+      ) : null}
+      {localCleared ? (
+        <p
+          role="status"
+          className="text-[11px] text-muted-foreground"
+          data-testid="clear-local-done"
+        >
+          {api.message("clearLocalDone")}
+        </p>
+      ) : null}
+    </PanelSection>
+  )
+
+  return (
+    <PanelShell
+      api={api}
+      local={state.kind === "local"}
+      view={view}
+      onView={setView}
+      density={density}
+      connection={connection}
+      status={hasStatus ? status : null}
+      activity={{
+        inspect: inspectionCount > 0 ? inspectionCount : inspectRunning,
+        tools: toolsRunning,
+      }}
+      composer={composer}
+      panels={{
+        send: sendPanel,
+        inspect: inspectPanel,
+        tools: toolsPanel,
+        settings: settingsPanel,
+      }}
+    />
   )
 }
 
@@ -3981,12 +4657,12 @@ function CaptureActions({
           key={scope}
           variant={index === 0 ? "default" : "outline"}
           size="sm"
-          className={index === 0 || actions.length === 2 ? "col-span-2" : undefined}
+          className={cn("min-w-0 px-2", (index === 0 || actions.length === 2) && "col-span-2")}
           onClick={() => onCapture(scope)}
           data-testid={testId}
         >
           <Icon className="size-3.5" aria-hidden="true" />
-          {label}
+          <span className="min-w-0 truncate">{label}</span>
         </Button>
       ))}
     </div>
@@ -4012,7 +4688,7 @@ function inspectionFor(
   picks: readonly PickedElement[],
   report: DevReport | null,
   insights: PageInsights,
-  tabId: number,
+  page: Pick<CapturedPage, "tabId" | "rawUrl">,
   {
     measurements = [],
     attachments = [],
@@ -4023,14 +4699,17 @@ function inspectionFor(
   }: {
     measurements?: readonly Measurement[]
     attachments?: readonly PendingAttachment[]
-    textChanges?: { tabId: number; changes: TextChange[] } | null
+    textChanges?: { tabId: number; pageUrl?: string; changes: TextChange[] } | null
     mocks?: MocksState | null
     designDiff?: DesignDiff | null
     /** Send how the tab's picks differ, as the person asked. */
     compare?: boolean
   } = {}
 ): string {
-  const { context, reports } = insightSections(insights, tabId)
+  const { tabId, rawUrl } = page
+  // Read from this page — the captured tab at the captured address. A check
+  // run before the tab moved on describes another page and stays out.
+  const { context, reports } = insightSections(insights, tabId, rawUrl)
   const elements = picks.filter((pick) => pick.tabId === tabId)
   const comparison = compare ? comparePicks(elements) : null
   return inspectionMarkdown({
@@ -4039,8 +4718,10 @@ function inspectionFor(
     reports: [
       comparison ? comparisonMarkdown(comparison) : null,
       measurementsMarkdown(measurements.filter((entry) => entry.tabId === tabId)),
-      textChanges?.tabId === tabId ? textChangesMarkdown(textChanges.changes) : null,
-      designDiff?.tabId === tabId ? designDiffMarkdown(designDiff) : null,
+      textChanges && onPage(textChanges, tabId, rawUrl)
+        ? textChangesMarkdown(textChanges.changes)
+        : null,
+      designDiff && onPage(designDiff, tabId, rawUrl) ? designDiffMarkdown(designDiff) : null,
       annotationsMarkdown(
         attachments.map((attachment) => ({
           name: attachment.name,
@@ -4049,7 +4730,7 @@ function inspectionFor(
       ),
       // Before the report, so its staged failures are read as staged.
       mocks?.tabId === tabId ? mocksMarkdown(mocks.rules, mocks.hits) : null,
-      report?.tabId === tabId ? report.text : null,
+      report && onPage(report, tabId, rawUrl) ? report.text : null,
       ...reports,
     ],
   })
@@ -4060,7 +4741,11 @@ function inspectionFor(
  * permission: the person clicked, and the file goes where their downloads go.
  */
 function downloadText(name: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }))
+  downloadBlob(name, new Blob([text], { type: "text/markdown;charset=utf-8" }))
+}
+
+function downloadBlob(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url
   link.download = name
@@ -4107,12 +4792,16 @@ function Notice({
   detail,
   action,
   onAction,
+  onLocalMode,
+  localModeLabel,
 }: {
   testId: string
   title: string
   detail?: string
   action?: string
   onAction?: () => void
+  onLocalMode?: () => void
+  localModeLabel?: string
 }) {
   return (
     <div className="space-y-2 p-4" data-testid={testId}>
@@ -4123,6 +4812,11 @@ function Notice({
       {action && onAction ? (
         <Button variant="outline" onClick={onAction}>
           {action}
+        </Button>
+      ) : null}
+      {onLocalMode ? (
+        <Button variant="outline" onClick={onLocalMode}>
+          {localModeLabel}
         </Button>
       ) : null}
     </div>

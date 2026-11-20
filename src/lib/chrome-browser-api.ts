@@ -26,6 +26,7 @@ import { mainFrameworkSource } from "./inspect/framework-source"
 import type { PickResult } from "./inspect/element-picker"
 import { mainPagePerformance } from "./inspect/page-performance"
 import { mainRequestMocks } from "./inspect/request-mocks"
+import type { RuleCommandResult } from "./network-rules/store"
 import { mainTechStack } from "./inspect/tech-stack"
 import { renderAnnotated } from "./panel/annotations"
 
@@ -209,6 +210,14 @@ export function createChromeBrowserApi(): BrowserApi {
     hasPermissions: (request) => chrome.permissions.contains(permissions(request)),
     requestPermissions: (request) => chrome.permissions.request(permissions(request)),
     removePermissions: (request) => chrome.permissions.remove(permissions(request)),
+    onPermissionsChange(listener) {
+      chrome.permissions.onAdded.addListener(listener)
+      chrome.permissions.onRemoved.addListener(listener)
+      return () => {
+        chrome.permissions.onAdded.removeListener(listener)
+        chrome.permissions.onRemoved.removeListener(listener)
+      }
+    },
 
     async listTabs() {
       const tabs = await chrome.tabs.query({ currentWindow: true })
@@ -230,11 +239,12 @@ export function createChromeBrowserApi(): BrowserApi {
       return injected.result
     },
 
-    async scrollTo(tabId, y) {
+    async scrollTo(tabId, y, x) {
       const [injected] = await chrome.scripting.executeScript({
         target: { tabId },
         func: pageScrollTo,
-        args: [y],
+        // JSON carries no `undefined`: `null` keeps the page where it is sideways.
+        args: [y, x ?? null],
       })
       return typeof injected?.result === "number" ? injected.result : y
     },
@@ -329,6 +339,22 @@ export function createChromeBrowserApi(): BrowserApi {
       }
     },
 
+    async recordingCommand(command) {
+      const result: unknown = await chrome.runtime.sendMessage({
+        kind: "cognia-recordings",
+        command,
+      })
+      if (result === false || result === undefined) throw new Error("browser_recording_failed")
+      return result
+    },
+    async networkRuleCommand(command) {
+      const result = (await chrome.runtime.sendMessage({
+        kind: "cognia-network-rules",
+        command,
+      })) as RuleCommandResult | false | undefined
+      if (!result) throw new Error("browser_network_rules_failed")
+      return result
+    },
     answerSiteQuestion: (questionId, answer) =>
       mutatePermission({
         kind: "cognia-agent-permission",
@@ -341,6 +367,12 @@ export function createChromeBrowserApi(): BrowserApi {
         kind: "cognia-agent-permission",
         action: "forget",
         origin,
+      }),
+    retryHostStop: (session) =>
+      mutatePermission({
+        kind: "cognia-agent-permission",
+        action: "stop-host-task",
+        session,
       }),
 
     async pickElement(tabId, hint) {

@@ -19,7 +19,11 @@ import {
 } from "@cognia/plugin-ui"
 import { ChevronDownIcon, WrenchIcon } from "lucide-react"
 
-import { SECTION_TRIGGER_CLASS, SectionHeading } from "@ext/src/components/panel-section"
+import {
+  SECTION_TRIGGER_CLASS,
+  SectionHeading,
+  ToolSection,
+} from "@ext/src/components/panel-section"
 import type { BrowserApi } from "@ext/src/lib/browser-api"
 import {
   OVERLAY_SCALES,
@@ -58,6 +62,8 @@ export interface PageToolsProps {
   children?: ReactNode
   /** Whether those have something under way, which opens the section too. */
   childrenActive?: boolean
+  /** Open before anything runs, where the tools have a tab of their own. */
+  defaultOpen?: boolean
 }
 
 /** A `switch` with literal keys, so the locale coverage test can see them. */
@@ -112,12 +118,18 @@ export function PageTools({
   onRemoveDiff,
   children,
   childrenActive = false,
+  defaultOpen = false,
 }: PageToolsProps) {
   // Open by itself while something is under way, until the person says otherwise.
   const [open, setOpen] = useState<boolean | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const expanded =
-    open ?? (recordingSince !== null || report !== null || overlay !== null || childrenActive)
+    open ??
+    (defaultOpen ||
+      recordingSince !== null ||
+      report !== null ||
+      overlay !== null ||
+      childrenActive)
   return (
     <Collapsible open={expanded} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
@@ -143,39 +155,53 @@ export function PageTools({
           />
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-4 px-3 pt-1 pb-3" data-testid="page-tools">
-        <div className="space-y-1.5" data-testid="dev-report-tools">
-          <h3 className="text-xs font-medium">{api.message("devReportTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("devReportHint")}</p>
+      <CollapsibleContent
+        forceMount
+        hidden={!expanded}
+        className="divide-y divide-border px-3 pt-1 pb-3"
+        data-testid="page-tools"
+      >
+        <ToolSection
+          testId="dev-report-tools"
+          title={api.message("devReportTitle")}
+          hint={api.message("devReportHint")}
+          active={
+            recordingSince !== null || report !== null || busy === "record" || busy === "report"
+          }
+          actions={
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-2 text-[11px]"
+                disabled={busy !== null}
+                onClick={onRecord}
+                data-testid="dev-record"
+              >
+                {busy === "record"
+                  ? api.message("attachWorking")
+                  : recordingSince !== null
+                    ? api.message("devRecordRestart")
+                    : api.message("devRecordStart")}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-2 text-[11px]"
+                disabled={busy !== null}
+                onClick={onAttachReport}
+                data-testid="dev-attach"
+              >
+                {busy === "report"
+                  ? api.message("attachWorking")
+                  : report
+                    ? api.message("devReportRefresh")
+                    : api.message("devReportAttach")}
+              </Button>
+            </>
+          }
+        >
           <div className="flex flex-wrap items-center gap-1">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 px-2 text-[11px]"
-              disabled={busy !== null}
-              onClick={onRecord}
-              data-testid="dev-record"
-            >
-              {busy === "record"
-                ? api.message("attachWorking")
-                : recordingSince !== null
-                  ? api.message("devRecordRestart")
-                  : api.message("devRecordStart")}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 px-2 text-[11px]"
-              disabled={busy !== null}
-              onClick={onAttachReport}
-              data-testid="dev-attach"
-            >
-              {busy === "report"
-                ? api.message("attachWorking")
-                : report
-                  ? api.message("devReportRefresh")
-                  : api.message("devReportAttach")}
-            </Button>
             {recordingSince !== null ? (
               <Badge variant="secondary" className="text-[10px]" data-testid="dev-recording">
                 {api.message("devRecordingSince", [clock(recordingSince)])}
@@ -228,25 +254,16 @@ export function PageTools({
               </Button>
             </div>
           ) : null}
-        </div>
+        </ToolSection>
 
-        <div className="space-y-1.5" data-testid="overlay-tools">
-          <h3 className="text-xs font-medium">{api.message("overlayTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("overlayHint")}</p>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            className="sr-only"
-            tabIndex={-1}
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              event.target.value = ""
-              if (file) onOverlayFile(file)
-            }}
-            data-testid="overlay-file"
-          />
-          <div className="flex flex-wrap items-center gap-1">
+        <ToolSection
+          testId="overlay-tools"
+          title={api.message("overlayTitle")}
+          hint={api.message("overlayHint")}
+          active={
+            overlay !== null || designDiff !== null || busy === "overlay" || busy === "compare"
+          }
+          actions={
             <Button
               size="sm"
               variant="outline"
@@ -261,6 +278,22 @@ export function PageTools({
                   ? api.message("overlayReplace")
                   : api.message("overlayChoose")}
             </Button>
+          }
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="sr-only"
+            tabIndex={-1}
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ""
+              if (file) onOverlayFile(file)
+            }}
+            data-testid="overlay-file"
+          />
+          <div className="flex flex-wrap items-center gap-1">
             {overlay && onCompare ? (
               <Button
                 size="sm"
@@ -427,11 +460,14 @@ export function PageTools({
               </div>
             </div>
           ) : null}
-        </div>
+        </ToolSection>
 
-        <div className="space-y-1.5" data-testid="viewport-tools">
-          <h3 className="text-xs font-medium">{api.message("viewportTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("viewportHint")}</p>
+        <ToolSection
+          testId="viewport-tools"
+          title={api.message("viewportTitle")}
+          hint={api.message("viewportHint")}
+          active={busy === "viewport"}
+        >
           <div className="flex flex-wrap gap-1">
             {VIEWPORT_PRESETS.map((preset) => (
               <Button
@@ -447,7 +483,7 @@ export function PageTools({
               </Button>
             ))}
           </div>
-        </div>
+        </ToolSection>
         {children}
       </CollapsibleContent>
     </Collapsible>

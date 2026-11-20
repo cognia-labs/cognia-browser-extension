@@ -21,13 +21,14 @@
  * high-contrast palette — none of which is knowable here at build time.
  *
  * What is below is the stock light/dark palette from `app/globals.css`,
- * present so the pairing screen (which by definition has no Host to ask) is
- * not unstyled. A drift between this and the app's default is cosmetic and
- * bounded: it is only ever visible before the first successful capability
- * call.
+ * present for local mode and the pairing screen, which have no Host to ask.
+ * Local mode uses this palette with the system colour scheme or the user's
+ * explicit light/dark choice.
  */
 
 @custom-variant dark (&:is(.dark *));
+/* The person's comfortable density; compact is what the classes say alone. */
+@custom-variant comfy (&:where([data-panel-density="comfortable"], [data-panel-density="comfortable"] *));
 
 :root {
   --radius: 0.625rem;

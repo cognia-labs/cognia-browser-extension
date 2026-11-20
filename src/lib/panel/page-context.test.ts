@@ -52,6 +52,34 @@ function page(input: Partial<Parameters<typeof toCapturedPage>[0]> = {}): Captur
 }
 
 describe("toCapturedPage", () => {
+  it("marks a Markdown selection cut even when its plain text fits", () => {
+    // The report's own case: 6 bytes hold `plain`, not `**plain**`.
+    const captured = toCapturedPage(
+      {
+        tabId: 3,
+        tabTitle: "Tab",
+        normalizedUrl: "https://a.test/x",
+        rawUrl: "https://a.test/x",
+        strippedQuery: false,
+        capture: capture({ selection: { text: "plain", markdown: "**plain**" } }),
+        transcript: null,
+        capturedAt: 10,
+      },
+      { ...BROWSER_CONTEXT_LIMITS, selectionBytes: 6 }
+    )
+    expect(captured.selection).toMatchObject({
+      text: "plain",
+      truncated: false,
+      markdown: "**plai",
+      markdownTruncated: true,
+    })
+    const sent = buildPageContext(captured, "auto", ALL)
+    expect(sent.selection).toEqual({ text: "**plai", truncated: true, format: "markdown" })
+    // A Host that reads plain text gets the plain text, whole.
+    const plain = buildPageContext(withoutUnsupported(captured, []), "auto", [])
+    expect(plain.selection).toEqual({ text: "plain", truncated: false })
+  })
+
   it("keeps every part, clipped to the Host's ceilings", () => {
     const limits = {
       ...BROWSER_CONTEXT_LIMITS,
@@ -82,6 +110,7 @@ describe("toCapturedPage", () => {
       text: "plain words",
       truncated: false,
       markdown: "**plain** words",
+      markdownTruncated: false,
     })
     expect(captured.article).toEqual({
       text: "# He",
@@ -198,6 +227,7 @@ describe("editing", () => {
       text: "shorter",
       truncated: false,
       markdown: "shorter",
+      markdownTruncated: false,
     })
     expect(withEditedText(captured, "article", "x").article?.text).toBe("x")
     expect(withEditedText(captured, "readable-page", "y").readableText?.text).toBe("y")

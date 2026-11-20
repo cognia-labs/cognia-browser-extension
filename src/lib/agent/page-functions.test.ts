@@ -181,10 +181,28 @@ describe("page state", () => {
     expect(pageScrollMetrics()).toMatchObject({
       viewportWidth: window.innerWidth,
       scrollY: 0,
+      scrollX: 0,
       dpr: 1,
     })
     expect(pageScrollTo(100)).toBe(window.scrollY)
-    expect(window.scrollTo).toHaveBeenCalledWith(0, 100)
+    // Instant, so a page styled `scroll-behavior: smooth` is where it says it is.
+    expect(window.scrollTo).toHaveBeenLastCalledWith({ left: 0, top: 100, behavior: "instant" })
+  })
+
+  it("keeps the page where it is sideways unless told otherwise", () => {
+    window.scrollTo = jest.fn() as never
+    Object.defineProperty(window, "scrollX", { configurable: true, value: 300 })
+    try {
+      pageScrollTo(120)
+      expect(window.scrollTo).toHaveBeenLastCalledWith({ left: 300, top: 120, behavior: "instant" })
+      // `null` is what `chrome.scripting` delivers for "not given".
+      pageScrollTo(120, null)
+      expect(window.scrollTo).toHaveBeenLastCalledWith({ left: 300, top: 120, behavior: "instant" })
+      pageScrollTo(120, 40)
+      expect(window.scrollTo).toHaveBeenLastCalledWith({ left: 40, top: 120, behavior: "instant" })
+    } finally {
+      Object.defineProperty(window, "scrollX", { configurable: true, value: 0 })
+    }
   })
 
   it("reads, writes and clears web storage", () => {
@@ -315,6 +333,12 @@ describe("pageActingBar", () => {
       buttons[0]!.click()
       buttons[1]!.click()
       expect(sendMessage).not.toHaveBeenCalled()
+      expect(shadows[0]!.querySelector(".notice")).toBeNull()
+      // A Stop the Host did not confirm is said under the state, until repainted.
+      pageActingBar({ session: "s1", takenOver: true, notice: "Not confirmed", labels })
+      expect(shadows[0]!.querySelector(".notice")?.textContent).toBe("Not confirmed")
+      pageActingBar({ session: "s1", takenOver: false, labels })
+      expect(shadows[0]!.querySelector(".notice")).toBeNull()
       expect(pageActingBar(null)).toBe(true)
       expect(document.querySelector("#__cognia-acting-bar")).toBeNull()
     } finally {

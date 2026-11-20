@@ -80,9 +80,12 @@ describe("performanceMarkdown", () => {
     expect(text).toContain("- Largest contentful paint: 3.10 s (needs-improvement) — `img.hero`")
     expect(text).toContain("- Cumulative layout shift: 0.310 (poor)")
     expect(text).toContain("- Slowest interaction (≈ INP): 180 ms (good) — click on `button#save`")
+    // A sum of the visit's long tasks is not Lighthouse's TBT, and says so.
     expect(text).toContain(
-      "- Main thread blocked (TBT, from long tasks): 420 ms (needs-improvement) — 4 long tasks"
+      "- Long-task blocking observed this visit (not TBT): 420 ms (needs-improvement) — 4 long tasks"
     )
+    expect(text).toContain("rough guide only")
+    expect(text).not.toMatch(/\(TBT[,)]/)
     expect(text).toContain("- Navigation (navigate): DOMContentLoaded 1.20 s, load 2.10 s")
     expect(text).toContain("- Resources: 42, 2.38 MB transferred (script 1.72 MB)")
     expect(text).toContain("- `https://example.com/app.js` (click): 260 ms")

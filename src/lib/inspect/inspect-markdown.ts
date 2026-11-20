@@ -11,11 +11,12 @@
  */
 import {
   clipToBytes,
+  type BrowserCaptureMode,
   type BrowserCompanionFeature,
   type BrowserContextLimits,
 } from "@cognia/companion-client"
 
-import type { CapturedPage } from "../panel-state"
+import { captureModeFor, selectionTruncated, type CapturedPage } from "../panel-state"
 import type { PickedElement, SourceLocation } from "./element-context"
 import { styleChanges } from "./style-edits"
 
@@ -188,22 +189,70 @@ export function inspectionMarkdown({
   return sections.join("\n\n")
 }
 
+type ExportPage = Pick<CapturedPage, "title" | "url"> & Partial<CapturedPage>
+
+/** The reviewed capture, before inspection is added to the wire selection. */
+function capturedMarkdown(page: ExportPage, mode: BrowserCaptureMode): string {
+  const content =
+    mode === "article"
+      ? page.article
+      : mode === "readable-page"
+        ? page.readableText
+        : mode === "selection"
+          ? page.selection
+          : null
+  const text = mode === "selection" ? (page.selection?.markdown ?? content?.text) : content?.text
+  const cut =
+    mode === "selection" ? selectionTruncated(page.selection ?? null) : Boolean(content?.truncated)
+  const sections: string[] = []
+  if (text) {
+    sections.push(`## Page content\n\n${text}${cut ? "\n\n[Capture truncated]" : ""}`)
+  }
+  if (page.metadata && Object.keys(page.metadata).length > 0) {
+    sections.push(
+      `## Page metadata\n\n${Object.entries(page.metadata)
+        .map(([key, value]) => `- ${key}: ${value}`)
+        .join("\n")}`
+    )
+  }
+  if (page.link) sections.push(`## Link\n\n${page.link.text ?? ""}\n${page.link.url}`)
+  if (page.image) sections.push(`## Image\n\n${page.image.url}`)
+  if (page.transcript?.status === "available") {
+    sections.push(
+      `## Transcript\n\n${page.transcript.text}${page.transcript.truncated ? "\n\n[Transcript truncated]" : ""}`
+    )
+  }
+  return sections.join("\n\n")
+}
+
 /**
  * Everything the panel would send, as one prompt for another tool — a coding
  * agent in the editor, an issue tracker. Local to the person's clipboard; the
  * Host is not involved.
  */
 export function promptForClipboard(
-  page: { title: string; url: string },
+  page: ExportPage,
   instruction: string,
-  inspection: string
+  inspection: string,
+  mode: BrowserCaptureMode = "selection",
+  extraPages: readonly CapturedPage[] = []
 ): string {
+  const content = capturedMarkdown(page, mode)
   return [
     `# ${page.title || page.url}`,
     "",
     page.url,
     ...(instruction.trim() ? ["", instruction.trim()] : []),
+    ...(content ? ["", content] : []),
     ...(inspection ? ["", inspection] : []),
+    ...extraPages.flatMap((extra) => [
+      "",
+      `## Additional page: ${extra.title}`,
+      "",
+      extra.url,
+      "",
+      capturedMarkdown(extra, captureModeFor(extra, "page")),
+    ]),
   ].join("\n")
 }
 
@@ -213,21 +262,48 @@ export function promptForClipboard(
  * was written, and the attachments by name — they go along as files of their
  * own, not inside the text.
  */
+/** An attachment packed beside the Markdown, at a path relative to it. */
+export interface BundledFile {
+  name: string
+  path: string
+  image: boolean
+}
+
+const minute = (at: number) => new Date(at).toISOString().slice(0, 16).replace("T", " ")
+
 export function exportMarkdown(
-  page: { title: string; url: string },
+  page: ExportPage,
   instruction: string,
   inspection: string,
   attachments: readonly string[],
-  now: number
+  now: number,
+  mode: BrowserCaptureMode = "selection",
+  extraPages: readonly CapturedPage[] = [],
+  /** The files packed with it, for an evidence bundle; the rest are named only. */
+  bundled?: readonly BundledFile[]
 ): string {
   const lines = [
-    promptForClipboard(page, instruction, inspection),
+    promptForClipboard(page, instruction, inspection, mode, extraPages),
     "",
     "---",
     "",
-    `Exported from Cognia Browser Companion on ${new Date(now).toISOString().slice(0, 16).replace("T", " ")} UTC.`,
+    `Exported from Cognia Browser Companion on ${minute(now)} UTC.`,
   ]
-  if (attachments.length > 0)
+  if (bundled) {
+    if (page.capturedAt) lines.push(`Page captured on ${minute(page.capturedAt)} UTC.`)
+    if (bundled.length > 0)
+      lines.push(
+        "",
+        `## Attachments (${bundled.length}), in this archive`,
+        "",
+        // Angle brackets: a name with spaces or parentheses still links.
+        ...bundled.map((file) =>
+          file.image ? `![${file.name}](<${file.path}>)` : `- [${file.name}](<${file.path}>)`
+        )
+      )
+    const left = attachments.length - bundled.length
+    if (left > 0) lines.push("", `${left} other attachment(s) were left out of this archive.`)
+  } else if (attachments.length > 0)
     lines.push(
       "",
       `Attachments (${attachments.length}), not included in this file:`,
@@ -267,12 +343,19 @@ export function withInspection(
   const join = (own: string) => (own ? `${own}\n\n${inspection}` : inspection)
   const text = clipToBytes(join(ownText), limits.selectionBytes)
   const rich = markdown ? clipToBytes(join(ownMarkdown), limits.selectionBytes) : null
+  // Each form keeps its own cut: the Markdown is longer, and can run past the
+  // ceiling where the plain text still fits.
   return {
     ...page,
     selection: {
       text: text.text,
       truncated: Boolean(page.selection?.truncated) || text.truncated,
-      ...(rich ? { markdown: rich.text } : {}),
+      ...(rich
+        ? {
+            markdown: rich.text,
+            markdownTruncated: selectionTruncated(page.selection) || rich.truncated,
+          }
+        : {}),
     },
   }
 }

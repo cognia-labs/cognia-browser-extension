@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react"
 import { Badge, Button, Label, Switch } from "@cognia/plugin-ui"
 
-import { AGENT_SESSIONS_KEY, type AgentSessions } from "@ext/src/lib/agent/sessions"
+import { AGENT_SESSIONS_KEY, parseStoredSessions } from "@ext/src/lib/agent/sessions"
 import { SITE_DECISIONS_KEY, type StandingDecision } from "@ext/src/lib/agent/site-permissions"
 import type { SocketState } from "@ext/src/lib/agent/socket-client"
-import { SESSION_KEYS, type BrowserApi, type PermissionRequest } from "@ext/src/lib/browser-api"
+import {
+  SESSION_KEYS,
+  STORAGE_KEYS,
+  type BrowserApi,
+  type PermissionRequest,
+} from "@ext/src/lib/browser-api"
 import { usePreferences, useStoredValue } from "@ext/src/lib/panel/use-stored-value"
+import { parsePreferences } from "@ext/src/lib/preferences"
 
 export interface AgentSettingsProps {
   api: BrowserApi
@@ -26,10 +32,6 @@ function parseSocketState(value: unknown): SocketState {
     return value as SocketState
   }
   return { kind: "stopped" }
-}
-
-function parseSessions(value: unknown): AgentSessions {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as AgentSessions) : {}
 }
 
 function parseDecisions(value: unknown): Record<string, StandingDecision> {
@@ -64,31 +66,47 @@ export function socketStateMessage(state: SocketState, message: (key: string) =>
  *
  * Turning it on asks for `<all_urls>` inside the click — the one install-time
  * warning this extension never shows, asked for only by the person who wants
- * it — and keeps the device socket open. Whether the Host will actually send
+ * it — and keeps the device socket open. Disabling it retains website access
+ * explicitly enabled for local tools. Whether the Host will actually send
  * operations is the Owner's separate grant in the desktop app; the panel
  * shows both, because either alone does nothing.
  */
 export function AgentSettings({ api, driveAllowed, conversationTitles = {} }: AgentSettingsProps) {
   const [preferences, updatePreferences] = usePreferences(api)
   const socket = useStoredValue(api, "session", SESSION_KEYS.socketState, parseSocketState)
-  const sessions = useStoredValue(api, "session", AGENT_SESSIONS_KEY, parseSessions)
+  const sessions = useStoredValue(api, "session", AGENT_SESSIONS_KEY, parseStoredSessions)
   const decisions = useStoredValue(api, "local", SITE_DECISIONS_KEY, parseDecisions)
   const [granted, setGranted] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
 
+  // What the browser grants now, not what it granted when the panel opened:
+  // the person can revoke access on the extensions page, or a prompt elsewhere
+  // can grant it, while this panel stays open. Re-read on every grant or
+  // revocation, and when the panel comes back into view; the newest read wins.
   useEffect(() => {
     let cancelled = false
-    void Promise.all([
-      api.hasPermissions(ALL_SITES),
-      api.hasPermissions({ permissions: ["downloads"] }),
-      api.hasPermissions({ permissions: ["cookies"] }),
-    ])
-      .then(([sites, downloads, cookies]) => {
-        if (!cancelled) setGranted({ sites, downloads, cookies })
-      })
-      .catch(() => undefined)
+    let revision = 0
+    const refresh = () => {
+      const requested = ++revision
+      void Promise.all([
+        api.hasPermissions(ALL_SITES),
+        api.hasPermissions({ permissions: ["downloads"] }),
+        api.hasPermissions({ permissions: ["cookies"] }),
+      ])
+        .then(([sites, downloads, cookies]) => {
+          if (!cancelled && requested === revision) setGranted({ sites, downloads, cookies })
+        })
+        .catch(() => undefined)
+    }
+    const stop = api.onPermissionsChange(refresh)
+    refresh()
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", refresh)
     return () => {
       cancelled = true
+      stop()
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", refresh)
     }
   }, [api])
 
@@ -105,8 +123,11 @@ export function AgentSettings({ api, driveAllowed, conversationTitles = {} }: Ag
       await updatePreferences({ agentMode: true })
     } else {
       await updatePreferences({ agentMode: false })
-      const removed = await api.removePermissions(ALL_SITES).catch(() => false)
-      if (removed) setGranted((current) => ({ ...current, sites: false }))
+      const current = parsePreferences(await api.read(STORAGE_KEYS.preferences))
+      if (!current.allSitesAccess) {
+        const removed = await api.removePermissions(ALL_SITES).catch(() => false)
+        if (removed) setGranted((current) => ({ ...current, sites: false }))
+      }
     }
   }
 

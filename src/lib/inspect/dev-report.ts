@@ -100,6 +100,8 @@ export function mainDevRecording(): boolean {
 export interface DevReport {
   /** The tab it was read from, so a recapture of another page drops it. */
   tabId: number
+  /** The page the tab showed when it was read; a tab that moved on is another page. */
+  pageUrl?: string
   capturedAt: number
   counts: { errors: number; warnings: number; failedRequests: number; steps: number }
   /** The report as it will be sent; the person may edit it. */

@@ -6,9 +6,11 @@ import {
   captureVisible,
   elementCrop,
   fileNameFromUrl,
+  freshSegmentRows,
   regionInImagePixels,
   screenshotAttachment,
   sniffMediaType,
+  stopsShort,
 } from "./screenshots"
 
 function fakeApi(
@@ -121,6 +123,78 @@ describe("captureFullPage", () => {
     const result = await captureFullPage(api, TAB, sleep)
     expect(result.truncated).toBe(true)
     expect(result.height).toBeLessThanOrEqual(MAX_CANVAS_SIDE)
+  })
+
+  /** A 1,000 px page in a 400 px viewport whose scroll answers lag behind (smooth scrolling). */
+  function laggingApi(landed: number[], failAt?: number) {
+    const { api, calls, sleep } = fakeApi({
+      scrollHeight: 1_000,
+      viewportHeight: 400,
+      viewportWidth: 300,
+      scrollY: 120,
+      scrollX: 300,
+      dpr: 1,
+    } as never)
+    const scrolls: [number, number | undefined][] = []
+    let shots = 0
+    return {
+      sleep,
+      calls,
+      scrolls,
+      api: {
+        ...api,
+        scrollTo: async (_tab: number, y: number, x?: number) => {
+          scrolls.push([y, x])
+          return landed.shift() ?? y
+        },
+        captureVisible: async (windowId: number) => {
+          if (++shots === failAt) throw new Error("capture refused")
+          return api.captureVisible(windowId)
+        },
+      },
+    }
+  }
+
+  it("stitches from where each segment landed, and says when the page fell short", async () => {
+    const { api, sleep, scrolls } = laggingApi([0, 0, 400])
+    const result = await captureFullPage(api, TAB, sleep)
+    // The repeat at 0 adds nothing; the 400 adds 400 new rows. 800 of 1,000 px is cut.
+    expect(result).toMatchObject({ base64: "3:300:400+0+400", height: 800, truncated: true })
+    // Segments keep the page where it is sideways; the restore puts both axes back.
+    expect(scrolls).toEqual([
+      [0, undefined],
+      [400, undefined],
+      [800, undefined],
+      [120, 300],
+    ])
+  })
+
+  it("is whole, not cut, when every segment landed where asked", async () => {
+    const { api, sleep } = laggingApi([0, 400, 600])
+    const result = await captureFullPage(api, TAB, sleep)
+    expect(result).toMatchObject({ base64: "3:300:400+400+200", height: 1_000, truncated: false })
+  })
+
+  it("puts the scroll back, on both axes, when a segment fails", async () => {
+    const { api, sleep, scrolls } = laggingApi([0, 400, 600], 2)
+    await expect(captureFullPage(api, TAB, sleep)).rejects.toThrow("capture refused")
+    expect(scrolls.at(-1)).toEqual([120, 300])
+  })
+})
+
+describe("segment arithmetic", () => {
+  it("counts only rows below the previous segment's bottom, in device pixels", () => {
+    expect(freshSegmentRows([0, 1_000, 1_500], 1_000, 2)).toEqual([2_000, 2_000, 1_000])
+    // A segment that went backwards or nowhere adds nothing, and none adds more than a viewport.
+    expect(freshSegmentRows([0, 0, 2_000, 1_500], 1_000, 1)).toEqual([1_000, 0, 1_000, 0])
+    expect(freshSegmentRows([], 1_000, 1)).toEqual([])
+  })
+
+  it("knows when the last segment stopped short of the bottom", () => {
+    const metrics = { scrollHeight: 1_000, viewportHeight: 400 }
+    expect(stopsShort([0, 400, 600], metrics)).toBe(false)
+    expect(stopsShort([0, 400, 599.5], metrics)).toBe(false)
+    expect(stopsShort([0, 0, 400], metrics)).toBe(true)
   })
 })
 

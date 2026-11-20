@@ -15,6 +15,12 @@ import type { StorageArea } from "./storage-area"
 
 export const AGENT_SESSIONS_KEY = "cognia.agent.sessions.v1"
 
+/**
+ * What Stop got from the Host: the task stopped, no task of the conversation
+ * is still going, or no answer either way — the browser is paused regardless.
+ */
+export type HostCancelOutcome = "cancelled" | "none" | "failed"
+
 export interface AgentSession {
   /** The Host conversation id. */
   id: string
@@ -32,11 +38,22 @@ export interface AgentSession {
   takeover: boolean
   /** Origins allowed for this session only ("allow once"). */
   onceOrigins: string[]
+  /**
+   * What Cognia answered the person's last Stop: kept with the session, so the
+   * bar and the panel can still say "paused here, not confirmed in Cognia"
+   * after a reload or a worker restart. Cleared when the person resumes.
+   */
+  hostStop?: { outcome: HostCancelOutcome; at: number }
   startedAt: number
   lastActivityAt: number
 }
 
 export type AgentSessions = Record<string, AgentSession>
+
+/** The stored sessions as the panel reads them: a map, or none. */
+export function parseStoredSessions(value: unknown): AgentSessions {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as AgentSessions) : {}
+}
 
 export function newSession(id: string, now: number): AgentSession {
   return {

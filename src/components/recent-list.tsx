@@ -96,7 +96,7 @@ export function RecentList({
           const failureCode = failureCodes[item.submissionId]
           return (
             <li key={item.submissionId}>
-              <Card>
+              <Card className="gap-0 py-0">
                 <CardContent className="space-y-1 px-2.5 py-2.5">
                   <div className="flex items-start justify-between gap-2">
                     <p className="line-clamp-2 min-w-0 shrink text-xs font-medium">{item.title}</p>

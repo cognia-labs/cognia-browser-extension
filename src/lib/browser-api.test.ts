@@ -9,6 +9,7 @@ describe("STORAGE_KEYS", () => {
       "appearance",
       "appearanceOverride",
       "lastWorkspaceId",
+      "localMode",
       "pairing",
       "pendingSubmission",
       "preferences",
@@ -45,7 +46,12 @@ describe("STORAGE_KEYS", () => {
 
 describe("SESSION_KEYS", () => {
   it("is the only place a draft may live, and never overlaps local keys", () => {
-    expect(Object.keys(SESSION_KEYS).sort()).toEqual(["draft", "socketState", "statusHint"])
+    expect(Object.keys(SESSION_KEYS).sort()).toEqual([
+      "draft",
+      "panelView",
+      "socketState",
+      "statusHint",
+    ])
     for (const value of Object.values(SESSION_KEYS)) {
       expect(value).toMatch(/^cognia\.[a-zA-Z]+\.v\d+$/)
       expect(Object.values(STORAGE_KEYS)).not.toContain(value)

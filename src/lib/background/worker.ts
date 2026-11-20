@@ -16,12 +16,17 @@
  * module state here is a cache that `start()` rebuilds.
  */
 import {
+  CompanionApiError,
   isTerminalBrowserSubmissionStatus,
   type BrowserContextSubmissionSummaryV1,
 } from "@cognia/companion-client"
 import { AGENT_PROFILE } from "../agent/protocol"
 
-import { createAgentRuntime, type AgentRuntime } from "../agent/agent-runtime"
+import {
+  createAgentRuntime,
+  type AgentRuntime,
+  type HostCancelOutcome,
+} from "../agent/agent-runtime"
 import type { AgentBrowser } from "../agent/executor"
 import {
   PENDING_SITE_QUESTIONS_KEY,
@@ -35,7 +40,15 @@ import {
   type SocketLike,
   type SocketState,
 } from "../agent/socket-client"
+import type { AgentSessions } from "../agent/sessions"
 import type { StorageArea } from "../agent/storage-area"
+import { createNetworkRules, type NetworkRulesBrowser } from "../network-rules/controller"
+import type { RuleCommand, RuleCommandResult } from "../network-rules/store"
+import {
+  createRecordings,
+  type RecordingBrowser,
+  type RecordingCommand,
+} from "../recordings/controller"
 import { SESSION_KEYS, STORAGE_KEYS } from "../browser-api"
 import type { HostClient, PairingRecord } from "../client"
 import { parsePreferences, type ExtensionPreferences } from "../preferences"
@@ -45,9 +58,11 @@ import {
   badgeFor,
   countStatuses,
   diffStatuses,
+  followUps,
   notificationMessageKey,
   shouldKeepPolling,
   type Badge,
+  type StatusItem,
   type StatusSnapshot,
 } from "./status-tracker"
 
@@ -56,8 +71,29 @@ export { PANEL_PORT } from "../browser-api"
 export const STATUS_POLL_MINUTES = 1
 /** Rows read per status poll; the badge counts within the newest of them. */
 export const STATUS_PAGE_SIZE = 50
+/**
+ * Unsettled tasks past the newest page that one read follows by id. A task
+ * still running when fifty newer ones finished is followed to its end rather
+ * than dropped from the badge; past this many, the oldest are let go.
+ */
+export const MAX_FOLLOWED = 20
+/** Pages of the list Stop searches for a conversation's task (fifty rows each). */
+export const MAX_CANCEL_PAGES = 40
 /** Notification ids carry what they are about, so a click knows where to go. */
 export const NOTIFICATION_PREFIX = "cognia:"
+
+/**
+ * Whether the Host answered and refused, as opposed to not being reached, or
+ * being too busy to say. A refusal is a final word about that submission.
+ */
+function isRefusal(error: unknown): boolean {
+  return (
+    error instanceof CompanionApiError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    error.status !== 429
+  )
+}
 
 export interface WorkerDeps {
   local: StorageArea
@@ -65,6 +101,8 @@ export interface WorkerDeps {
   /** The paired Host's client, or null when this browser is not paired. */
   loadClient(pairing: PairingRecord): Promise<HostClient | null>
   browser: AgentBrowser
+  networkRulesBrowser: NetworkRulesBrowser
+  recordingBrowser: RecordingBrowser
   createSocket(url: string): SocketLike
   setBadge(badge: Badge): Promise<void>
   /** Whether the optional `notifications` permission is granted. */
@@ -86,17 +124,41 @@ export interface WorkerDeps {
 }
 
 /** What the hello tells the Host this build implements. */
-export const EXTENSION_FEATURES = [AGENT_PROFILE, "status-hints-v1"]
+export const EXTENSION_FEATURES = [
+  AGENT_PROFILE,
+  "status-hints-v1",
+  "network-rules-v1",
+  "recording-v1",
+]
 
 export function createWorker(deps: WorkerDeps) {
   let pairing: PairingRecord | null = null
   let client: HostClient | null = null
   let preferences: ExtensionPreferences = parsePreferences(null)
+  let localMode = false
+  let pairingLoad = 0
   let panelPorts = 0
   let keepPolling = false
   let refreshing: Promise<void> | null = null
   let refreshAgain = false
   let permissionChanges: Promise<unknown> = Promise.resolve()
+
+  // Its sessions are the runtime's, read lazily: the two are built together.
+  const networkRules = createNetworkRules({
+    local: deps.local,
+    session: deps.session,
+    newId: deps.newId,
+    browser: deps.networkRulesBrowser,
+    sessions: () => runtime.sessions.all(),
+  })
+
+  const recordings = createRecordings({
+    local: deps.local,
+    session: deps.session,
+    browser: deps.recordingBrowser,
+    newId: deps.newId,
+    now: deps.now,
+  })
 
   const runtime: AgentRuntime = createAgentRuntime({
     browser: deps.browser,
@@ -107,6 +169,8 @@ export function createWorker(deps: WorkerDeps) {
     newId: deps.newId,
     onQuestion: (question) => void announceQuestion(question),
     cancelConversation: (sessionId) => cancelConversation(sessionId),
+    networkRules,
+    recordings,
   })
 
   const socket: SocketClient = createSocketClient({
@@ -118,7 +182,7 @@ export function createWorker(deps: WorkerDeps) {
     createSocket: deps.createSocket,
     execute: (operation, args, deadlineMs, signal) =>
       runtime.execute(operation, args, deadlineMs, signal),
-    canExecute: () => preferences.agentMode,
+    canExecute: () => !localMode && preferences.agentMode,
     extensionVersion: deps.extensionVersion,
     features: EXTENSION_FEATURES,
     onStatusHint: () => {
@@ -177,6 +241,7 @@ export function createWorker(deps: WorkerDeps) {
       await refreshBadgeOnly()
       return
     }
+    const readingClient = client
     let items: BrowserContextSubmissionSummaryV1[]
     try {
       items = (await client.list({ limit: STATUS_PAGE_SIZE })).items
@@ -186,12 +251,16 @@ export function createWorker(deps: WorkerDeps) {
       keepPolling = true
       return
     }
-    lastCounts = countStatuses(items)
-    keepPolling = shouldKeepPolling(items)
+    if (client !== readingClient) return
+    const snapshot = (await deps.session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY)) ?? EMPTY_SNAPSHOT
+    const followed = await follow(readingClient, snapshot, items)
+    if (client !== readingClient) return
+    const all: StatusItem[] = [...items, ...followed]
+    lastCounts = countStatuses(all)
+    keepPolling = shouldKeepPolling(all)
     await refreshBadgeOnly()
 
-    const snapshot = (await deps.session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY)) ?? EMPTY_SNAPSHOT
-    const { transitions, next } = diffStatuses(snapshot, items)
+    const { transitions, next } = diffStatuses(snapshot, all)
     await deps.session.set(STATUS_SNAPSHOT_KEY, next)
     // The open panel shows these itself; a notification on top is noise.
     if (transitions.length === 0 || panelPorts > 0 || !(await wantsNotification())) return
@@ -200,10 +269,46 @@ export function createWorker(deps: WorkerDeps) {
         .notify(
           `${NOTIFICATION_PREFIX}submission:${transition.item.submissionId}`,
           deps.message(notificationMessageKey(transition.to)),
-          transition.item.title || transition.item.sourceHost
+          transition.item.title || transition.item.sourceHost || ""
         )
         .catch(() => undefined)
     }
+  }
+
+  /**
+   * The tasks last seen unsettled that the newest page no longer holds, read
+   * one by one. A refusal (gone, or another device's) ends following one; a
+   * Host that could not answer leaves it as it was last seen, to ask again.
+   */
+  async function follow(
+    readingClient: HostClient,
+    snapshot: StatusSnapshot,
+    items: readonly StatusItem[]
+  ): Promise<StatusItem[]> {
+    const followed: StatusItem[] = []
+    for (const submissionId of followUps(snapshot, items, MAX_FOLLOWED)) {
+      const known = snapshot.tracked?.[submissionId]
+      const label = known?.label ? { title: known.label } : {}
+      try {
+        const status = await readingClient.get(submissionId)
+        const sessionId = status.sessionId ?? known?.sessionId
+        followed.push({
+          submissionId,
+          status: status.status,
+          ...label,
+          ...(sessionId ? { sessionId } : {}),
+        })
+      } catch (error) {
+        if (isRefusal(error)) continue
+        followed.push({
+          submissionId,
+          status: snapshot.statuses[submissionId]!,
+          ...label,
+          ...(known?.sessionId ? { sessionId: known.sessionId } : {}),
+        })
+      }
+    }
+    return followed
   }
 
   /** One read at a time; a hint during a read schedules exactly one more. */
@@ -242,7 +347,9 @@ export function createWorker(deps: WorkerDeps) {
   }
 
   async function loadPairing(): Promise<void> {
-    const next = await deps.local.get<PairingRecord>(STORAGE_KEYS.pairing)
+    const load = ++pairingLoad
+    const next = localMode ? null : await deps.local.get<PairingRecord>(STORAGE_KEYS.pairing)
+    if (load !== pairingLoad || (localMode && next)) return
     const changed =
       (next?.deviceId ?? null) !== (pairing?.deviceId ?? null) ||
       (next?.baseUrl ?? null) !== (pairing?.baseUrl ?? null)
@@ -250,39 +357,118 @@ export function createWorker(deps: WorkerDeps) {
     client?.invalidate()
     socket.stop()
     pairing = next
-    client = next ? await deps.loadClient(next).catch(() => null) : null
-    await deps.session.set(STATUS_SNAPSHOT_KEY, EMPTY_SNAPSHOT)
+    client = null
+    const loaded = next ? await deps.loadClient(next).catch(() => null) : null
+    if (load !== pairingLoad) {
+      loaded?.invalidate()
+      return
+    }
+    client = loaded
+    // A woken worker loads its client again; what it saw of that same
+    // pairing's tasks is still true, and forgetting it would lose what
+    // finished while it slept and the tasks it follows past the first page.
+    const owner = next ? `${next.baseUrl}#${next.deviceId}` : undefined
+    const stored = await deps.session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY).catch(() => null)
+    if (load !== pairingLoad || (owner && stored?.owner === owner)) return
+    await deps.session.set(
+      STATUS_SNAPSHOT_KEY,
+      owner ? { ...EMPTY_SNAPSHOT, owner } : EMPTY_SNAPSHOT
+    )
   }
 
   /**
-   * Stop on the in-page bar: cancel the Host task acting in that conversation.
-   * The list is the only index from conversation to submission this device
-   * may read, so the newest non-terminal match is the one acting.
+   * Stop on the in-page bar: cancel the Host task acting in that conversation,
+   * and say whether the Host confirmed it.
+   *
+   * The tasks the status reads already follow for that conversation are tried
+   * first; then the list, the only index from conversation to submission this
+   * device may read, newest first, where the first unsettled match is the one
+   * acting. "none" is said only when the whole list was read and nothing in
+   * it is still going; anything the Host did not answer is "failed".
    */
-  async function cancelConversation(sessionId: string): Promise<void> {
-    if (!client) return
+  async function cancelConversation(sessionId: string): Promise<HostCancelOutcome> {
+    const reading = client
+    if (!reading) return "failed"
+    const tried = new Set<string>()
+    const cancel = async (submissionId: string): Promise<HostCancelOutcome | "refused"> => {
+      tried.add(submissionId)
+      try {
+        await reading.cancel(submissionId)
+      } catch (error) {
+        const code = error instanceof CompanionApiError ? error.code : ""
+        // Another device is driving it: running, and not stopped from here.
+        return isRefusal(error) && code !== "session_driven_elsewhere" ? "refused" : "failed"
+      }
+      void refreshStatus()
+      return "cancelled"
+    }
+    const snapshot = (await deps.session.get<StatusSnapshot>(STATUS_SNAPSHOT_KEY)) ?? EMPTY_SNAPSHOT
+    for (const [submissionId, tracked] of Object.entries(snapshot.tracked ?? {})) {
+      const status = snapshot.statuses[submissionId]
+      if (tracked.sessionId !== sessionId || !status || isTerminalBrowserSubmissionStatus(status))
+        continue
+      const outcome = await cancel(submissionId)
+      // Refused: it finished since, or is not this device's; look further.
+      if (outcome !== "refused") return outcome
+    }
     let pageToken: string | undefined
-    for (let page = 0; page < 2; page++) {
-      const result = await client
-        .list({ limit: 50, ...(pageToken ? { pageToken } : {}) })
-        .catch(() => null)
-      if (!result) return
+    for (let page = 0; page < MAX_CANCEL_PAGES; page++) {
+      let result: Awaited<ReturnType<HostClient["list"]>>
+      try {
+        result = await reading.list({
+          limit: STATUS_PAGE_SIZE,
+          ...(pageToken ? { pageToken } : {}),
+        })
+      } catch {
+        return "failed"
+      }
       const match = result.items.find(
-        (item) => item.sessionId === sessionId && !isTerminalBrowserSubmissionStatus(item.status)
+        (item) =>
+          item.sessionId === sessionId &&
+          !tried.has(item.submissionId) &&
+          !isTerminalBrowserSubmissionStatus(item.status)
       )
       if (match) {
-        await client.cancel(match.submissionId).catch(() => undefined)
-        void refreshStatus()
-        return
+        const outcome = await cancel(match.submissionId)
+        return outcome === "refused" ? "failed" : outcome
       }
-      if (!result.nextPageToken) return
+      if (!result.nextPageToken) return "none"
       pageToken = result.nextPageToken
     }
+    // The list goes on past what one press reads: nothing found is not "none".
+    return "failed"
   }
 
   return {
     runtime,
     socket,
+    networkRules,
+
+    /** A request-rule change from the panel, which only the panel may send. */
+    onNetworkRuleCommand(
+      command: RuleCommand,
+      senderUrl: string | undefined
+    ): Promise<RuleCommandResult | false> {
+      if (senderUrl?.split(/[?#]/)[0] !== deps.panelUrl) return Promise.resolve(false)
+      return networkRules.command(command)
+    },
+
+    recordings,
+
+    /** A recording change from the panel, which only the panel may send. */
+    onRecordingCommand(command: RecordingCommand, senderUrl: string | undefined) {
+      if (senderUrl?.split(/[?#]/)[0] !== deps.panelUrl) return Promise.resolve(false)
+      return recordings.command(command)
+    },
+
+    /** A page's loader asking for its tab's rules, at `document_start`. */
+    pageRules(tabId: number | undefined, url: string | undefined) {
+      return tabId === undefined ? Promise.resolve([]) : networkRules.pageRulesFor(tabId, url)
+    },
+
+    onSessionsChange(sessions: AgentSessions | null): Promise<void> {
+      return networkRules.sessionsChanged(sessions ?? {})
+    },
 
     onPermissionMessage(
       message: AgentPermissionMessage,
@@ -290,6 +476,10 @@ export function createWorker(deps: WorkerDeps) {
     ): Promise<boolean> {
       // Extension content scripts share runtime.id, so require the actual panel URL.
       if (senderUrl?.split(/[?#]/)[0] !== deps.panelUrl) return Promise.resolve(false)
+      if (message.action === "stop-host-task")
+        // Not a permission change: it waits on the Host, and must not hold
+        // up an answer to a site question queued behind it.
+        return runtime.retryHostStop(message.session).then((outcome) => outcome !== null)
       const run = permissionChanges.then(async () => {
         if (message.action === "answer")
           await runtime.permissions.answer(message.questionId, message.answer)
@@ -303,7 +493,11 @@ export function createWorker(deps: WorkerDeps) {
     /** Every wake-up: rebuild the cache from storage, then reconcile. */
     async start(): Promise<void> {
       preferences = parsePreferences(await deps.local.get(STORAGE_KEYS.preferences))
+      localMode = (await deps.local.get(STORAGE_KEYS.localMode)) === true
       await loadPairing()
+      // Session rules do not survive a browser restart; the stored ones do.
+      await networkRules.sync().catch(() => undefined)
+      await recordings.sync().catch(() => undefined)
       await refreshStatus()
     },
 
@@ -314,7 +508,12 @@ export function createWorker(deps: WorkerDeps) {
 
     /** A local storage key changed: pairing or preferences. */
     async onLocalChange(key: string, value: unknown): Promise<void> {
-      if (key === STORAGE_KEYS.preferences) {
+      if (key === STORAGE_KEYS.localMode) {
+        localMode = value === true
+        if (localMode) socket.stop()
+        await loadPairing()
+        await refreshStatus()
+      } else if (key === STORAGE_KEYS.preferences) {
         const before = preferences
         preferences = parsePreferences(value)
         if (!preferences.agentMode) socket.cancelOperations("browser_agent_mode_disabled")

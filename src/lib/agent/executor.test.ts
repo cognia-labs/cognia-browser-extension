@@ -25,6 +25,9 @@ import {
 import { SessionStore } from "./sessions"
 import { SITE_DECISIONS_KEY, SitePermissions } from "./site-permissions"
 import { memoryStorageArea } from "./storage-area"
+import { createNetworkRules } from "../network-rules/controller"
+import { fakeNetworkRulesBrowser } from "../network-rules/fake-browser"
+import { createRecordings } from "../recordings/controller"
 
 type Handler = (tabId: number, args: unknown[]) => unknown
 
@@ -33,6 +36,8 @@ function harness(
     decisions?: Record<string, "always" | "never">
     permissions?: string[]
     signal?: AbortSignal
+    networkRules?: boolean
+    recordings?: boolean
   } = {}
 ) {
   let clock = 10_000
@@ -157,10 +162,41 @@ function harness(
       ((await sessions.get(session))?.onceOrigins ?? []).includes(origin),
     grantOnce: async () => undefined,
   })
+  const rulesBrowser = fakeNetworkRulesBrowser()
+  let nextRule = 0
+  const networkRules = createNetworkRules({
+    local: localArea,
+    session: memoryStorageArea(),
+    newId: () => `rule-${++nextRule}`,
+    browser: rulesBrowser.browser,
+    sessions: () => sessions.all(),
+  })
+  const injectedRecorders: number[] = []
+  let nextRecording = 0
+  const recordings = createRecordings({
+    local: localArea,
+    session: memoryStorageArea(),
+    newId: () => `rec-${++nextRecording}`,
+    now: () => clock,
+    browser: {
+      tabInfo: async (tabId) => {
+        const tab = tabs.get(tabId)
+        return tab ? { url: tab.url, title: tab.title } : null
+      },
+      injectRecorder: async (tabId) => {
+        injectedRecorders.push(tabId)
+      },
+      removeRecorder: async () => undefined,
+      hasOrigin: async () => true,
+      setRecorderScripts: async () => undefined,
+    },
+  })
   const executor = createAgentExecutor({
     browser,
     sessions,
     permissions,
+    ...(options.networkRules ? { networkRules } : {}),
+    ...(options.recordings ? { recordings } : {}),
     signal: options.signal,
     now: () => clock,
     sleep: async (ms) => {
@@ -186,6 +222,10 @@ function harness(
     cookies,
     removedCookies,
     sessions,
+    networkRules,
+    rulesBrowser: rulesBrowser.state,
+    recordings,
+    injectedRecorders,
     failInject: () => {
       failInject = true
     },
@@ -538,21 +578,76 @@ describe("createAgentExecutor", () => {
       viewportHeight: 1_000,
       viewportWidth: 500,
       scrollY: 40,
+      scrollX: 12,
       dpr: 1,
     }))
     // The last segment can only scroll to 1500: the bottom 500 rows are new.
     h.handlers.set(pageScrollTo, (_tab, [y]) => Math.min(Number(y), 1_500))
     const before = h.captures.length
-    const full = await h.run("screenshot", { options: { scope: "fullPage" } })
+    const full = (await h.run("screenshot", { options: { scope: "fullPage" } })) as Record<
+      string,
+      unknown
+    >
     expect(full).toMatchObject({
       bytes: "stitch:3:500:1000+1000+500",
       width: 500,
       height: 2_500,
     })
+    expect(full.truncated).toBeUndefined()
     const spacing = h.captures.slice(before)
     expect(spacing[1]! - spacing[0]!).toBeGreaterThanOrEqual(500)
-    // Scrolled back to where the person left it.
-    expect(h.ran.filter((call) => call.func === pageScrollTo).at(-1)?.args).toEqual([40])
+    const scrolls = h.ran.filter((call) => call.func === pageScrollTo)
+    // Segments leave the page where it is sideways…
+    expect(scrolls.slice(-4, -1).map((call) => call.args)).toEqual([
+      [0, null],
+      [1_000, null],
+      [2_000, null],
+    ])
+    // …and both axes go back to where the person left them.
+    expect(scrolls.at(-1)?.args).toEqual([40, 12])
+  })
+
+  it("stitches a smooth-scrolling page from where each segment landed, or says it was cut", async () => {
+    const h = harness({ decisions: ALWAYS })
+    await h.run("navigate", { url: "https://example.com/" })
+    h.handlers.set(pageScrollMetrics, () => ({
+      scrollHeight: 1_000,
+      viewportHeight: 400,
+      viewportWidth: 300,
+      scrollY: 120,
+      scrollX: 300,
+      dpr: 1,
+    }))
+    // A page still animating answers behind each target: 0, then 0, then 400.
+    const lagging = [0, 0, 400]
+    h.handlers.set(pageScrollTo, () => lagging.shift() ?? 120)
+    const full = (await h.run("screenshot", { options: { scope: "fullPage" } })) as Record<
+      string,
+      unknown
+    >
+    // Nothing stacked twice: the repeat at 0 adds no rows, the 400 adds 400.
+    expect(full).toMatchObject({ bytes: "stitch:3:300:400+0+400", height: 800, truncated: true })
+    expect(h.ran.filter((call) => call.func === pageScrollTo).at(-1)?.args).toEqual([120, 300])
+  })
+
+  it("puts the scroll back when a segment fails", async () => {
+    const h = harness({ decisions: ALWAYS })
+    await h.run("navigate", { url: "https://example.com/" })
+    h.handlers.set(pageScrollMetrics, () => ({
+      scrollHeight: 2_000,
+      viewportHeight: 1_000,
+      viewportWidth: 300,
+      scrollY: 70,
+      scrollX: 5,
+      dpr: 1,
+    }))
+    // The page goes away under the second segment.
+    h.handlers.set(pageScrollTo, (_tab, [y]) => {
+      if (y === 1_000) throw new Error("the page navigated")
+      return Number(y)
+    })
+    await expect(h.run("screenshot", { options: { scope: "fullPage" } })).rejects.toBeTruthy()
+    expect(h.ran.filter((call) => call.func === pageScrollTo).at(-1)?.args).toEqual([70, 5])
   })
 
   it("keeps cookie values in the browser and needs the cookies permission", async () => {
@@ -662,6 +757,96 @@ describe("createAgentExecutor", () => {
       ok: true,
       error: null,
       zoom: 1.5,
+    })
+  })
+
+  it("sets, lists and clears the conversation's request rules, and drops them on release", async () => {
+    const h = harness({ decisions: ALWAYS, networkRules: true })
+    await h.run("navigate", { url: "https://example.com/" })
+    const tabId = (await h.sessions.get("s1"))!.activeTabId!
+    await expect(
+      h.run("set_network_rules", {
+        rules: [
+          { match: "/api/orders", action: "respond", status: 503 },
+          { match: "/track", action: "fail" },
+        ],
+      })
+    ).resolves.toEqual({
+      rules: [
+        expect.objectContaining({ match: "/api/orders", coverage: "page-requests", hits: 0 }),
+        expect.objectContaining({ match: "/track", coverage: "all-requests", hits: 0 }),
+      ],
+    })
+    expect(h.rulesBrowser.pages.get(tabId)).toEqual([
+      expect.objectContaining({ match: "/api/orders", status: 503 }),
+    ])
+    expect(h.rulesBrowser.session[0]!.condition.tabIds).toEqual([tabId])
+    await expect(h.run("list_network_rules")).resolves.toMatchObject({
+      rules: [{ hits: 0 }, { hits: null }],
+    })
+    await expect(
+      h.run("set_network_rules", { rules: [{ match: "/a", action: "redirect" }] })
+    ).rejects.toMatchObject({ code: "malformed", message: expect.stringContaining("rules[0]") })
+    await expect(h.run("clear_network_rules")).resolves.toEqual({ rules: [] })
+    expect(h.rulesBrowser.session).toEqual([])
+    await h.run("set_network_rules", { rules: [{ match: "/track", action: "fail" }] })
+    await h.run("release")
+    expect(await h.networkRules.agentSets()).toEqual({})
+    expect(h.rulesBrowser.session).toEqual([])
+  })
+
+  it("sets no request rules on a page whose site the person blocked", async () => {
+    const h = harness({ decisions: { "https://blocked.test": "never" }, networkRules: true })
+    h.addTab({ id: 5, url: "https://blocked.test/" })
+    await expect(
+      h.run("set_network_rules", { startTabId: 5, rules: [{ match: "/a", action: "fail" }] })
+    ).rejects.toMatchObject({ code: "browser_site_blocked" })
+    expect(await h.networkRules.agentSets()).toEqual({})
+  })
+
+  it("records in the conversation's tab, and reads only shared recordings", async () => {
+    const h = harness({ decisions: ALWAYS, recordings: true })
+    await h.run("navigate", { url: "https://example.com/" })
+    const tabId = (await h.sessions.get("s1"))!.activeTabId!
+    await expect(h.run("start_recording")).resolves.toEqual({
+      recording: expect.objectContaining({ id: "rec-1", byAgent: true, stepCount: 0 }),
+    })
+    expect(h.injectedRecorders).toEqual([tabId])
+    await h.recordings.step(tabId, { action: "navigate", url: "https://example.com/", at: 1 })
+    await expect(h.run("stop_recording")).resolves.toEqual({
+      recording: expect.objectContaining({ id: "rec-1", stepCount: 1 }),
+    })
+    await expect(h.run("stop_recording")).rejects.toMatchObject({
+      code: "browser_recording_not_found",
+    })
+    await expect(h.run("list_recordings")).resolves.toEqual({
+      recordings: [expect.objectContaining({ id: "rec-1" })],
+    })
+    await expect(h.run("get_recording", { id: "rec-1", format: "playwright" })).resolves.toEqual({
+      recording: expect.objectContaining({
+        steps: [expect.objectContaining({ action: "navigate" })],
+      }),
+      playwright: expect.stringContaining('await page.goto("https://example.com/")'),
+    })
+    await expect(h.run("get_recording", { id: "nope" })).rejects.toMatchObject({
+      code: "browser_recording_not_found",
+    })
+  })
+
+  it("stops the conversation's recording when it releases its tabs", async () => {
+    const h = harness({ decisions: ALWAYS, recordings: true })
+    await h.run("navigate", { url: "https://example.com/" })
+    const tabId = (await h.sessions.get("s1"))!.activeTabId!
+    await h.run("start_recording")
+    await h.run("release")
+    expect(await h.recordings.isRecording(tabId)).toBe(false)
+  })
+
+  it("answers request rules as unknown in a build without them", async () => {
+    const h = harness({ decisions: ALWAYS })
+    await h.run("navigate", { url: "https://example.com/" })
+    await expect(h.run("list_network_rules")).rejects.toMatchObject({
+      code: "browser_operation_unknown",
     })
   })
 

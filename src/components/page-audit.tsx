@@ -12,7 +12,11 @@ import {
 } from "@cognia/plugin-ui"
 import { ChevronDownIcon, ShieldCheckIcon } from "lucide-react"
 
-import { SECTION_TRIGGER_CLASS, SectionHeading } from "@ext/src/components/panel-section"
+import {
+  SECTION_TRIGGER_CLASS,
+  SectionHeading,
+  ToolSection,
+} from "@ext/src/components/panel-section"
 import type { BrowserApi } from "@ext/src/lib/browser-api"
 import type { A11yImpact, A11yIssue, A11yRule } from "@ext/src/lib/inspect/a11y-audit"
 import type { InsightKind, PageInsights } from "@ext/src/lib/inspect/insights"
@@ -54,6 +58,8 @@ export interface PageAuditProps {
   onShowFocusIssue?: (issue: FocusIssue) => void
   onPickFocusIssue?: (issue: FocusIssue) => void
   onEyedropper: () => void
+  /** Open before any result, where the audit has a tab of its own. */
+  defaultOpen?: boolean
 }
 
 /** A `switch` with literal keys, so the locale coverage test can see them. */
@@ -167,13 +173,14 @@ export function PageAudit({
   onShowFocusIssue = () => undefined,
   onPickFocusIssue = () => undefined,
   onEyedropper,
+  defaultOpen = false,
 }: PageAuditProps) {
   const [open, setOpen] = useState<boolean | null>(null)
   const [allIssues, setAllIssues] = useState(false)
   const [showVariables, setShowVariables] = useState(false)
   const { copy } = useCopy()
   const { audit, tokens, stack, perf, seo, layout, focus } = insights
-  const expanded = open ?? Object.values(insights).some((entry) => entry !== null)
+  const expanded = open ?? (defaultOpen || Object.values(insights).some((entry) => entry !== null))
   const issues = audit ? (allIssues ? audit.issues : audit.issues.slice(0, SHOWN_ISSUES)) : []
   const counts = audit
     ? (["critical", "serious", "moderate", "minor"] as const).map(
@@ -219,12 +226,20 @@ export function PageAudit({
           />
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-4 px-3 pt-1 pb-3" data-testid="page-audit">
-        <div className="space-y-1.5" data-testid="a11y-tools">
-          <h3 className="text-xs font-medium">{api.message("accessTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("accessHint")}</p>
+      <CollapsibleContent
+        forceMount
+        hidden={!expanded}
+        className="divide-y divide-border px-3 pt-1 pb-3"
+        data-testid="page-audit"
+      >
+        <ToolSection
+          testId="a11y-tools"
+          title={api.message("accessTitle")}
+          hint={api.message("accessHint")}
+          active={audit !== null || busy === "audit"}
+          actions={runButton("audit", api.message("accessRun"), audit !== null)}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            {runButton("audit", api.message("accessRun"), audit !== null)}
             {audit ? (
               <IncludeToggle api={api} kind="audit" checked={audit.include} onInclude={onInclude} />
             ) : null}
@@ -313,13 +328,16 @@ export function PageAudit({
               ) : null}
             </div>
           ) : null}
-        </div>
+        </ToolSection>
 
-        <div className="space-y-1.5" data-testid="focus-tools">
-          <h3 className="text-xs font-medium">{api.message("focusTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("focusHint")}</p>
+        <ToolSection
+          testId="focus-tools"
+          title={api.message("focusTitle")}
+          hint={api.message("focusHint")}
+          active={focus !== null || busy === "focus"}
+          actions={runButton("focus", api.message("focusRun"), focus !== null)}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            {runButton("focus", api.message("focusRun"), focus !== null)}
             {focus ? (
               <IncludeToggle api={api} kind="focus" checked={focus.include} onInclude={onInclude} />
             ) : null}
@@ -337,13 +355,16 @@ export function PageAudit({
               onPick={onPickFocusIssue}
             />
           ) : null}
-        </div>
+        </ToolSection>
 
-        <div className="space-y-1.5" data-testid="layout-tools">
-          <h3 className="text-xs font-medium">{api.message("layoutTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("layoutHint")}</p>
+        <ToolSection
+          testId="layout-tools"
+          title={api.message("layoutTitle")}
+          hint={api.message("layoutHint")}
+          active={layout !== null || busy === "layout"}
+          actions={runButton("layout", api.message("layoutRun"), layout !== null)}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            {runButton("layout", api.message("layoutRun"), layout !== null)}
             {layout ? (
               <IncludeToggle
                 api={api}
@@ -364,13 +385,16 @@ export function PageAudit({
               onPick={onPickLayoutIssue}
             />
           ) : null}
-        </div>
+        </ToolSection>
 
-        <div className="space-y-1.5" data-testid="tokens-tools">
-          <h3 className="text-xs font-medium">{api.message("tokensTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("tokensHint")}</p>
+        <ToolSection
+          testId="tokens-tools"
+          title={api.message("tokensTitle")}
+          hint={api.message("tokensHint")}
+          active={tokens !== null || busy === "tokens" || pickedColors.length > 0}
+          actions={runButton("tokens", api.message("tokensRun"), tokens !== null)}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            {runButton("tokens", api.message("tokensRun"), tokens !== null)}
             {canEyedrop ? (
               <Button
                 size="sm"
@@ -515,43 +539,52 @@ export function PageAudit({
               ) : null}
             </div>
           ) : null}
-        </div>
+        </ToolSection>
 
-        <div className="space-y-1.5" data-testid="stack-tools">
-          <h3 className="text-xs font-medium">{api.message("stackTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("stackHint")}</p>
+        <ToolSection
+          testId="stack-tools"
+          title={api.message("stackTitle")}
+          hint={api.message("stackHint")}
+          active={stack !== null || busy === "stack"}
+          actions={runButton("stack", api.message("stackRun"), stack !== null)}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            {runButton("stack", api.message("stackRun"), stack !== null)}
             {stack ? (
               <IncludeToggle api={api} kind="stack" checked={stack.include} onInclude={onInclude} />
             ) : null}
           </div>
           {stack ? <StackResult api={api} stack={stack} /> : null}
-        </div>
+        </ToolSection>
 
-        <div className="space-y-1.5" data-testid="perf-tools">
-          <h3 className="text-xs font-medium">{api.message("perfTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("perfHint")}</p>
+        <ToolSection
+          testId="perf-tools"
+          title={api.message("perfTitle")}
+          hint={api.message("perfHint")}
+          active={perf !== null || busy === "perf"}
+          actions={runButton("perf", api.message("perfRun"), perf !== null)}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            {runButton("perf", api.message("perfRun"), perf !== null)}
             {perf ? (
               <IncludeToggle api={api} kind="perf" checked={perf.include} onInclude={onInclude} />
             ) : null}
           </div>
           {perf ? <PerformanceResult api={api} report={perf} /> : null}
-        </div>
+        </ToolSection>
 
-        <div className="space-y-1.5" data-testid="seo-tools">
-          <h3 className="text-xs font-medium">{api.message("seoTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{api.message("seoHint")}</p>
+        <ToolSection
+          testId="seo-tools"
+          title={api.message("seoTitle")}
+          hint={api.message("seoHint")}
+          active={seo !== null || busy === "seo"}
+          actions={runButton("seo", api.message("seoRun"), seo !== null)}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            {runButton("seo", api.message("seoRun"), seo !== null)}
             {seo ? (
               <IncludeToggle api={api} kind="seo" checked={seo.include} onInclude={onInclude} />
             ) : null}
           </div>
           {seo ? <SeoResult api={api} report={seo} /> : null}
-        </div>
+        </ToolSection>
       </CollapsibleContent>
     </Collapsible>
   )

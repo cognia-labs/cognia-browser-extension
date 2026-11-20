@@ -14,7 +14,18 @@ import {
   PENDING_SITE_QUESTIONS_KEY,
   isAgentPermissionMessage,
 } from "@ext/src/lib/agent/site-permissions"
+import { AGENT_SESSIONS_KEY } from "@ext/src/lib/agent/sessions"
 import { BADGE_COLORS } from "@ext/src/lib/background/status-tracker"
+import { createChromeNetworkRulesBrowser } from "@ext/src/lib/network-rules/chrome-network-rules"
+import { isPageRulesMessage } from "@ext/src/lib/network-rules/page"
+import { isRuleCommandMessage } from "@ext/src/lib/network-rules/store"
+import { createChromeRecordingBrowser } from "@ext/src/lib/recordings/chrome-recordings"
+import {
+  isRecordingAskMessage,
+  isRecordingCommandMessage,
+  isRecordingStepMessage,
+  isRecordingStopMessage,
+} from "@ext/src/lib/recordings/controller"
 import { PANEL_PORT, createWorker } from "@ext/src/lib/background/worker"
 import {
   CAPTURE_MENU_IDS,
@@ -57,6 +68,8 @@ export default defineBackground(() => {
       return signer ? createHostClient({ pairing, signer }) : null
     },
     browser: createChromeAgentBrowser(),
+    networkRulesBrowser: createChromeNetworkRulesBrowser(),
+    recordingBrowser: createChromeRecordingBrowser(),
     createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
     setBadge: async (badge) => {
       await chrome.action.setBadgeText({ text: badge.text })
@@ -220,6 +233,49 @@ export default defineBackground(() => {
         .then(sendResponse, () => sendResponse(false))
       return true
     }
+    if (isRuleCommandMessage(message)) {
+      void ready
+        .then(() => worker.onNetworkRuleCommand(message.command, sender.url))
+        .then(sendResponse, () => sendResponse(false))
+      return true
+    }
+    if (isRecordingCommandMessage(message)) {
+      void ready
+        .then(() => worker.onRecordingCommand(message.command, sender.url))
+        .then(sendResponse, () => sendResponse(false))
+      return true
+    }
+    // The registered recorder at `document_start`: is this tab recording?
+    if (isRecordingAskMessage(message)) {
+      if (sender.tab?.id === undefined || sender.frameId !== 0) return false
+      void ready
+        .then(() => worker.recordings.askFor(sender.tab?.id))
+        .then(sendResponse, () => sendResponse(null))
+      return true
+    }
+    // The recorder, from inside the tab it records; the worker checks the tab is recording.
+    if (isRecordingStepMessage(message) || isRecordingStopMessage(message)) {
+      if (sender.tab?.id === undefined || sender.frameId !== 0) return false
+      const tabId = sender.tab.id
+      void ready
+        .then(async () => {
+          if (isRecordingStepMessage(message)) await worker.recordings.step(tabId, message.step)
+          else await worker.recordings.stopTab(tabId)
+        })
+        .then(
+          () => sendResponse(true),
+          () => sendResponse(false)
+        )
+      return true
+    }
+    // Only this extension's loader, inside a tab, asks; the page itself cannot.
+    if (isPageRulesMessage(message)) {
+      if (sender.tab?.id === undefined || sender.frameId !== 0) return false
+      void ready
+        .then(() => worker.pageRules(sender.tab?.id, sender.url))
+        .then(sendResponse, () => sendResponse([]))
+      return true
+    }
     if (isAgentOpenTabMessage(message)) {
       void ready
         .then(() => worker.runtime.openTab(message, sender.tab?.id))
@@ -229,23 +285,46 @@ export default defineBackground(() => {
     return false
   })
 
+  // A grant the rules were waiting for, or one taken back in chrome://extensions.
+  const resyncRules = () => void ready.then(() => worker.networkRules.sync()).catch(() => undefined)
+  chrome.permissions.onAdded.addListener(resyncRules)
+  chrome.permissions.onRemoved.addListener(resyncRules)
+
   chrome.alarms.onAlarm.addListener((alarm) => {
     void ready.then(() => worker.onAlarm(alarm.name))
   })
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     void ready.then(() => worker.runtime.tabRemoved(tabId))
+    void ready.then(() => worker.recordings.stopTab(tabId)).catch(() => undefined)
+  })
+
+  // A recording tab loaded a page: the recorder goes back in. A
+  // conversation's tab with request rules that reached a new site: the gate
+  // follows it, and the rules go into the page.
+  chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+    const complete = change.status === "complete"
+    if (complete) void ready.then(() => worker.recordings.tabLoaded(tabId)).catch(() => undefined)
+    if (complete || change.url)
+      void ready
+        .then(() => worker.networkRules.tabUpdated(tabId, change.url ?? tab.url, complete))
+        .catch(() => undefined)
   })
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "local") {
-      for (const key of [STORAGE_KEYS.pairing, STORAGE_KEYS.preferences]) {
+      for (const key of [STORAGE_KEYS.pairing, STORAGE_KEYS.preferences, STORAGE_KEYS.localMode]) {
         if (Object.hasOwn(changes, key)) {
           void ready.then(() => worker.onLocalChange(key, changes[key]?.newValue ?? null))
         }
       }
-    } else if (areaName === "session" && Object.hasOwn(changes, PENDING_SITE_QUESTIONS_KEY)) {
-      void ready.then(() => worker.onQuestionsChange())
+    } else if (areaName === "session") {
+      if (Object.hasOwn(changes, PENDING_SITE_QUESTIONS_KEY))
+        void ready.then(() => worker.onQuestionsChange())
+      if (Object.hasOwn(changes, AGENT_SESSIONS_KEY))
+        void ready.then(() =>
+          worker.onSessionsChange((changes[AGENT_SESSIONS_KEY]?.newValue ?? null) as never)
+        )
     }
   })
 

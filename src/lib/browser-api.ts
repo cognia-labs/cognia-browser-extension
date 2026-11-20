@@ -32,6 +32,8 @@ import type { TextChange } from "./inspect/text-edits"
 import type { AdjustResult } from "./inspect/element-picker"
 import type { MockHits, RequestMock } from "./inspect/request-mocks"
 import type { AdjustSpacing } from "./inspect/adjust"
+import type { RuleCommand, RuleCommandResult } from "./network-rules/store"
+import type { RecordingCommand } from "./recordings/controller"
 import type { DetectedStack } from "./inspect/tech-stack"
 
 export interface TabRef {
@@ -44,7 +46,9 @@ export interface TabRef {
 
 /** Optional permissions the panel asks for inside the person's click. */
 export interface PermissionRequest {
-  permissions?: ("tabs" | "notifications" | "downloads" | "cookies")[]
+  permissions?: (
+    "tabs" | "notifications" | "downloads" | "cookies" | "declarativeNetRequestWithHostAccess"
+  )[]
   origins?: string[]
 }
 
@@ -54,6 +58,8 @@ export interface ScrollMetrics {
   viewportHeight: number
   viewportWidth: number
   scrollY: number
+  /** Where the page is sideways; absent from a page measured by an older build. */
+  scrollX?: number
   dpr: number
 }
 
@@ -126,6 +132,8 @@ export interface BrowserApi {
   /** Must run inside a user gesture. */
   requestPermissions(request: PermissionRequest): Promise<boolean>
   removePermissions(request: PermissionRequest): Promise<boolean>
+  /** Observe browser grants and revocations until the returned cleanup runs. */
+  onPermissionsChange(listener: () => void): () => void
 
   /** The tabs of the panel's window. Needs the optional `tabs` permission. */
   listTabs(): Promise<TabRef[]>
@@ -134,8 +142,11 @@ export interface BrowserApi {
   /** Make a tab the active one in its window. */
   activateTab(tabId: number): Promise<void>
   scrollMetrics(tabId: number): Promise<ScrollMetrics>
-  /** Scroll to `y`; answers where the page actually landed. */
-  scrollTo(tabId: number, y: number): Promise<number>
+  /**
+   * Scroll to `y`, and sideways to `x` when given (else the page keeps its
+   * horizontal position); answers where the page actually landed vertically.
+   */
+  scrollTo(tabId: number, y: number, x?: number): Promise<number>
   /** Crop a capture, in device pixels; base64 PNG without the prefix. */
   cropImage(
     dataUrl: string,
@@ -150,10 +161,19 @@ export interface BrowserApi {
 
   /** Hold a port to the worker while the panel is open. */
   connectPanel(): PanelPort
+  /** Start, stop, share, rename or remove a recording; the worker is the only writer. */
+  recordingCommand(command: RecordingCommand): Promise<unknown>
+  /** Change the saved request rules; the worker is their only writer (ADR-0242). */
+  networkRuleCommand(command: RuleCommand): Promise<RuleCommandResult>
   /** Answer a pending site question (ADR-0228 §7), inside the person's click. */
   answerSiteQuestion(questionId: string, answer: SiteAnswer): Promise<void>
   /** Forget a standing site decision. */
   forgetSiteDecision(origin: string): Promise<void>
+  /**
+   * Ask Cognia again to stop a paused conversation's task, after a Stop it
+   * did not confirm. The worker keeps the answer on the session.
+   */
+  retryHostStop(sessionId: string): Promise<void>
 
   // ── Inspecting the page (element picker, bug context, design checks) ──
   //
@@ -306,6 +326,8 @@ export interface BrowserApi {
  * unsent draft, in `chrome.storage.session` ({@link SESSION_KEYS}) — never here.
  */
 export const STORAGE_KEYS = {
+  /** Explicit local mode suspends Host connections without deleting pairing. */
+  localMode: "cognia.localMode.v1",
   /** `{ baseUrl, tenantId, deviceId, extensionOrigin, pairedAt }`. */
   pairing: "cognia.pairing.v1",
   /** The Host's last-sent appearance, so the first paint is not wrong. */
@@ -335,6 +357,8 @@ export const SESSION_KEYS = {
   socketState: "cognia.socketState.v1",
   /** When the Host last said a submission moved; the panel refreshes on change. */
   statusHint: "cognia.statusHint.v1",
+  /** The side panel tab last shown (`panel-view.ts`), restored on reopen. */
+  panelView: "cognia.panelView.v1",
 } as const
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]

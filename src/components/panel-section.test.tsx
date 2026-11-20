@@ -5,6 +5,20 @@ import { RulerIcon } from "lucide-react"
 import { ActivityStrip, PanelSection, ToolTile } from "./panel-section"
 
 describe("PanelSection", () => {
+  it("keeps edits when a tool section is folded and reopened", () => {
+    render(
+      <PanelSection icon={RulerIcon} title="Inspect" collapsible>
+        <input aria-label="Notes" />
+      </PanelSection>
+    )
+    const notes = screen.getByRole("textbox", { name: "Notes" })
+    fireEvent.change(notes, { target: { value: "Keep this" } })
+    fireEvent.click(screen.getByRole("button", { name: "Inspect" }))
+    expect(notes).not.toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Inspect" }))
+    expect(screen.getByRole("textbox", { name: "Notes" })).toHaveValue("Keep this")
+  })
+
   it("heads its part of the panel with a title at the level asked, and what it is for", () => {
     render(
       <PanelSection icon={RulerIcon} title="Capture" subtitle="From this page" level="h1">

@@ -50,10 +50,15 @@ describe("SiteQuestions", () => {
         askedAt: 2,
       },
     ])
-    render(<SiteQuestions api={api} />)
+    render(<SiteQuestions api={api} conversationTitles={{ s: "Checkout bug" }} />)
     expect(await screen.findByTestId("site-question-q1")).toHaveTextContent(
       "siteQuestionTitle:shop.test"
     )
+    // Which conversation asks, and how long each answer lasts.
+    expect(screen.getByTestId("site-question-q1")).toHaveTextContent(
+      "siteQuestionFrom:Checkout bug"
+    )
+    expect(screen.getByTestId("site-question-q1")).toHaveTextContent("siteQuestionScope")
     expect(screen.getByTestId("site-question-q2")).toHaveTextContent(
       "siteQuestionDetail:siteOpNavigate"
     )

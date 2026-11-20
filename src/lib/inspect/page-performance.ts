@@ -332,14 +332,17 @@ const VITAL_TITLES: Record<VitalName, string> = {
   inp: "Slowest interaction (≈ INP)",
   fcp: "First contentful paint",
   ttfb: "Time to first byte",
-  tbt: "Main thread blocked (TBT, from long tasks)",
+  // Not Lighthouse's TBT: that counts long tasks between first paint and
+  // time-to-interactive in a lab run; this sums every long task the browser
+  // kept for the visit so far, interactions included.
+  tbt: "Long-task blocking observed this visit (not TBT)",
 }
 
 export function performanceMarkdown(report: Omit<PagePerformance, "tabId" | "ranAt">): string {
   const lines = [
     "## Performance (this visit)",
     "",
-    "Field measurements of the visit on screen, from the browser's performance timeline; not a lab run. Ratings use Web Vitals thresholds.",
+    "Field measurements of the visit on screen, from the browser's performance timeline; not a lab run. Ratings use Web Vitals thresholds; long-task blocking sums each long task's time over 50 ms for the whole visit so far, so its rating against Lighthouse's TBT bands is a rough guide only.",
     "",
   ]
   for (const vital of vitals(report)) {

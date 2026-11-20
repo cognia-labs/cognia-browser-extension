@@ -88,22 +88,25 @@ export const MOCK_STORE_KEY = "__cogniaRequestMocks__"
  * log without changing anything, `[]` clears them. `keep` writes the rules
  * where the next load of this tab finds them. Run with
  * `chrome.scripting.executeScript({ func, world: "MAIN" })`, which serializes
- * it: every helper lives inside the body.
+ * it: every helper lives inside the body. `slot` names a separate set of rules
+ * with its own hooks — the request rules of `network-rules/` run in their own,
+ * so the panel's simulated requests and theirs never replace each other; only
+ * the default slot can be kept.
  */
-export function mainRequestMocks(rules: RequestMock[] | null, keep = false): MockHits {
+export function mainRequestMocks(rules: RequestMock[] | null, keep = false, slot = ""): MockHits {
   type Rule = RequestMock & { pattern: RegExp | null; applied: number }
   interface State {
     rules: Rule[]
     hits: Record<string, { count: number; lastUrl: string | null }>
     log: MockLogEntry[]
   }
-  const KEY = "__cogniaRequestMocks"
-  const STORE = "__cogniaRequestMocks__"
+  const KEY = `__cogniaRequestMocks${slot}`
+  const STORE = slot ? null : "__cogniaRequestMocks__"
   const LOG_SIZE = 50
   const holder = window as unknown as Record<string, State | undefined>
   const stored = () => {
     try {
-      return sessionStorage.getItem(STORE) !== null
+      return STORE !== null && sessionStorage.getItem(STORE) !== null
     } catch {
       return false
     }
@@ -510,7 +513,9 @@ export function mainRequestMocks(rules: RequestMock[] | null, keep = false): Moc
   for (const id of Object.keys(state.hits)) if (!kept.has(id)) delete state.hits[id]
   state.log = state.log.filter((entry) => kept.has(entry.rule))
   try {
-    if (keep && rules.length > 0) sessionStorage.setItem(STORE, JSON.stringify(rules))
+    if (STORE === null) {
+      // A named slot is never kept: its owner puts it back on every load.
+    } else if (keep && rules.length > 0) sessionStorage.setItem(STORE, JSON.stringify(rules))
     else sessionStorage.removeItem(STORE)
   } catch {
     // Storage the page has turned off: the rules last until the reload.

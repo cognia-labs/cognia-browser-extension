@@ -1,9 +1,16 @@
-import { createAgentRuntime, isAgentControlMessage, isAgentOpenTabMessage } from "./agent-runtime"
+import {
+  createAgentRuntime,
+  isAgentControlMessage,
+  isAgentOpenTabMessage,
+  type HostCancelOutcome,
+} from "./agent-runtime"
 import type { AgentBrowser, AgentTab } from "./executor"
 import { mainEvaluate, pageActingBar } from "./page-functions"
 import { AGENT_SESSIONS_KEY } from "./sessions"
 import { PENDING_SITE_QUESTIONS_KEY, SITE_DECISIONS_KEY } from "./site-permissions"
 import { memoryStorageArea } from "./storage-area"
+import { createNetworkRules } from "../network-rules/controller"
+import { fakeNetworkRulesBrowser } from "../network-rules/fake-browser"
 
 function harness() {
   let clock = 1_000
@@ -11,6 +18,7 @@ function harness() {
   let nextTab = 20
   const bars: { tabId: number; state: unknown }[] = []
   const cancelled: string[] = []
+  let cancelOutcome: HostCancelOutcome | Error = "cancelled"
   const grouped: number[][] = []
   const browser = {
     getTab: async (id: number) => tabs.get(id) ?? null,
@@ -49,7 +57,17 @@ function harness() {
   } as unknown as AgentBrowser
   const local = memoryStorageArea()
   const session = memoryStorageArea()
+  const rulesBrowser = fakeNetworkRulesBrowser()
+  let nextRule = 0
+  const networkRules = createNetworkRules({
+    local,
+    session,
+    newId: () => `rule-${++nextRule}`,
+    browser: rulesBrowser.browser,
+    sessions: () => runtime.sessions.all(),
+  })
   const runtime = createAgentRuntime({
+    networkRules,
     browser,
     local,
     session,
@@ -59,6 +77,8 @@ function harness() {
     onQuestion: () => undefined,
     cancelConversation: async (id) => {
       cancelled.push(id)
+      if (cancelOutcome instanceof Error) throw cancelOutcome
+      return cancelOutcome
     },
   })
   const seed = async (tabIds: number[]) =>
@@ -80,8 +100,13 @@ function harness() {
     local,
     session,
     seed,
+    networkRules,
+    rulesBrowser: rulesBrowser.state,
     advance: (ms: number) => {
       clock += ms
+    },
+    hostAnswers: (outcome: HostCancelOutcome | Error) => {
+      cancelOutcome = outcome
     },
   }
 }
@@ -282,6 +307,36 @@ describe("createAgentRuntime", () => {
     expect((h.bars.at(-1)?.state as { takenOver: boolean }).takenOver).toBe(false)
   })
 
+  it.each(["takeover", "stop"] as const)(
+    "%s leaves the person's pages without the conversation's request rules",
+    async (action) => {
+      const h = harness()
+      await h.seed([5])
+      h.tabs.set(5, {
+        id: 5,
+        windowId: 1,
+        url: "https://a.test/",
+        title: "",
+        status: "complete",
+        active: true,
+        groupId: 4,
+      })
+      await h.networkRules.setAgentRules(
+        "s1",
+        [
+          { match: "/a", action: "respond", status: 503 },
+          { match: "/b", action: "fail" },
+        ],
+        [{ id: 5, url: "https://a.test/" }]
+      )
+      expect(h.rulesBrowser.session).toHaveLength(1)
+      await h.runtime.control({ kind: "cognia-agent-control", session: "s1", action }, 5)
+      expect(await h.networkRules.agentSets()).toEqual({})
+      expect(h.rulesBrowser.session).toEqual([])
+      expect(h.rulesBrowser.pages.get(5)).toEqual([])
+    }
+  )
+
   it("stops the task and keeps a paused bar so only the person can resume", async () => {
     const h = harness()
     await h.seed([5])
@@ -292,6 +347,84 @@ describe("createAgentRuntime", () => {
       tabIds: [5],
       takeover: true,
     })
+  })
+
+  it.each(["cancelled", "none"] as const)(
+    "says nothing more when the Host answers Stop with %s",
+    async (outcome) => {
+      const h = harness()
+      h.hostAnswers(outcome)
+      await h.seed([5])
+      await h.runtime.control({ kind: "cognia-agent-control", session: "s1", action: "stop" }, 5)
+      expect(h.bars).toHaveLength(1)
+      expect(h.bars[0]!.state).not.toHaveProperty("notice")
+    }
+  )
+
+  it.each([["failed" as const], [new Error("offline")]])(
+    "still pauses, and says Cognia did not confirm, when Stop gets %s from the Host",
+    async (outcome) => {
+      const h = harness()
+      h.hostAnswers(outcome)
+      await h.seed([5, 6])
+      await expect(
+        h.runtime.control({ kind: "cognia-agent-control", session: "s1", action: "stop" }, 5)
+      ).resolves.toBe(true)
+      expect(await h.runtime.sessions.get("s1")).toMatchObject({ takeover: true })
+      expect(h.bars.slice(-2)).toEqual([
+        {
+          tabId: 5,
+          state: expect.objectContaining({
+            takenOver: true,
+            notice: "agentBarStopUnconfirmed",
+          }),
+        },
+        {
+          tabId: 6,
+          state: expect.objectContaining({
+            takenOver: true,
+            notice: "agentBarStopUnconfirmed",
+          }),
+        },
+      ])
+      // Resume repaints the bar as it is, without the old notice.
+      await h.runtime.control({ kind: "cognia-agent-control", session: "s1", action: "resume" }, 5)
+      expect(h.bars.at(-1)!.state).not.toHaveProperty("notice")
+    }
+  )
+
+  it("keeps Cognia's answer to Stop on the session until the person resumes", async () => {
+    const h = harness()
+    h.hostAnswers("failed")
+    await h.seed([5])
+    await h.runtime.control({ kind: "cognia-agent-control", session: "s1", action: "stop" }, 5)
+    expect((await h.runtime.sessions.get("s1"))?.hostStop).toEqual({
+      outcome: "failed",
+      at: expect.any(Number),
+    })
+    await h.runtime.control({ kind: "cognia-agent-control", session: "s1", action: "resume" }, 5)
+    expect(await h.runtime.sessions.get("s1")).not.toHaveProperty("hostStop")
+  })
+
+  it("asks Cognia again from the panel, for a paused conversation only", async () => {
+    const h = harness()
+    await h.seed([5])
+    // Running: a retry would stop the Host behind the person's back.
+    expect(await h.runtime.retryHostStop("s1")).toBeNull()
+    expect(h.cancelled).toEqual([])
+    expect(await h.runtime.retryHostStop("gone")).toBeNull()
+
+    h.hostAnswers("failed")
+    await h.runtime.control({ kind: "cognia-agent-control", session: "s1", action: "stop" }, 5)
+    expect(h.bars.at(-1)!.state).toMatchObject({ notice: "agentBarStopUnconfirmed" })
+
+    // Confirmed this time: the session says so and the bar loses its notice.
+    h.hostAnswers("cancelled")
+    expect(await h.runtime.retryHostStop("s1")).toBe("cancelled")
+    expect(h.cancelled).toEqual(["s1", "s1"])
+    expect((await h.runtime.sessions.get("s1"))?.hostStop?.outcome).toBe("cancelled")
+    expect(h.bars.at(-1)!.state).toMatchObject({ takenOver: true })
+    expect(h.bars.at(-1)!.state).not.toHaveProperty("notice")
   })
 
   it.each(["stop", "takeover"] as const)(

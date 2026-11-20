@@ -2,6 +2,12 @@
 
 The standalone repository owns the extension, assets, tests and release archives. The product repository continues to own the Cognia Host, shared source packages and in-app browser overlay. Repository separation changes development ownership, not runtime permissions, pairing endpoints, key slots, preference/session storage keys or the negotiated protocol.
 
+## Local mode
+
+Local mode makes capture, inspection, editing, prompt copy and Markdown export available without the Host. It uses the bundled capture formats and limits, without advertising Host delivery or agent capabilities. The explicit choice is stored under `cognia.localMode.v1`; existing pairing and device keys remain intact. The worker stops its Host socket and status polling, cancels pending operations and does not load a Host client on subsequent wake-ups in local mode. Entering local mode also turns the agent preference off, so reconnecting does not resume agent operation automatically.
+
+The existing pairing form remains available through Connect to Cognia. A successful pairing or explicit reconnect leaves local mode, retaining the unsent capture. Offline, revoked and incompatible Host screens also offer local mode. Captures keep using session-only drafts; copied prompts and Markdown exports include the reviewed page content, included inspection results and additional pages. Attachment bytes remain separate from Markdown exports.
+
 ## Pinned inputs
 
 `provenance/source.json` records the product revision, dirty-working-tree status and original SHA-256 of 229 imported files. This extraction intentionally includes the revocation/protocol hardening completed in the same session. It does not claim those bytes were all present in the named committed revision.
@@ -20,7 +26,7 @@ Driving requires envelope v1, the `agent-safe-v1` profile, overlay ABI 1, a Host
 
 The parent migration adds `integrations/browser-companion.json` with an immutable extension commit. Its `e2e-browser-extension` CI job checks out that exact commit, compares the shared client and overlay bytes against the proposed Host source, and runs the standalone checks and Chromium suite. A source mismatch requires an explicit consumer refresh, tests and pin update. A branch name or silently changing latest package is insufficient.
 
-`provenance/host-contract.json` additionally freezes 222 product-side source and dependency inputs: companion crates, Host entry points, build scripts and protocol files. The parent gate compares inventories symmetrically and checks every hash, so additions, removals and same-profile auth/schema changes require review. This conservative source fence can also require a refresh after an unrelated Rust dependency or protocol edit; it is not a claim of complete real-Host E2E coverage. Review compatibility, regenerate the Host snapshot from the proposed product source, test the consumer, then update the immutable product pin. Custom build generators must keep their inputs in this inventory; external build inputs require an explicit gate extension.
+`provenance/host-contract.json` additionally freezes 232 product-side source and dependency inputs: companion crates, Host entry points, build scripts and protocol files. The parent gate compares inventories symmetrically and checks every hash, so additions, removals and same-profile auth/schema changes require review. This conservative source fence can also require a refresh after an unrelated Rust dependency or protocol edit; it is not a claim of complete real-Host E2E coverage. Review compatibility, regenerate the Host snapshot from the proposed product source, test the consumer, then update the immutable product pin. Custom build generators must keep their inputs in this inventory; external build inputs require an explicit gate extension.
 
 Changes to authorization retire old Host connections; rapid revoke/regrant cannot revive queued work. Stop/Take over cancels immediately and persists pause until Resume. No already-dispatched Chrome call can be recalled. These semantics stay covered by the product Rust tests and the standalone runtime/Chromium tests.
 
@@ -35,6 +41,10 @@ The previous snapshot rejects this Host at `Cargo.lock`; the reviewed snapshot p
 The services split reviews product revision `85948f6e0c44a94c106da6b21a22a99ea895531a`, which moves the cloud services to `cognia-labs/cognia-services`. The inventory grows from 220 to 222 inputs: `protocol/cognia-services/diagnostic-openapi.yaml` and `protocol/cognia-services/share-constants.json` are byte-identical copies of service contracts that the diagnostic client and share crypto tests read; neither is a Browser Companion wire input. Six hashes change: `cognia-signaling-core` now resolves through a pinned git workspace dependency instead of `services/signaling-server/core` (`Cargo.toml`, `Cargo.lock`, `src-tauri/Cargo.toml` and the `cognia-companion`/`cognia-companion-connectivity` manifests), and one doc comment in `crates/cognia-companion/src/api.rs` names the new signaling server location. The crate source is unchanged, so the relay envelope stays the same.
 
 The portable client, injected overlay, browser agent envelope/profile and browser-companion WebSocket implementation retain their accepted bytes. The previous snapshot rejects this Host at the inventory; the refreshed snapshot passes all 234 product/consumer inputs. This refresh changes Host provenance and this receipt only.
+
+### Host baseline refresh: 2026-10-28
+
+The `recording-v1` and `network-rules-v1` work pins product revision `bd182cf9ba0d5dfaa8e5ab8a153ab084bc76313c`, a descendant of the services-split revision above, so it carries that refresh. The inventory grows from 222 to 232 inputs: `protocol/transcript-live-frame-v1.json` and the person/organization sources `crates/cognia-companion/src/{org_policy,person_chat,person_partition}.rs`, `crates/cognia-companion-rpc/src/{person_execution,person_model}.rs`, `crates/cognia-companion-security/src/{org_agent_policy,org_credentials}.rs` and `crates/cognia-server/src/{org_admin,persons}.rs`. All 232 hashes were checked against that revision when the branch carrying it was merged into `dev`. This refresh changes Host provenance and this receipt only.
 
 ## Tooling adaptations
 

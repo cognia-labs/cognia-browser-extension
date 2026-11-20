@@ -1,9 +1,24 @@
 {
+  "useLocalMode": {
+    "message": "Use local mode"
+  },
+  "localModeTitle": {
+    "message": "Local mode"
+  },
+  "localModeHint": {
+    "message": "Local tools; connect for tasks and agents."
+  },
+  "connectHost": {
+    "message": "Connect to Cognia"
+  },
+  "appearanceSystem": {
+    "message": "Follow system"
+  },
   "extensionName": {
     "message": "Cognia Browser Companion"
   },
   "extensionDescription": {
-    "message": "Hand the page you are reading to Cognia. Nothing is read until you capture it."
+    "message": "Capture, inspect, edit and export pages locally. Connect to Cognia to send tasks. Nothing is read until you capture it."
   },
   "actionTitle": {
     "message": "Open Cognia"
@@ -12,10 +27,10 @@
     "message": "Capture this page for Cognia"
   },
   "contextMenuSelection": {
-    "message": "Send selection to Cognia"
+    "message": "Capture selection"
   },
   "contextMenuPage": {
-    "message": "Send this page to Cognia"
+    "message": "Capture this page"
   },
   "pairTitle": {
     "message": "Connect to Cognia"
@@ -68,10 +83,10 @@
     "message": "This code is incomplete or damaged. Copy it from Cognia again."
   },
   "captureTitle": {
-    "message": "Send to Cognia"
+    "message": "Capture"
   },
   "captureEmpty": {
-    "message": "Nothing captured yet. Use the toolbar button, the shortcut, or the right-click menu on a page."
+    "message": "Choose a page to capture."
   },
   "captureRestricted": {
     "message": "This page cannot be captured. Only ordinary http and https pages can be sent."
@@ -100,13 +115,13 @@
     }
   },
   "captureFullUrl": {
-    "message": "Include the full address"
+    "message": "Full address"
   },
   "captureFullUrlHint": {
-    "message": "Off by default: query strings often carry session tokens and search terms."
+    "message": "Full URLs may contain private tokens."
   },
   "instructionPlaceholder": {
-    "message": "What should Cognia do with this?"
+    "message": "What would you like to do with this?"
   },
   "workspaceLabel": {
     "message": "Workspace"
@@ -305,16 +320,72 @@
     "message": "Connecting to Cognia…"
   },
   "captureNow": {
-    "message": "Capture this page"
+    "message": "Capture page"
   },
   "captureWholePage": {
-    "message": "Capture the whole page"
+    "message": "Whole page"
   },
   "captureRecapture": {
     "message": "Capture again"
   },
   "captureNoGrant": {
-    "message": "Cognia has no access to this tab. Click the toolbar icon on the page you want to send, or use the right-click menu."
+    "message": "The extension does not have access to this tab. Click its toolbar icon on the target page, use the right-click menu, or allow site access when offered."
+  },
+  "captureAllowSite": {
+    "message": "Allow access to this site"
+  },
+  "siteAccessTitle": {
+    "message": "Website access"
+  },
+  "siteAccessAllowAll": {
+    "message": "Allow all websites"
+  },
+  "siteAccessAllAllowed": {
+    "message": "All websites allowed"
+  },
+  "siteAccessHint": {
+    "message": "Allow once for capture and editing across sites."
+  },
+  "siteAccessGrantedHint": {
+    "message": "Capture and edit without site-by-site prompts."
+  },
+  "siteAccessWorking": {
+    "message": "Authorizing…"
+  },
+  "siteAccessManage": {
+    "message": "Manage"
+  },
+  "siteAccessDenied": {
+    "message": "Access was not granted. You can still allow individual sites."
+  },
+  "siteAccessFailed": {
+    "message": "Could not update website access. Try again."
+  },
+  "captureIdentifyHint": {
+    "message": "Chrome has not revealed this tab's address. First allow reading tab titles and URLs to identify the site, then approve access to the displayed site."
+  },
+  "captureIdentifyDenied": {
+    "message": "Permission to identify the site was not granted. You can instead click the extension's toolbar icon on the target page for temporary access."
+  },
+  "captureSiteIdentified": {
+    "message": "Site identified. Allow access below to retry capture."
+  },
+  "captureAccessHint": {
+    "message": "Allow reading pages on $SITE$ to capture from the side panel. You can revoke this permission in the extension's site access settings.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "captureAccessDenied": {
+    "message": "Site access was not granted. Try again or allow this site in the extension's settings."
+  },
+  "captureAccessChanged": {
+    "message": "The tab was closed or moved to another site. Capture the current page again."
+  },
+  "captureReadFailed": {
+    "message": "Could not read this page. Reload the page and try again. Browser-internal pages and extension stores cannot be captured."
   },
   "openPanelCommand": {
     "message": "Open the Cognia side panel"
@@ -326,13 +397,13 @@
     "message": "Send this article to Cognia"
   },
   "contextMenuArticle": {
-    "message": "Send article to Cognia"
+    "message": "Capture article"
   },
   "contextMenuLink": {
-    "message": "Send link to Cognia"
+    "message": "Capture link"
   },
   "contextMenuImage": {
-    "message": "Send image to Cognia"
+    "message": "Capture image"
   },
   "contextMenuQuick": {
     "message": "Ask Cognia to…"
@@ -384,6 +455,9 @@
   "agentBarResume": {
     "message": "Hand back"
   },
+  "agentBarStopUnconfirmed": {
+    "message": "Paused here, but Cognia did not confirm its task stopped. Stop it in Cognia."
+  },
   "agentTitle": {
     "message": "Agent mode"
   },
@@ -431,6 +505,69 @@
   },
   "agentConversationsTitle": {
     "message": "Conversations acting here"
+  },
+  "agentControlTitle": {
+    "message": "Controlling this browser"
+  },
+  "agentControlManage": {
+    "message": "Site access"
+  },
+  "agentControlConversation": {
+    "message": "Conversation $ID$",
+    "placeholders": {
+      "id": {
+        "content": "$1",
+        "example": "1a2b3c4d"
+      }
+    }
+  },
+  "agentControlActing": {
+    "message": "Acting"
+  },
+  "agentControlPaused": {
+    "message": "Paused"
+  },
+  "agentControlShowTab": {
+    "message": "Show its tab"
+  },
+  "agentControlOnceSites": {
+    "message": "Allowed for this conversation: $SITES$",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "shop.test"
+      }
+    }
+  },
+  "agentControlStopUnconfirmed": {
+    "message": "Paused here, but Cognia did not confirm its task stopped."
+  },
+  "agentControlRetryStop": {
+    "message": "Stop in Cognia"
+  },
+  "agentControlRetrying": {
+    "message": "Asking…"
+  },
+  "agentControlRetryFailed": {
+    "message": "Could not reach the worker. Try again, or stop the task in Cognia."
+  },
+  "agentControlStopConfirmed": {
+    "message": "Cognia stopped its task."
+  },
+  "agentControlStopNone": {
+    "message": "Cognia had no task running for it."
+  },
+  "siteQuestionFrom": {
+    "message": "Asked by: $CONVERSATION$",
+    "placeholders": {
+      "conversation": {
+        "content": "$1",
+        "example": "Checkout bug"
+      }
+    }
+  },
+  "siteQuestionScope": {
+    "message": "\"Allow for this task\" lasts while this conversation does. \"Always allow\" is for every conversation until you forget it in Settings."
   },
   "agentConversationTabs": {
     "message": "$COUNT$ tabs",
@@ -534,7 +671,7 @@
     }
   },
   "captureArticle": {
-    "message": "Send article"
+    "message": "Article"
   },
   "captureBlocked": {
     "message": "You have set this site never to be captured."
@@ -543,7 +680,7 @@
     "message": "Title"
   },
   "captureEditText": {
-    "message": "What will be sent (you can trim it)"
+    "message": "Captured text (editable)"
   },
   "captureLinkLabel": {
     "message": "Link:"
@@ -726,6 +863,9 @@
   "submitShortcutHint": {
     "message": "Ctrl/⌘ + Enter to send"
   },
+  "submitMarkupOpen": {
+    "message": "Apply or cancel the markup before sending: the screenshot does not include it yet."
+  },
   "transcriptAvailable": {
     "message": "Transcript included"
   },
@@ -754,10 +894,10 @@
     "message": "Pick element"
   },
   "inspectPickCancel": {
-    "message": "Stop picking"
+    "message": "Cancel"
   },
   "inspectPicking": {
-    "message": "Click an element on the page. Shift-click or drag a box to choose several, Alt-click to take all alike, then Enter or Done. ↑ and ↓ move to the parent or child, Esc cancels."
+    "message": "Click an element to select"
   },
   "inspectPickHint": {
     "message": "Cognia: click an element · Shift-click or drag a box to choose several · Alt-click for all alike · Esc cancel"
@@ -870,16 +1010,16 @@
     "message": "Page tools"
   },
   "devReportTitle": {
-    "message": "Console and network"
+    "message": "Debug report"
   },
   "devReportHint": {
-    "message": "Start recording, reproduce the problem, then attach what you did and what the console and requests said. Clicks, keys and navigation are recorded, never what you type. Recording stops if the page reloads; requests that failed since the page loaded are always included."
+    "message": "Record console, requests and steps."
   },
   "devRecordStart": {
-    "message": "Start recording"
+    "message": "Record"
   },
   "devRecordRestart": {
-    "message": "Restart recording"
+    "message": "Restart"
   },
   "devRecordingSince": {
     "message": "Recording since $TIME$",
@@ -890,10 +1030,10 @@
     }
   },
   "devReportAttach": {
-    "message": "Attach console and network"
+    "message": "Collect"
   },
   "devReportRefresh": {
-    "message": "Read again"
+    "message": "Refresh"
   },
   "devReportErrors": {
     "message": "$COUNT$ errors",
@@ -930,10 +1070,10 @@
     "message": "Design overlay"
   },
   "overlayHint": {
-    "message": "Lay a design export over the page to compare. Take a visible-area screenshot while it is shown to send the comparison."
+    "message": "Compare with a design image."
   },
   "overlayChoose": {
-    "message": "Choose design image"
+    "message": "Choose image"
   },
   "overlayReplace": {
     "message": "Replace image"
@@ -968,7 +1108,7 @@
     "message": "Screen sizes"
   },
   "viewportHint": {
-    "message": "Open the page in a window of that viewport size."
+    "message": "Open the page at another size."
   },
   "viewportMobile": {
     "message": "Phone"
@@ -989,7 +1129,7 @@
     "message": "Page audit"
   },
   "insightInclude": {
-    "message": "Send with the page"
+    "message": "Include in context"
   },
   "insightRunAgain": {
     "message": "Run again"
@@ -997,17 +1137,20 @@
   "insightFailed": {
     "message": "This check could not run on the page. Click the extension's icon on the page and try again."
   },
+  "insightPageMoved": {
+    "message": "The tab moved to another page while this ran, so the result was not kept. Capture the page again and rerun it."
+  },
   "accessTitle": {
     "message": "Accessibility"
   },
   "accessHint": {
-    "message": "A first pass with WCAG 2.2 AA thresholds: names, labels, contrast, headings, targets. Not a conformance audit."
+    "message": "WCAG 2.2 AA first pass; findings need review by hand, not certification."
   },
   "accessRun": {
     "message": "Check accessibility"
   },
   "accessClean": {
-    "message": "No findings in $COUNT$ elements.",
+    "message": "No findings in $COUNT$ elements. A first pass: keyboard and screen-reader checks still need a person.",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -1074,7 +1217,7 @@
     "message": "Id is used more than once"
   },
   "accessRuleTargetSize": {
-    "message": "Target is smaller than 24×24"
+    "message": "Target under 24×24 and crowded (review by hand)"
   },
   "accessRuleHiddenFocus": {
     "message": "Focusable element hidden from assistive technology"
@@ -1089,7 +1232,7 @@
     "message": "Design tokens"
   },
   "tokensHint": {
-    "message": "The colours, type, spacing, radii and variables the page actually uses, most used first. Click a swatch to copy it."
+    "message": "Read colors, type, spacing and variables."
   },
   "tokensRun": {
     "message": "Read design tokens"
@@ -1124,7 +1267,7 @@
     "message": "Tech stack"
   },
   "stackHint": {
-    "message": "What the page is built with — frameworks, CMS, styling, build, libraries, analytics and hosting, with versions and how each was found — so the agent starts from the right tools."
+    "message": "Identify frameworks and libraries."
   },
   "stackRun": {
     "message": "Detect tech stack"
@@ -1164,10 +1307,10 @@
     "message": "Measure"
   },
   "measureCancel": {
-    "message": "Stop measuring"
+    "message": "Cancel"
   },
   "measureWaiting": {
-    "message": "Click the first element, then the one to measure to; Shift-click to keep measuring from the first. Esc cancels."
+    "message": "Pick two elements"
   },
   "measureHint": {
     "message": "Cognia: click the first element to measure from · Esc cancel"
@@ -1322,7 +1465,7 @@
     "message": "Performance"
   },
   "perfHint": {
-    "message": "How this visit loaded and responded, from the browser's own timeline: Web Vitals, slow scripts, heavy resources, oversized images."
+    "message": "Check load time, Web Vitals and resources."
   },
   "perfRun": {
     "message": "Measure performance"
@@ -1343,7 +1486,7 @@
     "message": "First byte (TTFB)"
   },
   "perfVitalTbt": {
-    "message": "Blocked time (TBT)"
+    "message": "Long-task blocking observed this visit (not TBT)"
   },
   "perfGood": {
     "message": "Good"
@@ -1424,7 +1567,7 @@
     "message": "SEO and link previews"
   },
   "seoHint": {
-    "message": "The title, description, canonical, robots, Open Graph and Twitter tags, structured data and heading outline, with a preview of the card a shared link shows."
+    "message": "Check metadata, headings and link previews."
   },
   "seoRun": {
     "message": "Check SEO"
@@ -1527,16 +1670,16 @@
     "message": "Edit text"
   },
   "textEditHint": {
-    "message": "Cognia: click any words on the page to change them · finish in the side panel"
+    "message": "Cognia: click words to edit · click T again or Done to finish"
   },
   "textEditing": {
-    "message": "Editing the page's text: click any words to change them."
+    "message": "Click text to edit"
   },
   "textEditDone": {
-    "message": "Done editing"
+    "message": "Done"
   },
   "textEditUndo": {
-    "message": "Undo all edits"
+    "message": "Undo all"
   },
   "textEditFailed": {
     "message": "The page's text could not be edited. Click the extension's icon on the page and try again."
@@ -1566,6 +1709,27 @@
       }
     }
   },
+  "exportBundle": {
+    "message": "Export with files (.zip)"
+  },
+  "exportBundleTitle": {
+    "message": "Files to include"
+  },
+  "exportBundleHint": {
+    "message": "Only checked files go in, beside the Markdown export. Marked-up screenshots are packed with their marks."
+  },
+  "exportBundleSize": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "12.5"
+      }
+    }
+  },
+  "exportBundleDownload": {
+    "message": "Download .zip"
+  },
   "exportContext": {
     "message": "Export .md"
   },
@@ -1584,7 +1748,7 @@
     "message": "Layout"
   },
   "layoutHint": {
-    "message": "What makes the page scroll sideways, text cut off by its box, stretched images and text too small to read, at this window size."
+    "message": "Find overflow, clipped text and tiny type."
   },
   "layoutRun": {
     "message": "Check layout"
@@ -1655,10 +1819,10 @@
     "message": "Padding"
   },
   "adjustDone": {
-    "message": "Keep adjustment"
+    "message": "Done"
   },
   "adjustCancel": {
-    "message": "Undo adjustment"
+    "message": "Cancel"
   },
   "adjustFailed": {
     "message": "Couldn't adjust the element on this page."
@@ -1667,7 +1831,7 @@
     "message": "Simulate requests"
   },
   "mockHint": {
-    "message": "Make the page's own requests fail, answer, change, wait or go elsewhere, to see how it copes. Rules last until the page reloads unless kept, and what you send says which requests were simulated."
+    "message": "Mock or delay page requests."
   },
   "mockMatch": {
     "message": "URL matches"
@@ -1751,7 +1915,7 @@
     }
   },
   "compareRun": {
-    "message": "Compare with page"
+    "message": "Compare"
   },
   "compareHint": {
     "message": "Measure how far the page is from the mock: the overlay is hidden for a moment, the visible page captured, and the two compared pixel by pixel"
@@ -1780,7 +1944,7 @@
     "message": "Keyboard focus"
   },
   "focusHint": {
-    "message": "The order Tab moves through the page, numbered on it, and where it goes wrong: positive tabindex, hidden stops, focus jumping back up, and clickable things the keyboard can't reach."
+    "message": "Inspect Tab order and keyboard access."
   },
   "focusRun": {
     "message": "Check focus order"
@@ -1845,7 +2009,7 @@
     "message": "Drag to move"
   },
   "toolbarShow": {
-    "message": "Floating toolbar"
+    "message": "Toolbar"
   },
   "toolbarHide": {
     "message": "Hide toolbar"
@@ -1866,22 +2030,25 @@
     "message": "Cognia Companion"
   },
   "panelTagline": {
-    "message": "Capture, inspect and hand pages to Cognia"
+    "message": "Capture, inspect, edit and export pages"
   },
   "panelPaired": {
     "message": "Paired"
   },
+  "captureActiveTabHint": {
+    "message": "No setup needed: click the Cognia icon, right-click the page or use your shortcut to capture the tab in front. A site is asked for only if a page needs it."
+  },
   "captureSubtitle": {
-    "message": "Start from the page in front of you"
+    "message": "Page, selection or article"
   },
   "inspectSectionTitle": {
     "message": "Inspect & edit"
   },
   "inspectSectionSubtitle": {
-    "message": "Point at the page to pick, measure and change it"
+    "message": "Pick, measure and edit elements"
   },
   "inspectTilePickHint": {
-    "message": "Pick an element on the page to describe it to Cognia"
+    "message": "Pick an element on the page to inspect and edit it"
   },
   "inspectTileMeasureHint": {
     "message": "Measure the distance between two elements"
@@ -1890,10 +2057,10 @@
     "message": "Change the page's words in place"
   },
   "pageToolsSubtitle": {
-    "message": "Console, design overlay, screen sizes, mocks"
+    "message": "Debug, compare and simulate"
   },
   "pageAuditSubtitle": {
-    "message": "Accessibility, layout, performance, SEO"
+    "message": "Accessibility, layout and page data"
   },
   "recentSubtitle": {
     "message": "Tasks started from this browser"
@@ -2196,5 +2363,494 @@
   },
   "stackFactThirdParty": {
     "message": "Loads from other sites (requests)"
+  },
+  "adjustActive": {
+    "message": "Adjusting element"
+  },
+  "tabCapture": {
+    "message": "Capture"
+  },
+  "tabSend": {
+    "message": "Send"
+  },
+  "tabInspect": {
+    "message": "Inspect"
+  },
+  "tabTools": {
+    "message": "Tools"
+  },
+  "panelTabsLabel": {
+    "message": "Panel sections"
+  },
+  "tabActive": {
+    "message": "Something is running here"
+  },
+  "statusShow": {
+    "message": "Show"
+  },
+  "inspectionPicks": {
+    "message": "$COUNT$ picked",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectionMeasures": {
+    "message": "$COUNT$ measured",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "inspectionEdits": {
+    "message": "$COUNT$ text edits",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "densityLabel": {
+    "message": "Density"
+  },
+  "densityCompact": {
+    "message": "Compact"
+  },
+  "densityComfortable": {
+    "message": "Comfortable"
+  },
+  "rulesTitle": {
+    "message": "Request rules"
+  },
+  "rulesHint": {
+    "message": "Saved rules for a site's requests: answer, fail, slow down, redirect or change their headers. They apply on every visit until you turn them off."
+  },
+  "rulesAction": {
+    "message": "Action"
+  },
+  "rulesActionFail": {
+    "message": "Fail"
+  },
+  "rulesActionRespond": {
+    "message": "Answer"
+  },
+  "rulesActionModify": {
+    "message": "Change the answer"
+  },
+  "rulesActionDelay": {
+    "message": "Hold back"
+  },
+  "rulesActionRedirect": {
+    "message": "Send elsewhere"
+  },
+  "rulesActionRequestHeaders": {
+    "message": "Request headers"
+  },
+  "rulesActionResponseHeaders": {
+    "message": "Response headers"
+  },
+  "rulesMatch": {
+    "message": "Requests whose URL contains"
+  },
+  "rulesMethod": {
+    "message": "Method"
+  },
+  "rulesMethodAny": {
+    "message": "Any"
+  },
+  "rulesStatus": {
+    "message": "Status"
+  },
+  "rulesStatusKeep": {
+    "message": "Status (empty keeps the server's)"
+  },
+  "rulesBody": {
+    "message": "Body"
+  },
+  "rulesBodyMerge": {
+    "message": "JSON merged into the answer, or text replacing it"
+  },
+  "rulesHeaders": {
+    "message": "Response headers, one Name: value a line"
+  },
+  "rulesSetHeaders": {
+    "message": "Headers to set, one Name: value a line"
+  },
+  "rulesRemoveHeaders": {
+    "message": "Headers to remove, comma-separated"
+  },
+  "rulesRedirectTo": {
+    "message": "Send to (full URL)"
+  },
+  "rulesDelay": {
+    "message": "Delay (ms)"
+  },
+  "rulesTimes": {
+    "message": "Only the first (0 = all)"
+  },
+  "rulesCoverageAll": {
+    "message": "The browser applies this to every request of the site's pages."
+  },
+  "rulesCoveragePage": {
+    "message": "This runs in the page: it catches the page's own fetch and XHR requests."
+  },
+  "rulesAdd": {
+    "message": "Add rule"
+  },
+  "rulesFull": {
+    "message": "This group is full"
+  },
+  "rulesAfter": {
+    "message": "after $MS$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesFirstTimes": {
+    "message": "first $COUNT$ only",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesBadgeAll": {
+    "message": "All requests"
+  },
+  "rulesBadgePage": {
+    "message": "Page requests"
+  },
+  "rulesMoveUp": {
+    "message": "Move up"
+  },
+  "rulesMoveDown": {
+    "message": "Move down"
+  },
+  "rulesPause": {
+    "message": "Pause rule"
+  },
+  "rulesResume": {
+    "message": "Resume rule"
+  },
+  "rulesRemove": {
+    "message": "Remove rule"
+  },
+  "rulesDoFail": {
+    "message": "Fails with a network error"
+  },
+  "rulesDoRespond": {
+    "message": "Answers $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoModify": {
+    "message": "Changes the server's answer"
+  },
+  "rulesDoModifyStatus": {
+    "message": "Changes the server's answer to $STATUS$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoDelay": {
+    "message": "Held back $MS$ ms",
+    "placeholders": {
+      "ms": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoRedirect": {
+    "message": "Sent to $URL$",
+    "placeholders": {
+      "url": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoSetHeaders": {
+    "message": "sets $NAMES$",
+    "placeholders": {
+      "names": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesDoRemoveHeaders": {
+    "message": "removes $NAMES$",
+    "placeholders": {
+      "names": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesEverySite": {
+    "message": "every site"
+  },
+  "rulesCount": {
+    "message": "$COUNT$ rules",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesGroupEnabled": {
+    "message": "Group on"
+  },
+  "rulesRemoveGroup": {
+    "message": "Remove group"
+  },
+  "rulesEmpty": {
+    "message": "No saved rules yet. Add a group for a site, then its rules."
+  },
+  "rulesGroupName": {
+    "message": "Group name"
+  },
+  "rulesGroupSites": {
+    "message": "Sites, comma-separated"
+  },
+  "rulesAddGroup": {
+    "message": "Add group"
+  },
+  "rulesThisSite": {
+    "message": "This site"
+  },
+  "rulesExport": {
+    "message": "Export"
+  },
+  "rulesImport": {
+    "message": "Import"
+  },
+  "rulesReloadHint": {
+    "message": "A change applies to pages loaded after it. Reload a page that is already open."
+  },
+  "rulesNeedsDnr": {
+    "message": "Some rules need the browser to rewrite requests. Allow it to apply them."
+  },
+  "rulesGrantDnr": {
+    "message": "Allow rewriting requests"
+  },
+  "rulesNeedsSites": {
+    "message": "Some sites in your rules are not ones the extension may reach. Their rules wait until you allow them."
+  },
+  "rulesGrantSites": {
+    "message": "Allow these sites"
+  },
+  "rulesUnsupported": {
+    "message": "$COUNT$ rules use an expression the browser cannot run. Simplify them.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rulesAgentTitle": {
+    "message": "Set by the agent"
+  },
+  "rulesAgentHint": {
+    "message": "Only in the agent's own tabs, and removed when its conversation lets them go. Remove any you do not want."
+  },
+  "rulesErrorRule": {
+    "message": "That rule is incomplete: check its URL, action and that action's fields."
+  },
+  "rulesErrorSites": {
+    "message": "Name at least one site, like example.com, or * for every site."
+  },
+  "rulesErrorGone": {
+    "message": "That changed meanwhile. The list now shows what is saved."
+  },
+  "rulesErrorGroups": {
+    "message": "There are as many groups as can be kept. Remove one first."
+  },
+  "rulesErrorRules": {
+    "message": "This group is full. Remove a rule first."
+  },
+  "rulesErrorWorker": {
+    "message": "The extension did not answer. Try again."
+  },
+  "rulesImportInvalid": {
+    "message": "That file is not an export of Cognia request rules."
+  },
+  "rulesImportEmpty": {
+    "message": "That file has no rules this browser can apply."
+  },
+  "rulesImportSkipped": {
+    "message": "Imported. $COUNT$ rules were left out because this browser cannot apply them.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "recorderBadgeRecording": {
+    "message": "Recording for a test"
+  },
+  "recorderBadgeCheck": {
+    "message": "Add a check"
+  },
+  "recorderBadgeChecking": {
+    "message": "Click what the test should see"
+  },
+  "recorderBadgeCancel": {
+    "message": "Cancel"
+  },
+  "recorderBadgeStop": {
+    "message": "Stop"
+  },
+  "recordingsTitle": {
+    "message": "Record a test"
+  },
+  "recordingsHint": {
+    "message": "Record what you do in this tab, then download it as a Playwright test or let an agent turn it into one."
+  },
+  "recordingsStart": {
+    "message": "Start recording this tab"
+  },
+  "recordingsStop": {
+    "message": "Stop recording"
+  },
+  "recordingsPrivacy": {
+    "message": "Steps keep what you type, except in password and other secret fields. Your recordings stay private to this browser until you share one, with one conversation or every conversation; an agent's own recording is for its conversation only."
+  },
+  "recordingsNoPage": {
+    "message": "Open a web page in this tab to record it."
+  },
+  "recordingsNeedSite": {
+    "message": "Recording needs access to this site, so it can continue after each page load."
+  },
+  "recordingsFailed": {
+    "message": "The extension did not answer. Try again."
+  },
+  "recordingsSteps": {
+    "message": "$COUNT$ steps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "recordingsLive": {
+    "message": "Recording"
+  },
+  "recordingsByAgent": {
+    "message": "By agent"
+  },
+  "recordingsDownload": {
+    "message": "Download Playwright test"
+  },
+  "recordingsRemove": {
+    "message": "Remove recording"
+  },
+  "recordingsShared": {
+    "message": "Who can read it"
+  },
+  "recordingsEmpty": {
+    "message": "No recordings yet."
+  },
+  "recordingsSharePrivate": {
+    "message": "No conversation"
+  },
+  "recordingsShareAll": {
+    "message": "Every Cognia conversation"
+  },
+  "recordingsShareConversation": {
+    "message": "Conversation $ID$",
+    "placeholders": {
+      "id": {
+        "content": "$1",
+        "example": "1a2b3c4d"
+      }
+    }
+  },
+  "recordingsShareSome": {
+    "message": "$COUNT$ conversations",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    }
+  },
+  "recordingsShareAfterStop": {
+    "message": "Stop recording to review and share it"
+  },
+  "recordingsReview": {
+    "message": "Review steps"
+  },
+  "recordingsReviewHide": {
+    "message": "Hide steps"
+  },
+  "recordingsStepNavigate": {
+    "message": "Open"
+  },
+  "recordingsStepClick": {
+    "message": "Click"
+  },
+  "recordingsStepDoubleClick": {
+    "message": "Double-click"
+  },
+  "recordingsStepHover": {
+    "message": "Hover"
+  },
+  "recordingsStepFill": {
+    "message": "Type"
+  },
+  "recordingsStepSelect": {
+    "message": "Choose"
+  },
+  "recordingsStepPressKey": {
+    "message": "Press"
+  },
+  "recordingsStepScroll": {
+    "message": "Scroll"
+  },
+  "recordingsStepAssert": {
+    "message": "Check"
+  },
+  "recordingsStepUrl": {
+    "message": "Check the address"
+  },
+  "recordingsStepSecret": {
+    "message": "Not recorded; the test reads $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockSaveAsRules": {
+    "message": "Save as rules for this site"
+  },
+  "mockSaved": {
+    "message": "Saved $COUNT$ rules to Request rules, for every visit to this site.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "mockSavedSkipped": {
+    "message": "Saved $COUNT$ rules to Request rules. $SKIPPED$ could not be kept: a redirect that replaces part of the address only works in this tab.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      },
+      "skipped": {
+        "content": "$2"
+      }
+    }
+  },
+  "mockSaveFailed": {
+    "message": "Could not save the rules. Try again."
   }
 }

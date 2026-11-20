@@ -160,6 +160,23 @@ export async function requestCapture(
   )
 }
 
+/**
+ * Show one of the panel's views: a tab, or settings behind the gear. The
+ * panel keeps the others mounted but hidden, and hidden controls cannot be
+ * clicked.
+ */
+export async function openView(
+  panel: Page,
+  view: "send" | "inspect" | "tools" | "settings"
+): Promise<void> {
+  if (view !== "settings") {
+    await panel.getByTestId(`tab-${view}`).click()
+    return
+  }
+  const gear = panel.getByTestId("settings-toggle")
+  if ((await gear.getAttribute("aria-pressed")) !== "true") await gear.click()
+}
+
 /** The browser's own id for a Playwright page, needed to name a capture target. */
 export async function tabIdOf(worker: Worker, url: string): Promise<number> {
   return worker.evaluate(async (target) => {

@@ -178,9 +178,31 @@ function setup(overrides: Partial<Parameters<typeof PageAudit>[0]> = {}) {
 }
 
 describe("PageAudit", () => {
+  it("folds each tool independently and keeps its result and inclusion state", () => {
+    setup()
+    for (const title of [
+      "accessTitle",
+      "focusTitle",
+      "layoutTitle",
+      "tokensTitle",
+      "stackTitle",
+      "perfTitle",
+      "seoTitle",
+    ])
+      expect(screen.getByRole("button", { name: title })).toHaveAttribute("aria-expanded", "true")
+    const inclusion = screen.getByTestId("insight-include-audit")
+    fireEvent.click(screen.getByRole("button", { name: "accessTitle" }))
+    expect(screen.getByTestId("a11y-result")).not.toBeVisible()
+    expect(inclusion).toBeChecked()
+    expect(screen.getByTestId("tokens-result")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "accessTitle" }))
+    expect(screen.getByTestId("a11y-result")).toBeVisible()
+    expect(screen.getByTestId("insight-include-audit")).toBeChecked()
+  })
+
   it("stays folded with nothing run, and runs each check", () => {
     const props = setup({ insights: NO_INSIGHTS })
-    expect(screen.queryByTestId("insight-run-audit")).toBeNull()
+    expect(screen.getByTestId("insight-run-audit")).not.toBeVisible()
     fireEvent.click(screen.getByTestId("page-audit-toggle"))
     fireEvent.click(screen.getByTestId("insight-run-audit"))
     fireEvent.click(screen.getByTestId("insight-run-tokens"))

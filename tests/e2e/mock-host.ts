@@ -369,6 +369,17 @@ export async function startMockHost(options: MockHostOptions): Promise<MockHost>
       response.end(pages.get(path))
       return
     }
+    // `GET /slow/<ms>`: an empty image that arrives late, to keep a page
+    // loading while a spec acts in it.
+    const slow = /^\/slow\/(\d{1,5})$/.exec(path)
+    if (request.method === "GET" && slow) {
+      setTimeout(() => {
+        if (response.destroyed) return
+        response.writeHead(200, { "Content-Type": "image/gif" })
+        response.end()
+      }, Number(slow[1]))
+      return
+    }
 
     const body = await readJson(request)
     requests.push({

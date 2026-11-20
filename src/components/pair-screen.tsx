@@ -28,6 +28,7 @@ export interface PairScreenProps {
    */
   disconnected?: boolean
   onSubmit: (code: string) => void
+  onLocalMode?: () => void
 }
 
 /**
@@ -81,6 +82,7 @@ export function PairScreen({
   failure,
   disconnected = false,
   onSubmit,
+  onLocalMode,
 }: PairScreenProps) {
   const [code, setCode] = useState("")
   return (
@@ -101,6 +103,14 @@ export function PairScreen({
         <h1 className="text-sm font-semibold">{api.message("pairTitle")}</h1>
         <p className="text-xs text-muted-foreground">{api.message("pairIntro")}</p>
       </div>
+      {onLocalMode ? (
+        <div className="space-y-2 rounded-panel border border-border bg-muted/40 p-3">
+          <p className="text-xs text-muted-foreground">{api.message("localModeHint")}</p>
+          <Button type="button" variant="outline" disabled={busy} onClick={onLocalMode}>
+            {api.message("useLocalMode")}
+          </Button>
+        </div>
+      ) : null}
       <div className="space-y-1">
         <p className="text-xs text-muted-foreground">{api.message("pairOriginLabel")}</p>
         <code

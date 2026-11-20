@@ -12,7 +12,13 @@
 import type { DevReport } from "../inspect/dev-report"
 import type { PickedElement } from "../inspect/element-context"
 import { MAX_PICKS } from "../inspect/inspect-markdown"
-import { NO_INSIGHTS, insightsForTab, parseInsights, type PageInsights } from "../inspect/insights"
+import {
+  NO_INSIGHTS,
+  insightsForTab,
+  onPage,
+  parseInsights,
+  type PageInsights,
+} from "../inspect/insights"
 import { MAX_MEASUREMENTS, parseMeasurement, type Measurement } from "../inspect/measure"
 import { parseTextChanges, type TextChange } from "../inspect/text-edits"
 import { sanitizeEdits } from "../inspect/style-edits"
@@ -36,7 +42,7 @@ export interface PanelDraft {
   /** Distances measured on the captured page, with the person's notes. */
   measurements: Measurement[]
   /** Words the person edited on the captured page. */
-  textChanges: { tabId: number; changes: TextChange[] } | null
+  textChanges: { tabId: number; pageUrl?: string; changes: TextChange[] } | null
   /** The console and network report, as the person left it. */
   devReport: DevReport | null
   /** Accessibility, design-token and stack checks run on the captured page. */
@@ -142,6 +148,7 @@ function parseReport(value: unknown): DevReport | null {
   const count = (key: string) => (typeof counts[key] === "number" ? (counts[key] as number) : 0)
   return {
     tabId: value.tabId,
+    ...(typeof value.pageUrl === "string" ? { pageUrl: value.pageUrl } : {}),
     capturedAt: typeof value.capturedAt === "number" ? value.capturedAt : 0,
     counts: {
       errors: count("errors"),
@@ -200,15 +207,32 @@ export function parseDraft(value: unknown, now: number): PanelDraft | null {
             )
             .slice(0, MAX_MEASUREMENTS)
         : [],
+    // What was read from the page the draft captured, never from another page
+    // the same tab showed before or after.
     textChanges: (() => {
       const stored = isRecord(value.textChanges) ? value.textChanges : null
-      if (!captured || stored?.tabId !== captured.tabId) return null
+      const pageUrl = typeof stored?.pageUrl === "string" ? stored.pageUrl : undefined
+      if (
+        !captured ||
+        typeof stored?.tabId !== "number" ||
+        !onPage(
+          { tabId: stored.tabId, ...(pageUrl ? { pageUrl } : {}) },
+          captured.tabId,
+          captured.rawUrl
+        )
+      )
+        return null
       const changes = parseTextChanges(stored.changes)
-      return changes.length > 0 ? { tabId: captured.tabId, changes } : null
+      return changes.length > 0
+        ? { tabId: captured.tabId, ...(pageUrl ? { pageUrl } : {}), changes }
+        : null
     })(),
-    devReport: captured ? parseReport(value.devReport) : null,
+    devReport: (() => {
+      const report = captured ? parseReport(value.devReport) : null
+      return captured && onPage(report, captured.tabId, captured.rawUrl) ? report : null
+    })(),
     insights: captured
-      ? insightsForTab(parseInsights(value.insights), captured.tabId)
+      ? insightsForTab(parseInsights(value.insights), captured.tabId, captured.rawUrl)
       : NO_INSIGHTS,
     savedAt: value.savedAt,
   }
